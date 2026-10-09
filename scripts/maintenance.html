@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="refresh" content="8" />
+<title>Güncelleme Yapılıyor - NetSosyal</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: linear-gradient(160deg, #0E7C86 0%, #0A5F67 55%, #101E2B 100%);
+    color: #fff;
+  }
+  .card {
+    width: 100%; max-width: 460px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    padding: 36px 30px;
+    text-align: center;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.35);
+    backdrop-filter: blur(2px);
+  }
+  .spinner {
+    width: 54px; height: 54px; margin: 0 auto 22px;
+    border: 5px solid rgba(255,255,255,0.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { margin: 0 0 10px; font-size: 22px; font-weight: 800; }
+  p  { margin: 6px 0; font-size: 15px; line-height: 1.55; color: rgba(255,255,255,0.9); }
+  .sub { font-size: 13px; color: rgba(255,255,255,0.65); margin-top: 18px; }
+  .brand { margin-top: 24px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,0.6); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>Güncelleme Yapılıyor</h1>
+    <p>Sistem şu anda güncelleniyor.<br />Lütfen birkaç dakika bekleyiniz.</p>
+    <p class="sub">Bu sayfa otomatik olarak yenilenir; güncelleme bitince uygulama kendiliğinden açılır. Sekmeyi kapatmanıza gerek yoktur.</p>
+    <div class="brand">Sivas Belediyesi &middot; Sosyal Yardım Yönetim Sistemi</div>
+  </div>
+</body>
+</html>

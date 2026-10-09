@@ -1,0 +1,164 @@
+# NetSosyal - IKINCIL (IIS / dis erisim) sunucu icin YAYIN paketi hazirlar
+# ve X:\ (\\10.20.1.100\Netsosyal.web) paylasimina kopyalar.
+#
+# MEVCUT (bu makinede calisan) uygulamayi BOZMAZ:
+#   * Standalone derleme AYRI bir klasore (.next-iis) uretilir; `next start`
+#     servisinin kullandigi `.next` klasorune HIC DOKUNULMAZ.
+#   * Derleme sirasinda WhatsApp Chromium'un .wwebjs_auth kilidi yuzunden
+#     NetSosyal servisi kisa sure durdurulur; bu sure boyunca kullanicilar
+#     "Guncelleme yapiliyor" bakim sayfasini gorur (maintenance-server.js).
+#     `.next` degismedigi icin servis birebir ayni haliyle geri baslar.
+#
+# Sonuc: X:\  ->  10.20.1.100'de "node server.js" ile calistirilacak paket.
+# 10.20.1.100 tarafi kurulumu: X:\KURULUM-10.20.1.100.txt
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location $root
+$serviceName = 'NetSosyal'
+$nssm = if (Test-Path 'C:\nssm\nssm.exe') { 'C:\nssm\nssm.exe' } else { 'nssm' }
+$node = (Get-Command node).Source
+$distName = '.next-iis'
+$dist = Join-Path $root $distName
+$maintScript = Join-Path $PSScriptRoot 'maintenance-server.js'
+$maint = $null
+$target = 'X:\'
+
+Write-Host ''
+Write-Host '=== [1/6] NetSosyal servisi durduruluyor + bakim sayfasi ===' -ForegroundColor Cyan
+& $nssm stop $serviceName | Out-Null
+Start-Sleep -Seconds 2
+$chrome = Get-Process chrome -ErrorAction SilentlyContinue
+if ($chrome) { $chrome | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host "  $($chrome.Count) chrome.exe kapatildi" }
+Start-Sleep -Seconds 1
+if (Test-Path $maintScript) {
+  try {
+    $maint = Start-Process -FilePath $node -ArgumentList "`"$maintScript`"" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+    Start-Sleep -Seconds 2
+    Write-Host '  Bakim sayfasi aktif (:3000).'
+  } catch { Write-Host "  UYARI: bakim sayfasi baslamadi ($($_.Exception.Message))" -ForegroundColor Yellow; $maint = $null }
+}
+
+Write-Host ''
+Write-Host "=== [2/6] Standalone build -> $distName  ('.next'e dokunulmuyor) ===" -ForegroundColor Cyan
+if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+$env:BUILD_TARGET = 'iis'
+$env:STANDALONE_DIST = $distName
+try {
+  & npx next build
+  $buildExit = $LASTEXITCODE
+} finally {
+  Remove-Item Env:\BUILD_TARGET -ErrorAction SilentlyContinue
+  Remove-Item Env:\STANDALONE_DIST -ErrorAction SilentlyContinue
+}
+
+Write-Host ''
+Write-Host '=== [3/6] Bakim sayfasi kaldiriliyor + NetSosyal servisi geri baslatiliyor ===' -ForegroundColor Cyan
+if ($maint -and -not $maint.HasExited) {
+  try { Stop-Process -Id $maint.Id -Force -ErrorAction SilentlyContinue } catch {}
+}
+Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue | ForEach-Object {
+  try { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } catch {}
+}
+for ($i = 1; $i -le 20; $i++) {
+  if (-not (Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue)) { break }
+  Start-Sleep -Milliseconds 300
+}
+& $nssm start $serviceName
+$appOk = $false
+for ($i = 1; $i -le 30; $i++) {
+  Start-Sleep -Seconds 1
+  try { if ((Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/login' -TimeoutSec 5).StatusCode -eq 200) { $appOk = $true; break } } catch {}
+}
+if ($appOk) { Write-Host '  Mevcut uygulama tekrar yayinda (degismedi).' -ForegroundColor Green }
+else { Write-Host '  UYARI: mevcut uygulama 30 sn icinde yanit vermedi - loglara bakin!' -ForegroundColor Red }
+
+if ($buildExit -ne 0) {
+  Write-Host ''
+  Write-Host 'STANDALONE BUILD BASARISIZ - paket olusturulmadi. Mevcut uygulama etkilenmedi.' -ForegroundColor Red
+  exit 1
+}
+
+$standalone = Join-Path $dist 'standalone'
+if (-not (Test-Path $standalone)) { Write-Host "$standalone olusmadi." -ForegroundColor Red; exit 1 }
+
+Write-Host ''
+Write-Host '=== [4/6] Pakete sizan klasorler temizleniyor + varliklar kopyalaniyor ===' -ForegroundColor Cyan
+foreach ($leak in @('.wwebjs_auth', '.wwebjs_cache', 'kpsv2', 'backups', 'logs', 'tests', '.git', '.next', 'scratchpad')) {
+  $p = Join-Path $standalone $leak
+  if (Test-Path $p) { Remove-Item $p -Recurse -Force; Write-Host "  silindi: $leak" }
+}
+Copy-Item (Join-Path $root 'public') (Join-Path $standalone 'public') -Recurse -Force
+New-Item -ItemType Directory -Force -Path (Join-Path $standalone "$distName\static") | Out-Null
+Copy-Item (Join-Path $dist 'static\*') (Join-Path $standalone "$distName\static") -Recurse -Force
+# next.config'te distDir=.next-iis oldugu icin standalone server.js bu klasoru
+# bekler; ayrica klasik `.next` adiyla da bir kopya birakalim (guvenli taraf).
+Copy-Item (Join-Path $standalone $distName) (Join-Path $standalone '.next') -Recurse -Force -ErrorAction SilentlyContinue
+
+# IKINCIL .env (birincilinki DEGIL)
+if (Test-Path (Join-Path $root '.env.iis')) {
+  Copy-Item (Join-Path $root '.env.iis') (Join-Path $standalone '.env') -Force
+  Write-Host '  .env.iis  ->  paket/.env'
+} else {
+  Write-Host '  UYARI: .env.iis yok - pakete .env konmadi, 10.20.1.100''de elle olusturun.' -ForegroundColor Yellow
+}
+
+# Kurulum talimati
+@"
+NetSosyal - IKINCIL SUNUCU (10.20.1.100) KURULUMU
+==================================================
+Bu klasor (X:\ = \\10.20.1.100\Netsosyal.web) 10.20.1.100 uzerinde
+kendi kendine yeten NetSosyal kopyasidir. Birincil sunucu (10.0.0.183)
+DEGISMEDI, calismaya devam ediyor.
+
+1) Node.js kurulu olsun (birincil ile ayni ana surum - $(node --version)).
+
+2) Bu klasorde bir kez calistir (yonetici PowerShell):
+     `$env:PORT='3000'; `$env:HOSTNAME='0.0.0.0'; node server.js
+   http://10.20.1.100:3000/login acilmali. (Ctrl+C ile durdur.)
+
+3) SUREKLI calismasi icin NSSM/Windows servisi:
+     nssm install NetSosyalWeb "C:\Program Files\nodejs\node.exe" "server.js"
+     nssm set NetSosyalWeb AppDirectory  <bu klasorun 10.20.1.100'deki yolu>
+     nssm set NetSosyalWeb AppEnvironmentExtra PORT=3000 HOSTNAME=0.0.0.0
+     nssm start NetSosyalWeb
+
+4) IIS (10.20.1.100'de zaten :80 acik):
+   - ARR + URL Rewrite kurulu olsun.
+   - Site binding: istenen alan adi (ör. netsosyal.sivas.bel.tr veya yeni),
+     + 443 icin gecerli sertifika.
+   - web.config: gelen istekleri http://127.0.0.1:3000 'e ters proxy
+     (birincildeki C:\inetpub\netsosyal-proxy\web.config ile ayni mantik) +
+     <httpErrors existingResponse="PassThrough" />.
+
+5) .env (pakette hazir - .env.iis'ten):
+   - DATABASE_URL = 10.0.0.183:5432/sosyalyardim  (PG16, LAN)
+   - NETSOSYAL_ROLE=secondary  -> arka plan isleri (yedek/scheduler/WhatsApp)
+     BU sunucuda CALISMAZ, sadece birincilde.
+   - AUTH_SECRET birincil ile ayni.
+
+6) NUFUS SORGU (KPSV2): birincildeki kopru localhost:3500'e bagli; bu
+   sunucudan erisilemez. Cozum: birincilde kpsv2'yi 0.0.0.0'a ac VEYA
+   10.20.1.100'e ayri KPSV2 kur. Cozulene kadar Nufus Sorgu burada calismaz.
+
+7) DIS ERISIM: alan adinin genel DNS'i + gelen 443 NAT'i belediye ag ekibi
+   isi (VEYA cloudflared bu makineye kurulur).
+
+Paket tarihi: $(Get-Date -Format 'yyyy-MM-dd HH:mm')
+Kaynak BUILD: standalone (output: standalone, distDir: $distName)
+"@ | Out-File (Join-Path $standalone 'KURULUM-10.20.1.100.txt') -Encoding utf8
+
+$sizeMB = [math]::Round((Get-ChildItem $standalone -Recurse -Force | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+Write-Host "  Paket: $standalone  ($sizeMB MB)"
+
+Write-Host ''
+Write-Host "=== [6/6] $target 'e kopyalaniyor ===" -ForegroundColor Cyan
+if (-not (Test-Path $target)) { Write-Host "  HATA: $target erisilebilir degil. Paket $standalone icinde hazir." -ForegroundColor Red; exit 1 }
+# Once eski icerigi temizle (varsa)
+Get-ChildItem $target -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+robocopy $standalone $target /MIR /NFL /NDL /NJH /NJS /R:2 /W:2 | Out-Null
+$copiedMB = [math]::Round((Get-ChildItem $target -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+Write-Host ''
+Write-Host "  TAMAM. $target  ($copiedMB MB)  -  KURULUM-10.20.1.100.txt dosyasini okuyun." -ForegroundColor Green
+Write-Host "  Mevcut birincil uygulama: $(if($appOk){'calisiyor, degismedi'}else{'KONTROL EDIN'})" -ForegroundColor $(if($appOk){'Green'}else{'Red'})
+Write-Host ''

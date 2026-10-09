@@ -1,0 +1,286 @@
+# NetSosyal - IIS/NSSM kurulumu icin TEK KOMUTLA GUNCELLEME.
+#
+# Mevcut yayin mimarisi: NSSM "NetSosyal" servisi bu proje klasorunden
+# dogrudan `next start` calistirir (port 3000); IIS (netsosyal.sivas.bel.tr,
+# HTTPS) buna ters proxy yapar. Kod her degistiginde YENIDEN DERLENMESI ve
+# servisin bunu gormesi icin YENIDEN BASLATILMASI gerekir - IIS/sertifika/
+# DNS/NSSM servis KAYDI tekrar kurulmaz, hepsi oldugu gibi kalir.
+#
+# Kullanim (yonetici PowerShell'den):
+#   powershell -ExecutionPolicy Bypass -File scripts\guncelle-yayinla.ps1
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location $root
+$serviceName = 'NetSosyal'
+$nssm = if (Test-Path 'C:\nssm\nssm.exe') { 'C:\nssm\nssm.exe' } else { 'nssm' }
+$node = (Get-Command node).Source
+$maintScript = Join-Path $PSScriptRoot 'maintenance-server.js'
+$maint = $null
+
+Write-Host ''
+Write-Host '=== [1/5] Servis durduruluyor ===' -ForegroundColor Cyan
+& $nssm stop $serviceName | Out-Null
+Start-Sleep -Seconds 2
+
+# WhatsApp Web'in Chromium sureci build sirasinda .wwebjs_auth dosyalarini
+# kilitli tutup "os error 32/33" ile derlemeyi patlatabiliyor (bkz.
+# next.config.js yorumu) - build oncesi temizle.
+$chrome = Get-Process chrome -ErrorAction SilentlyContinue
+if ($chrome) {
+  $chrome | Stop-Process -Force -ErrorAction SilentlyContinue
+  Write-Host "  $($chrome.Count) adet chrome.exe kapatildi (WhatsApp oturumu)"
+}
+Start-Sleep -Seconds 1
+
+Write-Host ''
+Write-Host '=== [2/5] Bakim sayfasi devreye aliniyor (port 3000) ===' -ForegroundColor Cyan
+# Derleme suresince hem dogrudan :3000 hem IIS proxy uzerinden gelen
+# kullanicilar "Guncelleme yapiliyor, lutfen bekleyiniz" sayfasi gorur;
+# sayfa 8 sn'de bir yenilenir -> uygulama gelince otomatik acilir.
+if (Test-Path $maintScript) {
+  try {
+    $maint = Start-Process -FilePath $node -ArgumentList "`"$maintScript`"" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+    for ($i = 1; $i -le 15; $i++) {
+      Start-Sleep -Milliseconds 400
+      try { if ((Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/' -TimeoutSec 3).StatusCode) { break } } catch {
+        if ($_.Exception.Response.StatusCode.value__ -eq 503) { break }
+      }
+    }
+    Write-Host '  Bakim sayfasi aktif.'
+  } catch {
+    Write-Host "  UYARI: bakim sayfasi baslatilamadi ($($_.Exception.Message)) - devam ediliyor." -ForegroundColor Yellow
+    $maint = $null
+  }
+}
+
+Write-Host ''
+Write-Host '=== [3/5] Build - (a) birincil .next  (b) ikincil standalone -> X:\ ===' -ForegroundColor Cyan
+# --- (a) BIRINCIL: bu makinedeki `next start` servisi icin normal build ---
+Remove-Item Env:\BUILD_TARGET -ErrorAction SilentlyContinue
+Remove-Item Env:\STANDALONE_DIST -ErrorAction SilentlyContinue
+if (Test-Path (Join-Path $root '.next')) { Remove-Item (Join-Path $root '.next') -Recurse -Force }
+& npx next build
+$buildExit = $LASTEXITCODE
+
+# --- (b) IKINCIL: 10.20.1.100 (X:\) icin standalone paket ---
+# AYRI klasore (.next-iis) uretilir -> birincil `.next` degismez. Ayni bakim
+# penceresinde, servis hala duruk / chrome hala kapali iken calisir.
+$iisOk = $false
+if ($buildExit -eq 0) {
+  try {
+    $distName = '.next-iis'
+    if (Test-Path (Join-Path $root $distName)) { Remove-Item (Join-Path $root $distName) -Recurse -Force -ErrorAction SilentlyContinue }
+    $env:BUILD_TARGET = 'iis'
+    $env:STANDALONE_DIST = $distName
+    & npx next build
+    $iisExit = $LASTEXITCODE
+    Remove-Item Env:\BUILD_TARGET -ErrorAction SilentlyContinue
+    Remove-Item Env:\STANDALONE_DIST -ErrorAction SilentlyContinue
+
+    $sa = Join-Path $root "$distName\standalone"
+    if ($iisExit -eq 0 -and (Test-Path (Join-Path $sa 'server.js'))) {
+      foreach ($leak in @('.wwebjs_auth', '.wwebjs_cache', 'kpsv2', 'backups', 'logs', 'tests', '.git', 'scratchpad',
+                          'node_modules\@img', 'node_modules\sharp')) {
+        # @img/sharp: 10.20.1.100'de VC++ Redist yok -> native .node yuklenince
+        # standalone server "ERR_DLOPEN_FAILED" ile COKUYOR (crash loop, eski
+        # process :3000'i tutuyor, yeni build ASLA yayina girmiyor). Bu paketten
+        # KESIN silinir. imageCompression.service.ts sharp'i DINAMIK yukler
+        # (try/catch) -> sharp yoksa resim sikistirmasi SESSIZCE atlanir,
+        # /api/documents/photo + /api/users/[id]/photo + /api/documents/belgeler
+        # yine calisir (resim ham/orijinal haliyle kaydedilir). Primary'de
+        # node_modules ile geri gelir, sikistirma normal calisir.
+        $p = Join-Path $sa $leak
+        if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
+      }
+      Copy-Item (Join-Path $root 'public') (Join-Path $sa 'public') -Recurse -Force
+      New-Item -ItemType Directory -Force -Path (Join-Path $sa "$distName\static") | Out-Null
+      robocopy (Join-Path $root "$distName\static") (Join-Path $sa "$distName\static") /E /NFL /NDL /NJH /NJS /R:1 /W:1 | Out-Null
+      if (Test-Path (Join-Path $root '.env.iis')) { Copy-Item (Join-Path $root '.env.iis') (Join-Path $sa '.env') -Force }
+      Remove-Item (Join-Path $sa '.env.local'),(Join-Path $sa '.env.production.local'),(Join-Path $sa '.env.development.local') -Force -ErrorAction SilentlyContinue
+      Add-Content (Join-Path $sa '.env') "`nSTANDALONE_DIST=$distName"
+      # 10.20.1.100 zamanlanmis gorevinin (NetSosyalWeb) calistirdigi launcher.
+      # C:\inetpub\wwwroot\Netsosyal (=X:) icinden sabit yol; PORT/HOSTNAME set eder.
+      # KENDINI YENIDEN BASLATAN DONGU: node cikarsa (crash / disardan
+      # taskkill) 3sn sonra yeniden acilir -> "gonder" yeni dosyalari X:'e
+      # kopyaladiktan sonra 10.20.1.100'de SADECE "yeniden-baslat.bat"
+      # (node.exe kapatir) yeterli, dongu yeni .next-iis ile geri gelir.
+      @"
+@echo off
+cd /d C:\inetpub\wwwroot\Netsosyal
+set PORT=3000
+set HOSTNAME=0.0.0.0
+set NODE_ENV=production
+set NODE_EXE=node
+where node >nul 2>&1 || set NODE_EXE="C:\Program Files\nodejs\node.exe"
+if not exist logs md logs
+:loop
+echo [%date% %time%] server.js baslatiliyor (%NODE_EXE%) >> logs\server.log
+%NODE_EXE% server.js >> logs\server.log 2>&1
+echo [%date% %time%] server.js durdu (kod %errorlevel%) - 3sn sonra yeniden >> logs\server.log
+timeout /t 3 /nobreak >nul
+goto loop
+"@ | Set-Content (Join-Path $sa 'baslat-standalone.cmd') -Encoding ascii
+      # 10.20.1.100'de "gonder.bat" SONRASI cift tiklanacak TEK dosya.
+      # Yonetici yetkisi ister (UAC ile kendini yukseltir). Yaptigi:
+      #  1) eski surecleri (gorev + dongu + node) temiz durdurur
+      #  2) hosts: 10.0.0.183 netsosyal.sivas.bel.tr (nufus sorgusu icin)
+      #  3) NetSosyalWeb baslangic gorevini kontrol eder / kurar
+      #  4) uygulamayi baslatir + :3000 ve relay :211 saglik testi
+      @'
+@echo off
+REM ================================================================
+REM  NetSosyal ikincil (10.20.1.100) - "gonder.bat" SONRASI calistir.
+REM  Cift tikla, yonetici onayi ver, bitmesini bekle.
+REM ================================================================
+net session >nul 2>&1
+if %errorLevel% neq 0 ( powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs" & exit /b )
+set APP=C:\inetpub\wwwroot\Netsosyal
+set HOSTS=%SystemRoot%\System32\drivers\etc\hosts
+
+echo.
+echo [1/7] Eski surecler durduruluyor...
+schtasks /end /tn "NetSosyalWeb" >nul 2>&1
+nssm stop NetSosyalWeb >nul 2>&1
+wmic process where "name='cmd.exe' and commandline like '%%baslat-standalone%%'" call terminate >nul 2>&1
+taskkill /f /im node.exe >nul 2>&1
+timeout /t 4 /nobreak >nul
+
+echo [2/7] Bekleyen kismi build (_yeni\) var mi?...
+if exist "%APP%\_yeni\server.js" (
+  echo    _yeni\ bulundu -^> yerine kopyalaniyor...
+  robocopy "%APP%\_yeni" "%APP%" /MIR /XF "%~nx0" "KURULUM-10.20.1.100.txt" /XD "%APP%\logs" "%APP%\_yeni" "%APP%\.wwebjs_auth" "%APP%\.wwebjs_cache" /R:2 /W:2 /MT:16 /NFL /NDL /NJH /NJS >nul
+  rmdir /s /q "%APP%\_yeni" >nul 2>&1
+  echo    kopyalandi.
+) else (
+  echo    yok - mevcut dosyalarla devam.
+)
+
+echo [3/7] hosts kaydi (netsosyal.sivas.bel.tr -^> 10.0.0.183)...
+powershell -NoProfile -Command "$h=$env:HOSTS; $keep = @(Get-Content $h -EA SilentlyContinue | Where-Object { $_ -notmatch 'netsosyal\.sivas\.bel\.tr' }); $keep += '10.0.0.183`tnetsosyal.sivas.bel.tr'; Set-Content -Path $h -Value $keep -Encoding ASCII; 'OK'"
+ipconfig /flushdns >nul
+findstr /i /c:"netsosyal.sivas.bel.tr" "%HOSTS%"
+
+echo [4/7] Baslangic gorevi (NetSosyalWeb)...
+schtasks /query /tn "NetSosyalWeb" >nul 2>&1
+if errorlevel 1 (
+  schtasks /create /tn "NetSosyalWeb" /tr "%APP%\baslat-standalone.cmd" /sc onstart /ru SYSTEM /rl highest /f
+) else (
+  echo    zaten var
+)
+
+echo [5/7] Uygulama baslatiliyor...
+schtasks /run /tn "NetSosyalWeb" >nul 2>&1
+timeout /t 12 /nobreak >nul
+
+echo [6/7] Testler...
+powershell -NoProfile -Command "try { '   :3000/login -> ' + (Invoke-WebRequest -UseBasicParsing http://localhost:3000/login -TimeoutSec 8).StatusCode } catch { '   :3000 -> YANIT YOK' }"
+where node >nul 2>&1 && node -e "fetch('https://netsosyal.sivas.bel.tr:211/health').then(r=>r.text()).then(t=>console.log('   relay :211 -> '+t)).catch(e=>console.log('   relay :211 -> HATA: '+e.message))"
+
+echo [7/7] Son log:
+powershell -NoProfile -Command "Get-Content '%APP%\logs\server.log' -Tail 8"
+echo.
+echo Bitti.
+pause
+'@ | Set-Content (Join-Path $sa 'yeniden-baslat.bat') -Encoding ascii
+      New-Item -ItemType Directory -Force -Path (Join-Path $sa 'logs') | Out-Null
+      if (Test-Path 'X:\') {
+        # 10.20.1.100 uygulamayi DOGRUDAN X:\ (C:\inetpub\wwwroot\Netsosyal)
+        # klasorunden calistiriyor -> kopyalamadan ONCE orada durdurmak lazim
+        # (yoksa node_modules/.next-iis kilitli, /MIR yarim kalir).
+        $secHost = 'turanekici.bel.siv'
+        $secStopped = $false
+        try {
+          Invoke-Command -ComputerName $secHost -ErrorAction Stop -ScriptBlock {
+            schtasks /end /tn 'NetSosyalWeb' 2>$null | Out-Null
+            Get-Process node,chrome -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
+            Start-Sleep 3
+          }
+          $secStopped = $true
+          Write-Host "  ikincil ($secHost) durduruldu."
+        } catch {
+          Write-Host "  UYARI: ikincil uzaktan durdurulamadi ($($_.Exception.Message.Split([char]10)[0])). Kopya calisan dosyalar uzerine yazamayabilir." -ForegroundColor Yellow
+        }
+
+        Get-ChildItem 'X:\' -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('KURULUM-10.20.1.100.txt','logs') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        robocopy $sa 'X:\' /MIR /XF 'KURULUM-10.20.1.100.txt' /XD 'X:\logs' 'X:\.wwebjs_auth' 'X:\.wwebjs_cache' /NFL /NDL /NJH /NJS /R:2 /W:2 /MT:16 | Out-Null
+        $iisOk = $true
+
+        if ($secStopped) {
+          try {
+            Invoke-Command -ComputerName $secHost -ErrorAction Stop -ScriptBlock {
+              foreach ($d in 'C:\inetpub\wwwroot\Netsosyal\.wwebjs_auth','C:\inetpub\wwwroot\Netsosyal\.wwebjs_cache') { if (Test-Path $d) { cmd /c rd /s /q "`"$d`"" } }
+              schtasks /run /tn 'NetSosyalWeb' | Out-Null
+              Start-Sleep 6
+              $ok = $false
+              for ($i=1; $i -le 20; $i++) { Start-Sleep 2; try { if ((Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/login' -TimeoutSec 5).StatusCode -eq 200) { $ok=$true; break } } catch {} }
+              "IKINCIL :3000 -> $(if($ok){'AYAKTA'}else{'YANIT YOK - C:\inetpub\wwwroot\Netsosyal\logs\server.log'})"
+            } | ForEach-Object { Write-Host "  $_" -ForegroundColor $(if($_ -match 'AYAKTA'){'Green'}else{'Red'}) }
+          } catch {
+            Write-Host "  UYARI: ikincil yeniden baslatilamadi - 10.20.1.100'de: schtasks /run /tn NetSosyalWeb" -ForegroundColor Yellow
+          }
+        }
+      } else {
+        Write-Host "  UYARI: X:\ erisilemez - ikincil paket $sa icinde kaldi." -ForegroundColor Yellow
+      }
+    } else {
+      Write-Host '  UYARI: ikincil (standalone) build basarisiz - birincil etkilenmedi.' -ForegroundColor Yellow
+    }
+  } catch {
+    Write-Host "  UYARI: ikincil paket adimi hata verdi ($($_.Exception.Message)) - birincil etkilenmedi." -ForegroundColor Yellow
+    Remove-Item Env:\BUILD_TARGET -ErrorAction SilentlyContinue
+    Remove-Item Env:\STANDALONE_DIST -ErrorAction SilentlyContinue
+  }
+}
+
+Write-Host ''
+Write-Host '=== [4/5] Bakim sayfasi kaldiriliyor + servis baslatiliyor ===' -ForegroundColor Cyan
+if ($maint -and -not $maint.HasExited) {
+  try { $maint.CloseMainWindow() | Out-Null } catch {}
+  try { Stop-Process -Id $maint.Id -Force -ErrorAction SilentlyContinue } catch {}
+}
+# Port 3000 gercekten bosalsin (aksi halde nssm start EADDRINUSE ile patlar)
+for ($i = 1; $i -le 20; $i++) {
+  if (-not (Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue)) { break }
+  Start-Sleep -Milliseconds 300
+}
+
+if ($buildExit -ne 0) {
+  Write-Host 'BUILD BASARISIZ - eski derleme silindigi icin servis simdi baslamayabilir!' -ForegroundColor Red
+  Write-Host 'Once hatayi duzeltip scripti tekrar calistirin.' -ForegroundColor Red
+  & $nssm start $serviceName
+  exit 1
+}
+
+& $nssm start $serviceName
+
+Write-Host ''
+Write-Host '=== [5/5] Saglik kontrolu ===' -ForegroundColor Cyan
+$appOk = $false
+for ($i = 1; $i -le 30; $i++) {
+  Start-Sleep -Seconds 1
+  try {
+    $r = Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/login' -TimeoutSec 5
+    if ($r.StatusCode -eq 200) { $appOk = $true; break }
+  } catch {}
+}
+
+Write-Host ''
+if ($appOk) {
+  Write-Host '  BIRINCIL: ayakta ve yayinda - https://netsosyal.sivas.bel.tr' -ForegroundColor Green
+} else {
+  Write-Host '  BIRINCIL UYARI: 30 saniyede yanit vermedi - loglara bakin:' -ForegroundColor Red
+  Write-Host "    Get-Content `"$root\logs\nssm-out.log`" -Tail 30"
+}
+if ($iisOk) {
+  Write-Host '  IKINCIL: yeni build X:\ (= 10.20.1.100 C:\inetpub\wwwroot\Netsosyal) klasorune kopyalandi.' -ForegroundColor Green
+  if (-not $secStopped) {
+    Write-Host '  >>> IKINCIL YENIDEN BASLATILMADI (uzaktan erisim yok).' -ForegroundColor Yellow
+    Write-Host '      10.20.1.100 makinesinde su dosyayi CIFT TIKLAYIN:' -ForegroundColor Yellow
+    Write-Host '        C:\inetpub\wwwroot\Netsosyal\yeniden-baslat.bat' -ForegroundColor Yellow
+    Write-Host '      (node.exe kapatir; baslat-standalone.cmd dongusu ~3sn icinde yeni surumle acar.)' -ForegroundColor Yellow
+  }
+} else {
+  Write-Host '  IKINCIL: X:\ guncellenmedi (bkz. yukardaki uyari). Birincil etkilenmedi.' -ForegroundColor Yellow
+}
+Write-Host ''

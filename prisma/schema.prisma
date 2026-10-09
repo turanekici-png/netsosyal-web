@@ -1,0 +1,1486 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model InternalCommunication {
+  id           BigInt                           @id @default(autoincrement())
+  type         String                           @map("tur") @db.VarChar(20)
+  senderUserId BigInt                           @map("gonderen_kullanici_id")
+  subject      String?                          @map("baslik") @db.VarChar(200)
+  content      String                           @map("icerik")
+  priority     Int                              @default(0) @map("onem_seviyesi") @db.SmallInt
+  parentId     BigInt?                          @map("ust_ileti_id")
+  startsAt     DateTime?                        @map("yayin_baslangici") @db.Timestamp(6)
+  expiresAt    DateTime?                        @map("yayin_bitisi") @db.Timestamp(6)
+    status       String                           @default("aktif") @map("durum") @db.VarChar(20)
+    senderArchivedAt DateTime?                    @map("gonderen_arsivlenme_tarihi") @db.Timestamp(6)
+    createdAt    DateTime                         @default(now()) @map("olusturma_tarihi") @db.Timestamp(6)
+  updatedAt    DateTime                         @updatedAt @map("guncelleme_tarihi") @db.Timestamp(6)
+  recipients   InternalCommunicationRecipient[]
+  attachments  InternalCommunicationAttachment[]
+
+  @@index([senderUserId, createdAt], map: "idx_kurum_ici_iletisim_gonderen")
+  @@index([type, status, createdAt], map: "idx_kurum_ici_iletisim_tur_durum")
+  @@map("kurum_ici_iletisim")
+}
+
+model InternalCommunicationAttachment {
+  id              BigInt                @id @default(autoincrement())
+  communicationId BigInt                @map("iletisim_id")
+  fileName        String                @map("dosya_adi") @db.VarChar(255)
+  mimeType        String                @map("mime_turu") @db.VarChar(100)
+  fileSize        Int                   @map("dosya_boyutu")
+  content         Bytes                 @map("icerik")
+  createdAt       DateTime              @default(now()) @map("olusturma_tarihi") @db.Timestamp(6)
+  communication   InternalCommunication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+
+  @@index([communicationId], map: "idx_kurum_ici_iletisim_ekleri_iletisim")
+  @@map("kurum_ici_iletisim_ekleri")
+}
+
+model InternalCommunicationRecipient {
+  id              BigInt                @id @default(autoincrement())
+  communicationId BigInt                @map("iletisim_id")
+  recipientUserId BigInt                @map("alici_kullanici_id")
+  readAt          DateTime?             @map("okunma_tarihi") @db.Timestamp(6)
+  archivedAt      DateTime?             @map("arsivlenme_tarihi") @db.Timestamp(6)
+  createdAt       DateTime              @default(now()) @map("olusturma_tarihi") @db.Timestamp(6)
+  communication   InternalCommunication @relation(fields: [communicationId], references: [id], onDelete: Cascade)
+
+  @@unique([communicationId, recipientUserId], map: "uq_kurum_ici_iletisim_alici")
+  @@index([recipientUserId, readAt, createdAt], map: "idx_kurum_ici_iletisim_alici_okunma")
+  @@map("kurum_ici_iletisim_alicilari")
+}
+
+model Beneficiary {
+  id              BigInt    @id @default(autoincrement())
+  kullaniciid     Int?
+  ilkkullaniciid  Int?
+  updatedAt       DateTime? @map("islemtarihi") @db.Timestamp(6)
+  createdAt       DateTime? @map("ilkislemtarihi") @db.Timestamp(6)
+  dosyaId         BigInt?   @map("dosyaid")
+  relation        Int?      @map("yakinligi")
+  nationality     String?   @map("uyrugu") @db.VarChar(20)
+  tc              String?   @unique(map: "ind_bireyler_tckimlikno") @map("tckimlikno") @db.VarChar(11)
+  firstName       String?   @map("adi") @db.VarChar(30)
+  lastName        String?   @map("soyadi") @db.VarChar(40)
+  fatherName      String?   @map("babaadi") @db.VarChar(30)
+  motherName      String?   @map("anaadi") @db.VarChar(30)
+  birthPlace      String?   @map("dogumyeri") @db.VarChar(50)
+  birthDate       DateTime? @map("dogumtarihi") @db.Date
+  maritalStatus   Int?      @map("medenihali") @db.SmallInt
+  gender          String?   @map("cinsiyeti") @db.Char(1)
+  nfili           String?   @db.VarChar(30)
+  district        String?   @map("nfilce") @db.VarChar(50)
+  neighborhood    String?   @map("nfmahkoy") @db.VarChar(50)
+  meslegi         String?   @db.VarChar(50)
+  ogrenimdurumu   Int?
+  mezunolokul     String?   @db.VarChar(100)
+  healthStatus    Int?      @map("saglikdurumu")
+  hastalikadi     String?   @db.VarChar(50)
+  sosyalguvencesi Int?
+  phone           String?   @map("ceptel") @db.VarChar(20)
+  aylikgeliri     Int?
+  notes           String?   @map("aciklama")
+  name            String?   @map("adisoyadi") @db.VarChar(100)
+  iban            String?   @db.VarChar(50)
+  deathDate       String?   @map("olumtarihi") @db.VarChar(10)
+  address         String?   @map("adres") @db.VarChar(200)
+  status          Int?      @default(0) @map("tipi") @db.SmallInt
+  tcsorgusyc      Int?
+  addressNo       String?   @map("adresno")
+  kontrol1        String?
+  kontrol2        String?
+  // Bu bireyin adresinin EN SON NVİ'den (nüfus) sorgulanıp güncellendiği
+  // tarih - manuel "Nüfus Sorgula" butonundan VE dosya açıldığında otomatik
+  // yapılan tazelik kontrolünden (bkz. lib/services/addressAutoRefresh.service.ts)
+  // güncellenir. NULL ise hiç NVİ'den adres sorgulanmamış demektir (ilk
+  // dosya açılışında otomatik sorgulanır).
+  addressUpdatedAt DateTime? @map("adres_guncelleme_tarihi") @db.Timestamp(6)
+  request         Request?  @relation(fields: [dosyaId], references: [id])
+
+  @@index([tc], map: "idx_bireyler_tckimlikno")
+  @@index([name], map: "ind_bireyler_adisoyadi")
+  @@index([dosyaId], map: "ind_bireyler_dosyaid")
+  @@index([iban], map: "ind_bireyler_iban")
+  @@index([tcsorgusyc], map: "ind_bireyler_tcsorgusyc")
+  @@index([status], map: "ind_bireyler_tipi")
+  @@index([nationality], map: "ind_bireyler_uyrugu")
+  @@index([relation], map: "ind_bireyler_yakinligi")
+  @@map("bireyler")
+}
+
+model Request {
+  id             BigInt         @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  updatedAt      DateTime?      @map("islemtarihi") @db.Timestamp(6)
+  createdAt      DateTime?      @map("ilkislemtarihi") @db.Timestamp(6)
+  title          String?        @map("dosyano") @db.VarChar(20)
+  muracaattarihi DateTime?      @db.Date
+  mahalleid      Int?
+  mahalleadi     String?        @db.VarChar(30)
+  cadde          String?        @db.VarChar(30)
+  sokak          String?        @db.VarChar(30)
+  site           String?        @db.VarChar(30)
+  blok           String?        @db.VarChar(20)
+  binano         String?        @db.VarChar(10)
+  daireno        String?        @db.VarChar(5)
+  address        String?        @map("adres") @db.VarChar(200)
+  phone          String?        @map("telefon") @db.VarChar(30)
+  aileniteligi   Int?
+  konutturu      Int?
+  isinmaturu     Int?
+  mulkiyetdurumu Int?
+  kiramiktari    Int?
+  aciklama_old   String?        @map("aciklama-old")
+  priority       Int?           @map("yaronceliksirasi")
+  status         Int?           @map("durumu") @db.SmallInt
+  durumutarih    DateTime?      @db.Date
+  durumuaciklama String?        @db.VarChar(100)
+  ilkkayittarihi DateTime?      @db.Date
+  vizetarihi     DateTime?      @db.Date
+  kartno         String?        @db.VarChar
+  adresno        String?        @db.VarChar
+  topbirey       Int?
+  description    String?        @map("aciklama")
+  locationLat    Float?         @map("konum_enlem")
+  locationLon    Float?         @map("konum_boylam")
+  locationSource String?        @map("konum_kaynagi") @db.VarChar(40)
+  locationStatus String?        @map("konum_durumu") @db.VarChar(40)
+  locationScore  Float?         @map("konum_guven")
+  locationHash   String?        @map("konum_adres_hash") @db.VarChar(80)
+  locationError  String?        @map("konum_hata")
+  locationAt     DateTime?      @map("konum_tarihi") @db.Timestamp(6)
+  beneficiaries  Beneficiary[]
+  assistances    Assistance[]
+  reports        Report[]
+  workflowSteps  WorkflowStep[]
+
+  @@index([title], map: "idx_dosyalar_dosyano")
+  @@index([aileniteligi], map: "ind_dosyalar_aileniteligi")
+  @@index([title], map: "ind_dosyalar_dosyano")
+  @@index([status], map: "ind_dosyalar_durumu")
+  @@index([locationLat, locationLon], map: "ind_dosyalar_konum")
+  @@index([locationStatus], map: "ind_dosyalar_konum_durumu")
+  @@index([kartno], map: "ind_dosyalar_kartno")
+  @@index([mahalleid], map: "ind_dosyalar_mahalleid")
+  @@index([muracaattarihi], map: "ind_dosyalar_muracaattarihi")
+  @@index([vizetarihi], map: "ind_dosyalar_vizetarihi")
+  @@map("dosyalar")
+}
+
+model Document {
+  id                    Int       @id @default(autoincrement())
+  requestId             Int?      @map("dosyaid")
+  dosyano               String?
+  tc                    String?   @map("tckimlikno")
+  name                  String?   @map("adisoyadi")
+  title                 String    @map("evrak_adi")
+  status                String?   @default("bekliyor") @map("durum")
+  son_gecerlilik_tarihi DateTime? @db.Date
+  requestedDate         DateTime? @map("istenme_tarihi") @db.Timestamp(6)
+  notes                 String?   @map("notlar")
+  isteyen_kullanici     String?
+  completedDate         DateTime? @map("tamamlanma_tarihi") @db.Timestamp(6)
+  createdAt             DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt             DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@map("beklenen_evraklar")
+}
+
+model Assistance {
+  id              BigInt    @id(map: "yrd_ayninaktiyardim_pkey") @default(autoincrement())
+  kullaniciid     Int?
+  ilkkullaniciid  Int?
+  updatedAt       DateTime? @map("islemtarihi") @db.Timestamp(6)
+  createdAt       DateTime? @map("ilkislemtarihi") @db.Timestamp(6)
+  requestId       BigInt?   @map("dosyaid")
+  applicant       String?   @map("muracaateden") @db.VarChar(100)
+  muracaattarihi  DateTime? @db.Date
+  notes           String?   @map("muracaatnotu")
+  amount          Int?      @map("miktar")
+  asamanotu       String?
+  status          Int?      @map("durumu")
+  durumutarih     DateTime? @db.Date
+  durumuaciklama  String?   @db.VarChar(100)
+  donem           String?   @db.VarChar(50)
+  tc              String?   @map("tckimlikno") @db.VarChar(20)
+  phone           String?   @map("ceptel") @db.VarChar(20)
+  type            String?   @map("asama") @db.VarChar(50)
+  muracaatozelkod String?   @db.VarChar(40)
+  aylikgelir      Int?
+  iban            String?   @db.VarChar(45)
+  etiket          String?   @db.VarChar(100)
+  dogumtarihi     DateTime? @db.Date
+  tahkikatpers    String?   @db.VarChar(100)
+  mulkiyetbilgisi String?   @db.VarChar(20)
+  aracbilgisi     String?   @db.VarChar(30)
+  asamaozelkod    String?   @db.VarChar(50)
+  topbirey        String?
+  medenihal       String?
+  request         Request?  @relation(fields: [requestId], references: [id])
+
+  @@index([requestId], map: "idx_yrd_ayninakti_dosyaid")
+  @@index([donem], map: "ind_yrd_ayninakti_donem")
+  @@index([requestId], map: "ind_yrd_ayninakti_dosyaid")
+  @@index([status], map: "ind_yrd_ayninakti_durumu")
+  @@index([durumutarih], map: "ind_yrd_ayninakti_durumutarih")
+  @@index([etiket], map: "ind_yrd_ayninakti_etiket")
+  @@index([iban], map: "ind_yrd_ayninakti_iban")
+  @@index([applicant], map: "ind_yrd_ayninakti_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_ayninakti_muracaattarih")
+  @@index([tc], map: "ind_yrd_ayninakti_tckimlikno")
+  @@index([requestId], map: "ind_yrd_ayninaktiyardim_dosyaid")
+  @@index([status], map: "ind_yrd_ayninaktiyardim_durumu")
+  @@map("yrd_ayninakti")
+}
+
+model User {
+  id              BigInt    @id @default(autoincrement())
+  islemtarihi     DateTime? @db.Timestamp(6)
+  ilkislemtarihi  DateTime? @db.Timestamp(6)
+  username        String?   @unique(map: "ind_kullanicilar_kullaniciadi") @map("kullaniciadi") @db.VarChar(30)
+  kullanicitamadi String?   @db.VarChar(50)
+  password        String?   @map("sifre") @db.VarChar(50)
+  // Kullanicinin bir SONRAKI girisinde sifresini degistirmeye zorlanip
+  // zorlanmayacagini belirtir. Varsayilan TRUE - hem yeni olusturulan
+  // kullanicilar hem de (kolon eklendiginde) VAR OLAN tum kullanicilar
+  // bunu zorunlu goruyor (eski sistemden gelen sifreler ne olursa olsun).
+  // Kullanici kendi sifresini basariyla degistirdiginde false'a cekilir;
+  // admin sifreyi sifirlar/yeniden atarsa tekrar true'ya doner.
+  mustChangePassword Boolean @default(true) @map("sifre_degistirmeli")
+  yetki           Int?      @db.SmallInt
+  email           String?   @map("email") @db.VarChar(50)
+  status          Int?      @default(1) @map("durumu") @db.SmallInt
+  islem1          Int?      @db.SmallInt
+  islem2          Int?      @db.SmallInt
+  islem3          Int?      @db.SmallInt
+  islem4          Int?      @db.SmallInt
+  islem5          Int?      @db.SmallInt
+  islem6          Int?      @db.SmallInt
+  islem7          Int?      @db.SmallInt
+  islem8          Int?      @db.SmallInt
+  islem9          Int?      @db.SmallInt
+  islem10         Int?      @db.SmallInt
+  islem11         Int?      @db.SmallInt
+  islem12         Int?      @db.SmallInt
+  islem13         Int?      @db.SmallInt
+  islem14         Int?      @db.SmallInt
+  islem15         Int?      @db.SmallInt
+  islem16         Int?      @db.SmallInt
+  islem17         Int?      @db.SmallInt
+  islem18         Int?      @db.SmallInt
+  islem19         Int?      @db.SmallInt
+  islem20         Int?      @db.SmallInt
+  islem21         Int?      @db.SmallInt
+  islem22         Int?      @db.SmallInt
+  islem23         Int?      @db.SmallInt
+  islem24         Int?      @db.SmallInt
+  islem25         Int?      @db.SmallInt
+  islem26         Int?      @db.SmallInt
+  islem27         Int?      @db.SmallInt
+  islem28         Int?      @db.SmallInt
+  islem29         Int?      @db.SmallInt
+  islem30         Int?      @db.SmallInt
+  islem31         Int?      @db.SmallInt
+  islem32         Int?      @db.SmallInt
+  islem33         Int?      @db.SmallInt
+  islem34         Int?      @db.SmallInt
+  islem35         Int?      @db.SmallInt
+  islem36         Int?      @db.SmallInt
+  islem37         Int?      @db.SmallInt
+  islem38         Int?      @db.SmallInt
+  islem39         Int?      @db.SmallInt
+  islem40         Int?      @db.SmallInt
+  islem41         Int?      @db.SmallInt
+  islem42         Int?      @db.SmallInt
+  islem43         Int?      @db.SmallInt
+  islem44         Int?      @db.SmallInt
+  islem45         Int?      @db.SmallInt
+  islem46         Int?      @db.SmallInt
+  islem47         Int?      @db.SmallInt
+  islem48         Int?      @db.SmallInt
+  islem49         Int?      @db.SmallInt
+  islem50         Int?      @db.SmallInt
+  islem51         Int?      @db.SmallInt
+  islem52         Int?      @db.SmallInt
+  islem53         Int?      @db.SmallInt
+  islem54         Int?      @db.SmallInt
+  islem55         Int?      @db.SmallInt
+  islem56         Int?      @db.SmallInt
+  islem57         Int?      @db.SmallInt
+  islem58         Int?      @db.SmallInt
+  islem59         Int?      @db.SmallInt
+  islem60         Int?      @db.SmallInt
+  islem61         Int?      @db.SmallInt
+  islem62         Int?      @db.SmallInt
+  islem63         Int?      @db.SmallInt
+  islem64         Int?      @db.SmallInt
+  islem65         Int?      @db.SmallInt
+  islem66         Int?      @db.SmallInt
+  islem67         Int?      @db.SmallInt
+  islem68         Int?      @db.SmallInt
+  islem69         Int?      @db.SmallInt
+  islem70         Int?      @db.SmallInt
+  islem71         Int?      @db.SmallInt
+  islem72         Int?      @db.SmallInt
+  islem73         Int?      @db.SmallInt
+  islem74         Int?      @db.SmallInt
+  islem75         Int?      @db.SmallInt
+  islem76         Int?      @db.SmallInt
+  islem77         Int?      @db.SmallInt
+  islem78         Int?      @db.SmallInt
+  islem79         Int?      @db.SmallInt
+  islem80         Int?      @db.SmallInt
+  islem81         Int?      @db.SmallInt
+  islem82         Int?      @db.SmallInt
+  islem83         Int?      @db.SmallInt
+  islem84         Int?      @db.SmallInt
+  islem85         Int?      @db.SmallInt
+  islem86         Int?      @db.SmallInt
+  islem87         Int?      @db.SmallInt
+  islem88         Int?      @db.SmallInt
+  islem89         Int?      @db.SmallInt
+  islem90         Int?      @db.SmallInt
+  islem91         Int?      @db.SmallInt
+  islem92         Int?      @db.SmallInt
+  islem93         Int?      @db.SmallInt
+  islem94         Int?      @db.SmallInt
+  islem95         Int?      @db.SmallInt
+  islem96         Int?      @db.SmallInt
+  islem97         Int?      @db.SmallInt
+  islem98         Int?      @db.SmallInt
+  islem99         Int?      @db.SmallInt
+  islem100        Int?      @db.SmallInt
+  islem101        Int?      @db.SmallInt
+  islem102        Int?      @db.SmallInt
+  islem103        Int?      @db.SmallInt
+  islem104        Int?      @db.SmallInt
+  islem105        Int?      @db.SmallInt
+  islem106        Int?      @db.SmallInt
+  islem107        Int?      @db.SmallInt
+  islem108        Int?      @db.SmallInt
+  islem109        Int?      @db.SmallInt
+  islem110        Int?      @db.SmallInt
+  islem111        Int?      @db.SmallInt
+  islem112        Int?      @db.SmallInt
+  islem113        Int?      @db.SmallInt
+  islem114        Int?      @db.SmallInt
+  islem115        Int?      @db.SmallInt
+  islem116        Int?      @db.SmallInt
+  islem117        Int?      @db.SmallInt
+  islem118        Int?      @db.SmallInt
+  islem119        Int?      @db.SmallInt
+  islem120        Int?      @db.SmallInt
+  phone           String?   @map("telefon") @db.VarChar(30)
+  address         String?   @map("adres") @db.VarChar(200)
+
+  @@index([status], map: "ind_kullanicilar_durumu")
+  @@map("kullanicilar")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  type      String   @default("json")
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("app_settings")
+}
+
+model Report {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  updatedAt      DateTime? @map("islemtarihi") @db.Timestamp(6)
+  createdAt      DateTime? @map("ilkislemtarihi") @db.Timestamp(6)
+  requestId      BigInt?   @map("dosyaid")
+  date           DateTime? @map("tarih") @db.Date
+  title          String?   @map("konu") @db.VarChar(200)
+  content        String?   @map("rapor")
+  // "Onaya Gönder" akisindan otomatik olusturulan raporlarda, talep
+  // ONAYLANDIGINDA onaylayan kullaniciyi tutar (bkz. app/api/documents/
+  // approval-requests/[id]/route.ts). Diger (elle girilen) raporlarda NULL.
+  onaylayan_kullaniciid Int?
+  request        Request?  @relation(fields: [requestId], references: [id])
+
+  @@index([requestId], map: "ind_tahkikatraporlari_dosyaid")
+  @@index([title], map: "ind_tahkikatraporlari_konu")
+  @@index([date], map: "ind_tahkikatraporlari_tarih")
+  @@map("tahkikatraporlari")
+}
+
+model WorkflowStep {
+  id               BigInt    @id @default(autoincrement())
+  title            String    @map("baslik")
+  description      String?   @map("aciklama")
+  requestId        BigInt?   @map("dosyaid")
+  assignedStaff    String?   @map("atanacak_personel")
+  status           String?   @default("BEKLIYOR") @map("durum")
+  priority         String?   @default("NORMAL") @map("oncelik")
+  dueDate          DateTime? @map("son_tarih") @db.Date
+  olusturma_tarihi DateTime? @default(now()) @db.Timestamp(6)
+  sorumlu          String?
+  createdAt        DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  completedDate    DateTime? @map("tamamlanma_tarihi") @db.Timestamp(6)
+  dosyano          String?
+  request          Request?  @relation(fields: [requestId], references: [id])
+
+  @@map("sistem_gorevler")
+}
+
+model app_kullanici_yetkileri {
+  id               Int       @id @default(autoincrement())
+  /// Veritabanındaki kolon integer, bağlı kullanicilar.id kolonu ise bigint.
+  /// Prisma farklı skaler tipler arasında relation üretemediği için ilişki alanı tanımlanmamıştır.
+  kullanici_id     Int
+  yetki_adi        String    @db.VarChar(100)
+  aktif            Boolean?  @default(true)
+  olusturma_tarihi DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model ayarlar {
+  id             BigInt    @id(map: "sabitayarlar_pkey")
+  oturumid       BigInt?
+  versiyon       Int?
+  versiyoninsert Int?
+  kurumadi       String?   @db.VarChar(50)
+  yetkiliadi     String?   @db.VarChar(100)
+  telefon1       String?   @db.VarChar(30)
+  telefon2       String?   @db.VarChar(30)
+  fax            String?   @db.VarChar(30)
+  adres          String?   @db.VarChar(100)
+  vergidairesi   String?   @db.VarChar(30)
+  vergino        String?   @db.VarChar(30)
+  dosyano        BigInt?
+  sms_username   String?   @db.VarChar(50)
+  sms_password   String?   @db.VarChar(50)
+  sms_nhhash     String?   @db.VarChar(50)
+  sms_baslik1    String?   @db.VarChar(20)
+  sms_baslik2    String?   @db.VarChar(20)
+  sms_baslik3    String?   @db.VarChar(20)
+  sms_baslika    String?   @db.VarChar(20)
+  kritiksifre    String?   @db.VarChar(50)
+  sontarih       DateTime? @db.Date
+  kritiksifre2   String?   @db.VarChar(50)
+  email          String?   @db.VarChar(100)
+  website        String?   @db.VarChar(100)
+  sms_altbaslik  String?   @db.VarChar(100)
+  adminpassword  String?   @db.VarChar(50)
+  mail_host      String?   @db.VarChar(50)
+  mail_port      String?   @db.VarChar(10)
+  mail_username  String?   @db.VarChar(50)
+  mail_password  String?   @db.VarChar(50)
+  vprg           Int?
+  vfld           Int?
+  vwptdel        Int?
+  vwptins        Int?
+  vup            Int?
+  vfast          Int?
+  tcsorgusyc     Int?
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model dosyano2 {
+  id         Int?
+  dosyano    String? @db.VarChar(30)
+  dosyano2   String? @db.VarChar(50)
+  tckimlikno String? @db.VarChar(20)
+  adisoyadi  String? @db.VarChar(50)
+
+  @@ignore
+}
+
+model efatura_log {
+  id           BigInt    @id @default(autoincrement())
+  islem_tarihi DateTime? @default(now()) @db.Timestamp(6)
+  tckimlikno   String?   @db.VarChar(11)
+  ad_soyad     String?
+  urun_adi     String?
+  tutar        Decimal?  @db.Decimal(18, 2)
+  durum        String?
+  fatura_uuid  String?
+  gib_mesaj    String?
+  ham_yanit    String?
+}
+
+model evziyareti {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  dosyaid        BigInt?
+  tarih          DateTime? @db.Date
+  konu           String?   @db.VarChar(200)
+  rapor          String?
+
+  @@index([dosyaid], map: "ind_evziyareti_dosyaid")
+  @@index([konu], map: "ind_evziyareti_konu")
+  @@index([tarih], map: "ind_evziyareti_tarih")
+}
+
+model hazir_degerler {
+  id         Int       @id @default(autoincrement())
+  kategori   String    @db.VarChar(120)
+  deger      String
+  sira       Int?      @default(0)
+  aktif      Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model kullanici_yetkileri {
+  id           Int       @id @default(autoincrement())
+  kullanici_id Int?
+  sayfa_key    String?   @db.VarChar(100)
+  sayfa_adi    String?   @db.VarChar(150)
+  goruntule    Boolean?  @default(true)
+  ekle         Boolean?  @default(true)
+  duzenle      Boolean?  @default(true)
+  sil          Boolean?  @default(true)
+  yazdir       Boolean?  @default(true)
+  excel        Boolean?  @default(true)
+  updated_at   DateTime? @default(now()) @db.Timestamp(6)
+  sayfa        String?   @db.VarChar(150)
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+
+  @@unique([kullanici_id, sayfa_key], map: "ux_fix124_kullanici_yetki_user_page")
+}
+
+model kutuici {
+  id          BigInt    @id @default(autoincrement())
+  kullaniciid Int?
+  islemtarihi DateTime? @db.Timestamp(6)
+  turu        Int?
+  aciklama    String?   @db.VarChar(100)
+
+  @@index([turu], map: "ind_kutuici_turu")
+}
+
+// Yardim/muracaat yazdirma onay talepleri - "Ayarlar > Yetkili Personeller"
+// listesindeki bir kullanicinin, odeme penceresi disindaki (veya donem disi
+// gida gibi pencere kavrami olmayan) kayitlar icin verdigi yazdirma onaylari.
+// Bkz. app/api/documents/approval-requests, lib/services/approvalRequest.service.ts.
+model yardim_onay_talepleri {
+  id                    BigInt    @id @default(autoincrement())
+  kayit_turu            String    @db.VarChar(40)
+  kayit_id              BigInt
+  dosya_id              BigInt
+  donem                 Int?
+  durum                 Int       @default(0) @db.SmallInt
+  talep_eden_kullaniciid Int?
+  talep_tarihi          DateTime  @default(now()) @db.Timestamp(6)
+  onaylayan_kullaniciid Int?
+  onay_tarihi           DateTime? @db.Timestamp(6)
+  aciklama              String?   @db.VarChar(300)
+  red_aciklama          String?   @db.VarChar(300)
+  // "Onaya Gönder" penceresinde secilen Yetkili Personel (bilgi/yonlendirme
+  // amacli - kuyruk yine TUM yetkili personele acik kalir, sadece bu kisiye
+  // ozel bir bildirim gonderilir).
+  hedef_kullaniciid     Int?
+  // Karar verildikten (durum 1/2) sonra, talep eden kullaniciya gosterilen
+  // bildirim GORULDU MU (bkz. app/api/notifications/approval-decisions).
+  bildirim_gorundu      Boolean   @default(false)
+  // Talep hedef_kullaniciid'e yonlendirilmisse, o kisiye "onay bekleyen
+  // isleminiz var" seklinde gosterilen bildirim GORULDU MU (bkz.
+  // app/api/notifications/approval-assigned).
+  hedef_bildirim_gorundu Boolean  @default(false)
+  // Talep olusturulurken ACIKLAMA metniyle otomatik olarak "İnceleme
+  // Raporları"na (tahkikatraporlari) eklenen raporun id'si - talep
+  // onaylandiginda o raporda onaylayan bilgisini de gosterebilmek icin.
+  rapor_id              BigInt?
+
+  @@index([kayit_turu, kayit_id, donem], map: "ind_yardim_onay_lookup")
+  @@index([durum], map: "ind_yardim_onay_durum")
+}
+
+// Onay taleplerinin (yardim_onay_talepleri) her ASAMASINI (talep edildi,
+// onaylandi, reddedildi, iptal edildi) kalici, DEGISTIRILEMEZ bir gunluk
+// olarak kaydeder - yardim_onay_talepleri sadece GUNCEL durumu tutar
+// (mutable), bu tablo ise TAM GECMISI (immutable audit trail) tutar. Bkz.
+// app/api/documents/approval-requests - her POST/PATCH burada bir satir ekler.
+model onay_islemleri {
+  id            BigInt   @id @default(autoincrement())
+  onay_talep_id BigInt
+  islem_tipi    String   @db.VarChar(20)
+  kayit_turu    String   @db.VarChar(40)
+  kayit_id      BigInt
+  dosya_id      BigInt
+  donem         Int?
+  kullaniciid   Int?
+  aciklama      String?  @db.VarChar(300)
+  islem_tarihi  DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([onay_talep_id], map: "ind_onay_islemleri_talep")
+  @@index([kayit_turu, kayit_id], map: "ind_onay_islemleri_kayit")
+  @@index([dosya_id], map: "ind_onay_islemleri_dosya")
+  @@index([islem_tipi], map: "ind_onay_islemleri_tipi")
+  @@index([islem_tarihi], map: "ind_onay_islemleri_tarih")
+}
+
+// Web Push (masaüstü bildirim) abonelikleri - kullanicinin tarayici sekmesi
+// kapali/arka planda olsa bile "Onay Bekleyenler" gibi bildirimlerin
+// ulasabilmesi icin (bkz. lib/services/webPush.service.ts).
+model push_subscriptions {
+  id                BigInt    @id @default(autoincrement())
+  kullaniciid       Int
+  endpoint          String    @unique
+  p256dh            String
+  auth              String
+  user_agent        String?
+  olusturma_tarihi  DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([kullaniciid], map: "ind_push_subscriptions_kullaniciid")
+}
+
+// ESKI (artik yeni kayit YAZILMAYAN) WhatsApp gonderim log tablosu - bkz.
+// asagidaki sms_gonderim_log notu: WhatsApp loglari artik dogrudan
+// sms_gonderim_log'a (kanal='whatsapp') yaziliyor, tum mesajlar TEK tabloda
+// birikiyor. Bu model ve tablo, gecmis (bu degisiklikten ONCEKI) kayitlarin
+// kaybolmamasi icin SILINMEDEN duruyor.
+model whatsapp_gonderim_log {
+  id            Int       @id @default(autoincrement())
+  telefon       String?
+  adisoyadi     String?
+  dosyano       String?
+  dosyaid       String?
+  mesaj         String?
+  durum         String?
+  cevap         String?
+  gonderim_tipi String?
+  kullanici     String?
+  created_at    DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([created_at], map: "ind_whatsapp_gonderim_log_created_at")
+}
+
+// Gonderilen TUM mesajlarin (hem harici SMS entegrasyonu HEM DE bu uygulama
+// uzerinden gonderilen WhatsApp mesajlarinin) TEK ORTAK kaydi. "kanal" sutunu
+// ('sms' | 'whatsapp') kaynagi ayirt eder - harici SMS sistemi bu sutunu
+// bilmez, o yuzden varsayilani 'sms'dir (bkz. migration
+// 20260816090000_add_sms_gonderim_log_kanal). "sms_tipi" alani SMS icin
+// harici sistemin kendi degerlerini ('tek' vb.) tasirken, WhatsApp
+// kayitlarinda ayni alan gonderim turunu ('tekil'/'toplu'/'otomatik-bildirim')
+// tasir - bkz. lib/services/whatsappLog.service.ts. Raporlar > SMS/WhatsApp
+// Raporlari ekrani VE Dosya Yonetimi > Mesaj Raporlari (bkz.
+// app/api/documents/message-log/route.ts) buradan okur. "wa_message_id"
+// SADECE WhatsApp kayitlarinda dolu olur (whatsapp-web.js mesaj kimligi) -
+// gonderim sonrasi gelen 'message_ack' olaylarinin (iletildi/okundu) hangi
+// satiri guncelleyecegini bulmak icin kullanilir (bkz.
+// lib/services/whatsappWeb.service.ts, recordWhatsappMessageAck). WhatsApp
+// icin "durum" degerleri zamanla ilerler: gönderildi -> iletildi -> okundu
+// (veya hata).
+model sms_gonderim_log {
+  id         Int       @id @default(autoincrement())
+  telefon    String?
+  adisoyadi  String?
+  dosyano    String?
+  tckimlikno String?
+  mesaj      String?
+  durum      String?
+  cevap      String?
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  sms_tipi   String?
+  sablon     String?
+  kullanici  String?
+  dosyaid    String?
+  kanal      String    @default("sms")
+  wa_message_id String?
+
+  @@index([kanal], map: "ind_sms_gonderim_log_kanal")
+  @@index([wa_message_id], map: "ind_sms_gonderim_log_wa_message_id")
+}
+
+model mahalleler {
+  id          BigInt    @id @default(autoincrement())
+  kullaniciid Int?
+  islemtarihi DateTime? @db.Timestamp(6)
+  mahalleadi  String?   @db.VarChar(50)
+  kisaadi     String?   @db.VarChar(20)
+  odemegunu   Int?      @db.SmallInt
+  // Odeme BASLANGIC gunu (odemegunu) ile birlikte, yardim yazdirma
+  // penceresinin BITTIGI gunu belirtir. Bos ise (eski kayitlar) eski
+  // davranis korunur: baslangictan +7 gun sonra pencere kapanir - bkz.
+  // lib/services/assistancePeriod.service.ts, app/api/documents/fetch,
+  // app/api/documents/convert-application.
+  odemegunubitis Int?   @db.SmallInt
+  orj_gun     String?
+
+  @@index([kisaadi], map: "ind_mahalleler_kisaadi")
+  @@index([mahalleadi], map: "ind_mahalleler_mahalleadi")
+}
+
+model mobil_kullanicilar {
+  id             BigInt    @id @default(autoincrement())
+  firmaad        String?
+  ad             String?
+  soyad          String?
+  telefon        String?
+  username       String?   @unique(map: "uni_mobil_kullanicilar_username")
+  password       String?
+  role           String?
+  firmatip       String?
+  yardimtip      String?
+  aktif          Boolean?  @default(true)
+  nfcyetki       Boolean?  @default(true)
+  qryetki        Boolean?  @default(false)
+  kullaniciyetki Boolean?  @default(false)
+  raporyetki     Boolean?  @default(false)
+  dosyayetki     Boolean?  @default(false)
+  kartyetki      Boolean?  @default(false)
+  created_at     DateTime? @db.Timestamp(6)
+  updated_at     DateTime? @db.Timestamp(6)
+  deleted_at     DateTime? @db.Timestamp(6)
+}
+
+model mobil_yardim_tipleri {
+  id       BigInt  @id @default(autoincrement())
+  ad       String
+  aciklama String?
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model nakitkart {
+  id             BigInt    @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  dosyaid        BigInt?
+  bireyid        BigInt?
+  tckimlikno     String?   @db.VarChar(50)
+  adisoadi       String?   @db.VarChar(255)
+  kartno         String?   @db.VarChar(50)
+  dogumtarihi    String?   @db.VarChar(20)
+  ceptel         String?   @db.VarChar(100)
+
+  @@index([dosyaid], map: "idx_nakitkart_dosyaid")
+  @@ignore
+}
+
+model nakitkartrezerv {
+  id          BigInt    @id @default(autoincrement())
+  kullaniciid Int?
+  islemtarihi DateTime? @db.Timestamp(6)
+  kartno      String?   @unique(map: "ind_nakitkartrezerv_kartno") @db.VarChar(50)
+  barkod      String?   @unique(map: "ind_nakitkartrezerv_barkod") @db.VarChar(50)
+}
+
+model online_basvurular {
+  id           Int       @id @default(autoincrement())
+  created_at   DateTime? @default(now()) @db.Timestamp(6)
+  tckimlikno   String?
+  ad           String?
+  soyad        String?
+  dogumtarihi  String?
+  yardim_turu  String?
+  adres        String?
+  adresno      String?
+  mahalleadi   String?
+  answers      Json?
+  status       String?   @default("YENI")
+  donem        String?
+  etiket       String?
+  asama        String?
+  aciklama     String?
+  basvuru_yili Int?
+  donem_grubu  String?
+}
+
+model ref_kod {
+  grup  String   @db.VarChar(50)
+  id    Int      @db.SmallInt
+  kod   String   @db.VarChar(50)
+  adi   String   @db.VarChar(100)
+  aktif Boolean? @default(true)
+
+  @@id([grup, id])
+}
+
+model sayacno {
+  id        BigInt  @id(map: "pk_sayacno") @default(autoincrement())
+  islemturu Int?
+  onek      String? @db.VarChar(20)
+  sayac     BigInt?
+
+  @@index([islemturu], map: "ind_sayacno_islemturu")
+  @@index([onek], map: "ind_sayacno_onek")
+}
+
+model sayacnover {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  oturumid       BigInt?
+  yardimturu     Int?      @db.SmallInt
+  tarih          DateTime? @db.Date
+  sayacno        BigInt?
+
+  @@index([tarih], map: "ind_sayacnover_tarih")
+  @@index([yardimturu], map: "ind_sayacnover_yardimturu")
+}
+
+model sistem_audit_revizyonlar {
+  id               BigInt    @id @default(autoincrement())
+  tablo_adi        String
+  kayit_id         String?
+  islem_tipi       String
+  eski_deger       Json?
+  yeni_deger       Json?
+  degisen_alanlar  Json?
+  kullanici_adi    String?
+  ip_adresi        String?
+  aciklama         String?
+  geri_alindi      Boolean?  @default(false)
+  geri_alma_tarihi DateTime? @db.Timestamp(6)
+  tarih            DateTime? @default(now()) @db.Timestamp(6)
+
+  @@index([kayit_id], map: "idx_sistem_audit_revizyonlar_kayit")
+  @@index([tablo_adi], map: "idx_sistem_audit_revizyonlar_tablo")
+  @@index([tarih], map: "idx_sistem_audit_revizyonlar_tarih")
+}
+
+model sistem_ayarlar {
+  key        String    @id
+  value      String?
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model sistem_bildirimler {
+  id         BigInt    @id @default(autoincrement())
+  baslik     String
+  mesaj      String?
+  tip        String?   @default("BILGI")
+  okundu     Boolean?  @default(false)
+  tarih      DateTime? @default(now()) @db.Timestamp(6)
+  tur        String?   @default("bilgi")
+  hedef      String?
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  gorev_id   Int?
+}
+
+model sistem_evrak_takip {
+  id                    BigInt    @id @default(autoincrement())
+  dosyaid               BigInt?
+  evrak_adi             String?
+  son_gecerlilik_tarihi DateTime? @db.Date
+  durum                 String?   @default("AKTIF")
+  aciklama              String?
+  tarih                 DateTime? @default(now()) @db.Timestamp(6)
+  dosyano               String?
+  tckimlikno            String?
+  adisoyadi             String?
+  istenme_tarihi        DateTime? @db.Timestamp(6)
+  notlar                String?
+  isteyen_kullanici     String?
+  tamamlanma_tarihi     DateTime? @db.Timestamp(6)
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
+  updated_at            DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model sistem_hareket_log {
+  id            BigInt    @id @default(autoincrement())
+  kullanici_adi String?
+  islem_tipi    String?
+  tablo_adi     String?
+  kayit_id      String?
+  eski_deger    Json?
+  yeni_deger    Json?
+  aciklama      String?
+  ip_adresi     String?
+  tarih         DateTime? @default(now()) @db.Timestamp(6)
+  revision_no   Int?      @default(1)
+}
+
+model sistem_mesaj_sablonlari {
+  id               BigInt    @id @default(autoincrement())
+  baslik           String
+  mesaj            String
+  tip              String?   @default("SMS")
+  aktif            Boolean?  @default(true)
+  olusturma_tarihi DateTime? @default(now()) @db.Timestamp(6)
+  kanal            String?   @default("whatsapp")
+  icerik           String?
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model sistem_zamanli_gorevler {
+  id                 Int       @id @default(autoincrement())
+  gorev_adi          String    @db.VarChar(200)
+  gorev_tipi         String    @default("sql") @db.VarChar(60)
+  calisma_saati      String    @default("02:00") @db.VarChar(5)
+  calisma_tarihi     DateTime? @db.Date
+  calisma_periyodu   String    @default("gunluk") @db.VarChar(20)
+  haftanin_gunu      Int?      @db.SmallInt
+  ayin_gunu          Int?      @db.SmallInt
+  sql_kodu           String?
+  aktif              Boolean   @default(true)
+  son_calisma_tarihi DateTime? @db.Date
+  son_calisma_zamani DateTime? @db.Timestamp(6)
+  son_durum          String?   @db.VarChar(40)
+  son_mesaj          String?
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model yardim_hareketleri {
+  id        BigInt    @id @default(autoincrement())
+  kartno    String?
+  dosyaid   BigInt?
+  firmaid   BigInt?
+  firmatip  String?
+  yardimtip String?
+  miktar    Decimal?  @db.Decimal
+  tarih     DateTime? @db.Timestamp(6)
+}
+
+model yrd_aceze {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  dosyaid        Int?
+  uyrugu         String?   @db.VarChar(20)
+  tckimlikno     String?   @db.VarChar(11)
+  babaadi        String?   @db.VarChar(30)
+  anaadi         String?   @db.VarChar(30)
+  dogumyeri      String?   @db.VarChar(50)
+  dogumtarihi    DateTime? @db.Date
+  medenihali     Int?      @db.SmallInt
+  cinsiyeti      String?   @db.Char(1)
+  saglikdurumu   Int?
+  hastalikadi    String?   @db.VarChar(50)
+  ceptel         String?   @db.VarChar(20)
+  gidecegiyer    String?   @db.VarChar(30)
+  nufuskytili    String?   @db.VarChar(30)
+  tarih          DateTime? @db.Date
+  kisisayisi     Int?
+  nedeni         String?   @db.VarChar(200)
+  adisoyadi      String?   @db.VarChar(100)
+  // Aceze yardimi tutari (TL). Muracaat sirasinda veya sonradan girilebilir; bos olabilir.
+  tutar          Decimal?  @db.Decimal(18, 2)
+
+  @@index([adisoyadi], map: "ind_yrd_aceze_adisoyadi")
+  @@index([dosyaid], map: "ind_yrd_aceze_dosyaid")
+  @@index([tckimlikno], map: "ind_yrd_aceze_tckimlikno")
+}
+
+model yrd_ddgidadosyali {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  dosyaid        BigInt?
+  muracaateden   String?   @db.VarChar(100)
+  yetkiliadi     String?   @db.VarChar(100)
+  nedeni         String?   @db.VarChar(100)
+  muracaattarihi DateTime? @db.Date
+  miktar         Int?
+  aciklama       String?
+  durumu         Int?
+  durumutarih    DateTime? @db.Date
+  durumuaciklama String?   @db.VarChar(300)
+  yetkili        String?
+  bittarih       DateTime? @db.Date
+
+  @@index([dosyaid], map: "ind_yrd_ddgidadosyali_dosyaid")
+  @@index([durumu], map: "ind_yrd_ddgidadosyali_durumu")
+  @@index([durumutarih], map: "ind_yrd_ddgidadosyali_durumutar")
+  @@index([muracaattarihi], map: "ind_yrd_ddgidadosyali_muracaatt")
+  @@index([nedeni], map: "ind_yrd_ddgidadosyali_nedeni")
+  @@index([yetkiliadi], map: "ind_yrd_ddgidadosyali_yetkiliad")
+}
+
+model yrd_ddgidadosyasiz {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  adres          String?   @db.VarChar(200)
+  uyrugu         String?   @db.VarChar(20)
+  tckimlikno     String?   @db.VarChar(11)
+  babaadi        String?   @db.VarChar(30)
+  anaadi         String?   @db.VarChar(30)
+  dogumyeri      String?   @db.VarChar(50)
+  dogumtarihi    DateTime? @db.Date
+  medenihali     Int?      @db.SmallInt
+  cinsiyeti      String?   @db.Char(1)
+  saglikdurumu   Int?
+  mur_ozurorani  Int?
+  hastalikadi    String?   @db.VarChar(50)
+  ceptel         String?   @db.VarChar(20)
+  mur_telefon    String?   @db.VarChar(30)
+  tarih          DateTime? @db.Date
+  miktar         Int?
+  aciklama       String?
+  durumu         Int?
+  durumutarih    DateTime? @db.Date
+  durumuaciklama String?   @db.VarChar(100)
+  yetkiliadi     String?   @db.VarChar(100)
+  nedeni         String?   @db.VarChar(100)
+  adisoyadi      String?   @db.VarChar(100)
+
+  @@index([adisoyadi], map: "ind_yrd_ddgidadosyasiz_adisoyad")
+  @@index([durumu], map: "ind_yrd_ddgidadosyasiz_durumu")
+  @@index([durumutarih], map: "ind_yrd_ddgidadosyasiz_durumutarih")
+  @@index([tarih], map: "ind_yrd_ddgidadosyasiz_tarih")
+  @@index([tckimlikno], map: "ind_yrd_ddgidadosyasiz_tckimlik")
+}
+
+model yrd_destekpaketi {
+  id                 BigInt    @id @default(autoincrement())
+  kullaniciid        Int?
+  ilkkullaniciid     Int?
+  islemtarihi        DateTime? @db.Timestamp(6)
+  ilkislemtarihi     DateTime? @db.Timestamp(6)
+  dosyaid            BigInt?
+  muracaateden       String?   @db.VarChar(100)
+  muracaattarihi     DateTime? @db.Date
+  muracaataciklama   String?
+  sureturu           Int?      @default(0) @db.SmallInt
+  bastarih           DateTime? @db.Date
+  bittarih           DateTime? @db.Date
+  miktar             Int?
+  aciklama           String?
+  durumu             Int?
+  durumutarih        DateTime? @db.Date
+  durumuaciklama     String?   @db.VarChar(100)
+  ensondonem         Int?
+  donemadi           String?   @db.VarChar(30)
+  donem              String?   @db.VarChar(20)
+  etiket             String?   @db.VarChar(100)
+  odemegunu          Int?
+  donemint           Int?
+  donemstr           String?   @db.VarChar(20)
+  dnm_bastarih       DateTime? @db.Date
+  dnm_durumu         Int?      @default(0) @db.SmallInt
+  dnm_durumutarih    DateTime? @db.Date
+  dnm_durumuaciklama String?   @db.VarChar(255)
+}
+
+model yrd_destekpaketihrk {
+  id          BigInt    @id @default(autoincrement())
+  kullaniciid Int?
+  islemtarihi DateTime? @db.Timestamp(6)
+  dosyaid     BigInt?
+  yardimid    BigInt?
+  yrd_gbdnmid BigInt?
+  islemadi    String?   @db.VarChar(30)
+  aciklama    String?
+  donem       Int?
+  miktar      Int?
+  donemadi    String?   @db.VarChar(30)
+  donemint    Int?
+
+  @@index([donemint], map: "ind_yrd_destekpaketihrk_donemint")
+  @@index([dosyaid], map: "ind_yrd_destekpaketihrk_dosyaid")
+  @@index([islemtarihi], map: "ind_yrd_destekpaketihrk_islemtar")
+  @@index([yardimid], map: "ind_yrd_destekpaketihrk_yardimid")
+  @@index([yrd_gbdnmid], map: "ind_yrd_destekpaketihrk_yrd_gbdnmid")
+  @@index([yardimid], map: "ind_yrd_destekpaketihrk_yrd_gbid")
+}
+
+model yrd_digerkrmalyrdm {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  tarih          DateTime? @db.Date
+  dosyaid        Int?
+  uyrugu         String?   @db.VarChar(20)
+  tckimlikno     String?   @db.VarChar(11)
+  adisoyadi      String?   @db.VarChar(100)
+  yardimalkrmadi String?   @db.VarChar(100)
+  yardimturu     String?   @db.VarChar(100)
+  aciklama       String?   @db.VarChar(200)
+  miktar         Int?
+
+  @@index([adisoyadi], map: "ind_yrd_digerkrmalyrdm_adisoyad")
+  @@index([dosyaid], map: "ind_yrd_digerkrmalyrdm_dosyaid")
+  @@index([tarih], map: "ind_yrd_digerkrmalyrdm_tarih")
+  @@index([tckimlikno], map: "ind_yrd_digerkrmalyrdm_tckimlik")
+}
+
+model yrd_ekmek {
+  id                 BigInt    @id @default(autoincrement())
+  kullaniciid        Int?
+  ilkkullaniciid     Int?
+  islemtarihi        DateTime? @db.Timestamp(6)
+  ilkislemtarihi     DateTime? @db.Timestamp(6)
+  dosyaid            BigInt?
+  muracaateden       String?   @db.VarChar(100)
+  muracaattarihi     DateTime? @db.Date
+  muracaataciklama   String?
+  sureturu           Int?      @default(0) @db.SmallInt
+  bastarih           DateTime? @db.Date
+  bittarih           DateTime? @db.Date
+  miktar             Int?
+  durakadi           String?   @db.VarChar(50)
+  aciklama           String?
+  durumu             Int?
+  durumutarih        DateTime? @db.Date
+  durumuaciklama     String?   @db.VarChar(100)
+  donemadi           String?   @db.VarChar(30)
+  donem              String?   @db.VarChar(20)
+  etiket             String?   @db.VarChar(100)
+  kartno             String?   @db.VarChar
+  karttarih          DateTime? @db.Date
+  kartaciklama       String?   @db.VarChar(255)
+  dnm_durumu         Int?
+  donemint           Int?
+  donemstr           String?
+  dnm_bastarih       DateTime? @db.Date
+  dnm_durumuaciklama String?
+
+  @@index([bastarih], map: "ind_yrd_ekmek_bastarih")
+  @@index([bittarih], map: "ind_yrd_ekmek_bittarih")
+  @@index([dosyaid], map: "ind_yrd_ekmek_dosyaid")
+  @@index([durumu], map: "ind_yrd_ekmek_durumu")
+  @@index([etiket], map: "ind_yrd_ekmek_etiket")
+  @@index([kartno], map: "ind_yrd_ekmek_kartno")
+  @@index([muracaateden], map: "ind_yrd_ekmek_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_ekmek_muracaattarihi")
+  @@index([sureturu], map: "ind_yrd_ekmek_sureturu")
+}
+
+model yrd_ekmekhrk {
+  id          BigInt    @id @default(autoincrement())
+  kullaniciid Int?
+  islemtarihi DateTime? @db.Timestamp(6)
+  dosyaid     BigInt?
+  yardimid    BigInt?
+  islemadi    String?   @db.VarChar(30)
+  miktar      Int?
+  aciklama    String?
+  donemadi    String?   @db.VarChar(30)
+
+  @@index([dosyaid], map: "ind_yrd_ekmekhrk_dosyaid")
+  @@index([islemtarihi], map: "ind_yrd_ekmekhrk_islemtarihi")
+  @@index([yardimid], map: "ind_yrd_ekmekhrk_yardimid")
+  @@index([yardimid], map: "ind_yrd_ekmekhrk_yrd_ekmekid")
+}
+
+model yrd_emtia {
+  id               BigInt    @id @default(autoincrement())
+  kullaniciid      Int?
+  ilkkullaniciid   Int?
+  islemtarihi      DateTime? @db.Timestamp(6)
+  ilkislemtarihi   DateTime? @db.Timestamp(6)
+  dosyaid          BigInt?
+  muracaateden     String?   @db.VarChar(100)
+  muracaattarihi   DateTime? @db.Date
+  muracaataciklama String?
+  aciklama         String?
+  durumu           Int?
+  durumutarih      DateTime? @db.Date
+  durumuaciklama   String?   @db.VarChar(100)
+  miktar           Int?
+  donem            String?   @db.VarChar(20)
+  etiket           String?   @db.VarChar(100)
+
+  @@index([donem], map: "ind_yrd_emtia_donem")
+  @@index([dosyaid], map: "ind_yrd_emtia_dosyaid")
+  @@index([durumu], map: "ind_yrd_emtia_durumu")
+  @@index([etiket], map: "ind_yrd_emtia_etiket")
+  @@index([muracaateden], map: "ind_yrd_emtia_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_emtia_muracaattarihi")
+}
+
+model yrd_emtia_log {
+  id                Int       @id @default(autoincrement())
+  yardim_hareket_id Int?
+  dosyaid           Int?
+  islem_turu        String?   @db.VarChar(20)
+  aciklama          String?
+  islem_tarihi      DateTime? @default(now()) @db.Timestamp(6)
+}
+
+model yrd_gidabankasi {
+  id                 BigInt    @id @default(autoincrement())
+  kullaniciid        Int?
+  ilkkullaniciid     Int?
+  islemtarihi        DateTime? @db.Timestamp(6)
+  ilkislemtarihi     DateTime? @db.Timestamp(6)
+  dosyaid            BigInt?
+  muracaateden       String?   @db.VarChar(100)
+  muracaattarihi     DateTime? @db.Date
+  muracaataciklama   String?
+  sureturu           Int?      @default(0) @db.SmallInt
+  bastarih           DateTime? @db.Date
+  bittarih           DateTime? @db.Date
+  miktar             Int?
+  aciklama           String?
+  durumu             Int?
+  durumutarih        DateTime? @db.Date
+  durumuaciklama     String?   @db.VarChar(100)
+  ensondonem         Int?
+  donemadi           String?   @db.VarChar(30)
+  donem              String?   @db.VarChar(20)
+  etiket             String?   @db.VarChar(100)
+  odemegunu          Int?
+  donemint           Int?
+  donemstr           String?   @db.VarChar(20)
+  dnm_bastarih       DateTime? @db.Date
+  dnm_durumu         Int?      @default(0) @db.SmallInt
+  dnm_durumutarih    DateTime? @db.Date
+  dnm_durumuaciklama String?   @db.VarChar(255)
+
+  @@index([bastarih], map: "ind_yrd_gidabankasi_bastarih")
+  @@index([bittarih], map: "ind_yrd_gidabankasi_bittarih")
+  @@index([dnm_bastarih], map: "ind_yrd_gidabankasi_dnm_bastari")
+  @@index([dnm_durumu], map: "ind_yrd_gidabankasi_dnm_durumu")
+  @@index([dnm_durumutarih], map: "ind_yrd_gidabankasi_dnm_durumut")
+  @@index([donemint], map: "ind_yrd_gidabankasi_donemint")
+  @@index([donemstr], map: "ind_yrd_gidabankasi_donemstr")
+  @@index([dosyaid], map: "ind_yrd_gidabankasi_dosyaid")
+  @@index([durumu], map: "ind_yrd_gidabankasi_durumu")
+  @@index([durumutarih], map: "ind_yrd_gidabankasi_durumutarih")
+  @@index([ensondonem], map: "ind_yrd_gidabankasi_ensondonem")
+  @@index([etiket], map: "ind_yrd_gidabankasi_etiket")
+  @@index([muracaateden], map: "ind_yrd_gidabankasi_muracaatede")
+  @@index([muracaattarihi], map: "ind_yrd_gidabankasi_muracaattar")
+  @@index([odemegunu], map: "ind_yrd_gidabankasi_odemegunu")
+  @@index([sureturu], map: "ind_yrd_gidabankasi_sureturu")
+}
+
+model yrd_gidabankasidnm {
+  id             BigInt    @id @default(autoincrement())
+  kullaniciid    Int?
+  ilkkullaniciid Int?
+  islemtarihi    DateTime? @db.Timestamp(6)
+  ilkislemtarihi DateTime? @db.Timestamp(6)
+  oturumid       BigInt?
+  dosyaid        BigInt?
+  yrd_gbid       BigInt?
+  bastarih       DateTime? @db.Date
+  bittarih       DateTime? @db.Date
+  miktar         Int?
+  aciklama       String?
+  durumu         Int?
+  durumutarih    DateTime? @db.Date
+  durumuaciklama String?   @db.VarChar(100)
+  donem          Int?
+
+  @@index([donem], map: "ind_yrd_gidabankasidnm_donem")
+  @@index([dosyaid], map: "ind_yrd_gidabankasidnm_dosyaid")
+  @@index([durumu], map: "ind_yrd_gidabankasidnm_durumu")
+}
+
+model yrd_gidabankasihrk {
+  id          BigInt    @id @default(autoincrement())
+  kullaniciid Int?
+  islemtarihi DateTime? @db.Timestamp(6)
+  dosyaid     BigInt?
+  yardimid    BigInt?
+  yrd_gbdnmid BigInt?
+  islemadi    String?   @db.VarChar(30)
+  aciklama    String?
+  donem       Int?
+  miktar      Int?
+  donemadi    String?   @db.VarChar(30)
+  donemint    Int?
+
+  @@index([donemint], map: "ind_yrd_gidabankasihrk_donemint")
+  @@index([dosyaid], map: "ind_yrd_gidabankasihrk_dosyaid")
+  @@index([islemtarihi], map: "ind_yrd_gidabankasihrk_islemtar")
+  @@index([yardimid], map: "ind_yrd_gidabankasihrk_yardimid")
+  @@index([yrd_gbdnmid], map: "ind_yrd_gidabankasihrk_yrd_gbdnmid")
+  @@index([yardimid], map: "ind_yrd_gidabankasihrk_yrd_gbid")
+}
+
+model yrd_giyim {
+  id               BigInt    @id @default(autoincrement())
+  kullaniciid      Int?
+  ilkkullaniciid   Int?
+  islemtarihi      DateTime? @db.Timestamp(6)
+  ilkislemtarihi   DateTime? @db.Timestamp(6)
+  dosyaid          BigInt?
+  muracaateden     String?   @db.VarChar(100)
+  muracaattarihi   DateTime? @db.Date
+  muracaataciklama String?
+  aciklama         String?
+  durumu           Int?
+  durumutarih      DateTime? @db.Date
+  durumuaciklama   String?   @db.VarChar(100)
+  miktar           Int?
+  donem            String?   @db.VarChar(20)
+  etiket           String?   @db.VarChar(100)
+
+  @@index([donem], map: "ind_yrd_giyim_donem")
+  @@index([dosyaid], map: "ind_yrd_giyim_dosyaid")
+  @@index([durumu], map: "ind_yrd_giyim_durumu")
+  @@index([etiket], map: "ind_yrd_giyim_etiket")
+  @@index([muracaateden], map: "ind_yrd_giyim_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_giyim_muracaattarihi")
+}
+
+model yrd_haziryemek {
+  id                 BigInt    @id @default(autoincrement())
+  kullaniciid        Int?
+  ilkkullaniciid     Int?
+  islemtarihi        DateTime? @db.Timestamp(6)
+  ilkislemtarihi     DateTime? @db.Timestamp(6)
+  dosyaid            BigInt?
+  muracaateden       String?   @db.VarChar(100)
+  muracaattarihi     DateTime? @db.Date
+  muracaataciklama   String?
+  sureturu           Int?      @default(0) @db.SmallInt
+  bastarih           DateTime? @db.Date
+  bittarih           DateTime? @db.Date
+  kisisayisi         Int?
+  ekmekmiktari       Int?
+  aciklama           String?
+  durumu             Int?
+  durumutarih        DateTime? @db.Date
+  durumuaciklama     String?   @db.VarChar(100)
+  donemadi           String?   @db.VarChar(30)
+  miktar             Int?
+  donem              String?   @db.VarChar(20)
+  etiket             String?   @db.VarChar(100)
+  dnm_durumu         Int?
+  donemint           Int?
+  donemstr           String?
+  dnm_bastarih       DateTime? @db.Date
+  dnm_durumuaciklama String?
+
+  @@index([bastarih], map: "ind_yrd_haziryemek_bastarih")
+  @@index([bittarih], map: "ind_yrd_haziryemek_bittarih")
+  @@index([dosyaid], map: "ind_yrd_haziryemek_dosyaid")
+  @@index([durumu], map: "ind_yrd_haziryemek_durumu")
+  @@index([etiket], map: "ind_yrd_haziryemek_etiket")
+  @@index([muracaateden], map: "ind_yrd_haziryemek_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_haziryemek_muracaattari")
+  @@index([sureturu], map: "ind_yrd_haziryemek_sureturu")
+}
+
+model yrd_haziryemekhrk {
+  id           BigInt    @id @default(autoincrement())
+  kullaniciid  Int?
+  islemtarihi  DateTime? @db.Timestamp(6)
+  dosyaid      BigInt?
+  yardimid     BigInt?
+  islemadi     String?   @db.VarChar(30)
+  aciklama     String?
+  kisisayisi   Int?
+  ekmekmiktari Int?
+  donemadi     String?   @db.VarChar(30)
+  miktar       Decimal?  @db.Decimal
+
+  @@index([dosyaid], map: "ind_yrd_haziryemekhrk_dosyaid")
+  @@index([islemtarihi], map: "ind_yrd_haziryemekhrk_islemtari")
+  @@index([yardimid], map: "ind_yrd_haziryemekhrk_yardimid")
+  @@index([yardimid], map: "ind_yrd_haziryemekhrk_yrd_haziryemekid")
+}
+
+model yrd_kirtasiye {
+  id               BigInt    @id @default(autoincrement())
+  kullaniciid      Int?
+  ilkkullaniciid   Int?
+  islemtarihi      DateTime? @db.Timestamp(6)
+  ilkislemtarihi   DateTime? @db.Timestamp(6)
+  dosyaid          BigInt?
+  muracaateden     String?   @db.VarChar(100)
+  muracaattarihi   DateTime? @db.Date
+  muracaataciklama String?
+  aciklama         String?
+  durumu           Int?
+  durumutarih      DateTime? @db.Date
+  durumuaciklama   String?   @db.VarChar(100)
+  miktar           Int?
+  kisisayisi       Int?
+  donem            String?   @db.VarChar(50)
+  etiket           String?   @db.VarChar(100)
+
+  @@index([donem], map: "ind_yrd_kirtasiye_donem")
+  @@index([dosyaid], map: "ind_yrd_kirtasiye_dosyaid")
+  @@index([durumu], map: "ind_yrd_kirtasiye_durumu")
+  @@index([durumutarih], map: "ind_yrd_kirtasiye_durumutarih")
+  @@index([etiket], map: "ind_yrd_kirtasiye_etiket")
+  @@index([muracaateden], map: "ind_yrd_kirtasiye_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_kirtasiye_muracaattarih")
+}
+
+model yrd_yakacak {
+  id               BigInt    @id @default(autoincrement())
+  kullaniciid      Int?
+  ilkkullaniciid   Int?
+  islemtarihi      DateTime? @db.Timestamp(6)
+  ilkislemtarihi   DateTime? @db.Timestamp(6)
+  dosyaid          BigInt?
+  muracaateden     String?   @db.VarChar(100)
+  muracaattarihi   DateTime? @db.Date
+  muracaataciklama String?
+  aciklama         String?
+  durumu           Int?
+  durumutarih      DateTime? @db.Date
+  durumuaciklama   String?   @db.VarChar(100)
+  miktar           Int?
+  donem            String?   @db.VarChar(20)
+  etiket           String?   @db.VarChar(100)
+
+  @@index([donem], map: "ind_yrd_yakacak_donem")
+  @@index([dosyaid], map: "ind_yrd_yakacak_dosyaid")
+  @@index([durumu], map: "ind_yrd_yakacak_durumu")
+  @@index([etiket], map: "ind_yrd_yakacak_etiket")
+  @@index([muracaateden], map: "ind_yrd_yakacak_muracaateden")
+  @@index([muracaattarihi], map: "ind_yrd_yakacak_muracaattarihi")
+}
+
+// Cenaze yemekleri - Ana Sayfa'daki "Cenaze Yemekleri" panelinde aylik
+// verilen yemek sayisi ve odenen tutarin girildigi/raporlandigi tablo.
+// Bir (yil, ay) icin TEK bir ozet satir tutulur (UNIQUE kisiti) - ayni ay
+// icin tekrar veri girilirse GUNCELLENIR (upsert), coklu satir birikmez.
+model CenazeYemekleri {
+  id               BigInt   @id @default(autoincrement())
+  yil              Int      @db.SmallInt
+  ay               Int      @db.SmallInt
+  yemekMiktari     Int      @default(0) @map("yemek_miktari")
+  tutar            Decimal  @default(0) @db.Decimal(18, 2)
+  aciklama         String?
+  olusturmaTarihi  DateTime @default(now()) @map("olusturma_tarihi") @db.Timestamp(6)
+  guncellemeTarihi DateTime @default(now()) @updatedAt @map("guncelleme_tarihi") @db.Timestamp(6)
+
+  @@unique([yil, ay], map: "uq_cenaze_yemekleri_yil_ay")
+  @@index([yil], map: "idx_cenaze_yemekleri_yil")
+  @@map("cenaze_yemekleri")
+}
+
+// Yardim Sayac - kullanicilarin BARKOD YAZICISINA gonderdikleri (basiliya
+// verdikleri) yardimlarin kaydi. Sadece dort tur izlenir: Gida Bankasi,
+// Donem Disi Gida, Destek Paketi, Giyim. Her basari ile yazdirma bir satir
+// ekler (tekillestirme YOK - ayni dosya ayni gun tekrar yazdirilirsa yeni
+// satir). Aktif ay verisine/akisina dokunmaz; yalniz bu tabloya yazar.
+// Kayit eden yer: printRenderedDesign (app/(modules)/documents/page.tsx) ->
+// POST /api/documents/yardim-sayac. Rapor: /reports/yardim-sayac.
+model YardimSayac {
+  id                BigInt   @id @default(autoincrement())
+  islemTarihi       DateTime @default(now()) @map("islem_tarihi") @db.Timestamp(6)
+  yardimTuru        String   @map("yardim_turu") @db.VarChar(60)
+  dosyaNo           String?  @map("dosya_no") @db.VarChar(60)
+  dosyaId           String?  @map("dosya_id") @db.VarChar(40)
+  adSoyad           String?  @map("ad_soyad") @db.VarChar(200)
+  miktar            String?  @db.VarChar(80)
+  yaziciAdi         String?  @map("yazici_adi") @db.VarChar(200)
+  gonderenKullanici String   @map("gonderen_kullanici") @db.VarChar(200)
+  olusturmaTarihi   DateTime @default(now()) @map("olusturma_tarihi") @db.Timestamp(6)
+  // Kullanici istegi (Ekim 2026): giyim yardimi gonderirken o yardim icin
+  // girilmis aciklama da kaydedilsin.
+  aciklama          String?  @db.VarChar(500)
+
+  @@index([islemTarihi(sort: Desc)], map: "idx_yardim_sayac_islem_tarihi")
+  @@index([yardimTuru], map: "idx_yardim_sayac_yardim_turu")
+  @@index([gonderenKullanici], map: "idx_yardim_sayac_gonderen")
+  @@map("yardim_sayac")
+}

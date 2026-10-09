@@ -1,0 +1,18 @@
+{
+  "printers": [
+    "10.20.1.26 üzerinde ZDesigner GC420d",
+    "AnyDesk Printer",
+    "Kyocera TASKalfa MZ4000i",
+    "Kyocera TASKalfa MZ4000i KX",
+    "Microsoft Print to PDF",
+    "OKI MC363 PCL6",
+    "ZDesigner GC420d"
+  ],
+  "designPrinters": {
+    "EKMEK (Kopya)": "ZDesigner GC420d"
+  },
+  "assistancePrinters": {
+    "Ekmek": "ZDesigner GC420d",
+    "Gıda Bankası": "Kyocera TASKalfa MZ4000i"
+  }
+}

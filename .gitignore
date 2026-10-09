@@ -1,0 +1,77 @@
+# Bagimliliklar
+node_modules/
+
+# Next.js build ciktilari (bu projede birden fazla - test/iis/dev icin ayri klasorler)
+.next/
+.next-*/
+.vercel
+*.tsbuildinfo
+
+# Ortam degiskenleri / gizli bilgiler - SADECE .env.example commit edilir
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.production.local
+.env.iis
+
+# Calisma zamani loglari (NSSM, dev sunucu ciktilari)
+logs/
+*.log
+.next-dev.*.log
+.next-*.err.log
+.next-*.out.log
+.next-*.stderr.log
+.next-*.stdout.log
+.next-prod.*.log
+.next-start.*.log
+.next-direct.*.log
+
+# Yedekler - eski guvenlik duzeltmesi kopyalari + veritabani yedekleri
+# (gercek vatandas verisi - TC kimlik no, adres vb. - icerebilir)
+backups/
+database/
+database-backup-settings.json
+*.bak
+*.dump
+*.sql
+
+# WhatsApp Web oturumu (kurumun paylasimli oturum verisi)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Olasi yuklenen belge/fotograf depolama yollari (bu projede konumu net
+# degil - once tedbiren)
+/public/uploads/
+/uploads/
+/storage/
+
+# IDE / isletim sistemi
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Test/gecici
+coverage/
+*.tmp
+
+# Tarama sirasinda bulunan, repoya girmemesi gereken dosyalar:
+# - gercek oturum cerezi (kimlik bilgisi niteliginde)
+scripts/tmp-cookie.txt
+# - gercek vatandas verisi (TC kimlik no, ad soyad) iceren disa aktarim
+zaten-aktarilmis-online-basvurular.csv
+# - PDF ayristirma debug/scratch ciktilari (onemsiz, tekrar uretilebilir)
+scripts/dev/scratch/
+# - 150MB+ derlenmis ajan kurulum dosyasi (GitHub'in 100MB dosya sinirini
+#   asiyor, ayrica repoyu gereksiz sisiriyor - ayri bir yerden dagitilmali)
+scripts/*.exe
+scripts/dev/_tmpverifysql.cjs
+
+# kpsv2/ - KPS/NVI relay servisi: tamamen AYRI bir .NET (ASP.NET) uygulamasi,
+# bu depodaki Next.js/Node koduyla ilgisiz. Kendi (bos/kirik) .git klasoru
+# bile var - ayri bir repo olmasi gerekiyormus gibi duruyor. Derlenmis
+# DLL/EXE/obj/bin/packages/.vs klasorleriyle birlikte YUZLERCE MB
+# siklet getirirdi, bu yuzden TAMAMEN haric tutuldu. Ayri versiyonlamak
+# istenirse kendi bagimsiz deposu kurulmali.
+kpsv2/

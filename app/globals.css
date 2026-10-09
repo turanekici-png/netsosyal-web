@@ -1,0 +1,2381 @@
+/* "Dosya Yönetimi" sayfasi icin ozel tasarim fontlari (bkz. dosya sonundaki
+   ".dy-" ile baslayan kurallar) - SADECE o sayfadaki .dy-folder-tab/.dy-id-name
+   gibi siniflarda kullanilir, uygulamanin geri kalaninin varsayilan
+   fontunu (Arial) ETKILEMEZ. @import kurallari CSS geregi dosyanin EN
+   BASINDA olmak zorunda. */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+@import "tailwindcss";
+
+/* Kullanici istegi (15 Eylul 2026, 26. tur): Tailwind v4'un otomatik kaynak
+   taramasi normalde ".gitignore"a bakarak build-cikti klasorlerini disler -
+   ama bu proje bir GIT DEPOSU DEGIL (".gitignore" yok), bu yuzden Tailwind
+   ".next*"/"backups" gibi ESKI/DUPLICATE kaynak kopyalarini (ör.
+   ".next-iis/standalone/components/..." - onceki bir IIS paketleme
+   calismasinin STATIK KOPYASI) da GERCEK kaynakmis gibi tarayip, artik
+   GERCEK kaynaktan kaldirilmis (bkz. LocalDesignGrid.tsx/DashboardGrid.tsx
+   "cursor-move" duzeltmesi) eski bir Tailwind sinifini YENIDEN uretmeye
+   calisiyordu - bu da (nedeni netlesmedi) Lightning CSS'te bozuk baytli bir
+   secici uretip HER build'de "next dev"i FATAL hataya dusuren, "next
+   build"i ise sadece uyaran 3 CSS uyarisina yol aciyordu. Bu kaynaklari
+   acikca haric tutmak, hem bu spesifik hatayi hem de GELECEKTE benzer eski-
+   kopya kaynakli baska surprizleri onler.
+*/
+@source not "../.next/**";
+@source not "../.next-iis/**";
+@source not "../.next-dev/**";
+@source not "../.next-preview/**";
+@source not "../.next-test3001/**";
+@source not "../backups/**";
+
+/* Gunduz/gece modu: KULLANICININ SECIMI ile kontrol edilir (sistem tercihiyle
+   degil) - <html> etiketine "dark" sinifi eklenip cikarilarak calisir.
+   ThemeToggle bunu localStorage'a yazar; app/layout.tsx'teki engelleyici
+   (blocking) script sayfa boyanmadan ONCE bu sinifi uygular ki tema
+   degistirmede "yanlis renkli an" (flash) gorunmesin. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* Kullanici istegi (Eylul 2026): "yazi fontu birbirine girmeyen, daha net
+     okunabilen, resmi bir font olsun". Tum kullanicilar Windows'ta - Windows'un
+     kendi arayuz fontu "Segoe UI" hem resmi/kurumsal hem cok okunakli ve
+     harf araliklari Arial'dan ferah. Google Fonts CSP tarafindan engelli
+     oldugu icin (bkz. next.config.js font-src) DIS font yuklenmez; sistem
+     fontu zaten her Windows makinesinde var. */
+  --font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, "Roboto", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+
+  /* Kullanici istegi (Eylul 2026, "Genel Tasarim/Tipografi Tutarlilik
+     Duzeltmesi"): uygulama genelinde yazi boyutu/kalinligi/rengi hicbir
+     merkezi kaynaga bagli degildi - her bilesen kendi "text-[Npx]" degerini
+     seciyordu (denetimde 71 dosyada 1700+ farkli ham deger bulundu). Bu
+     6 boyut, Tailwind v4'un kendi "--text-sm" vb. ile AYNI kalipla
+     tanimlaniyor -> "text-ns-label" gibi bagimsiz utility siniflari da
+     otomatik uretilir. Asagidaki ".ns-*" "recipe" siniflari (boyut+kalinlik+
+     renk BIRLIKTE) gunluk kullanim icindir; sadece boyut gerekiyorsa bu
+     token'lar dogrudan da kullanilabilir (ör. "text-ns-help").
+     NOT: mevcut, zaten kullanici onayindan gecmis ozel sistemlere (asagidaki
+     ".dy-*" ailesi, AdvancedTable/ManagedReportTablePage/WorkspaceTabs'in
+     kendi punto degerleri) BILINCLI OLARAK DOKUNULMADI - bu token'lar
+     SADECE hic elle ayarlanmamis, ham Tailwind varsayilanlariyla yazilmis
+     sayfalar/formlar icin (ilk pilot: Aceze Yardimi formu). */
+  --text-ns-page-title: 1.375rem;    /* 22px - sayfa basligi */
+  --text-ns-section-title: 1rem;     /* 16px - bolum/fieldset basligi */
+  --text-ns-card-title: 0.875rem;    /* 14px - kart/panel basligi */
+  --text-ns-label: 0.8125rem;        /* 13px - form alani etiketi */
+  --text-ns-body: 0.875rem;          /* 14px - input degeri / govde metni */
+  --text-ns-help: 0.75rem;           /* 12px - aciklama/yardim metni */
+}
+
+/* ------------------------------------------------------------------------
+   Genel tipografi "recipe" sinifi - yukaridaki --text-ns-* token'lariyla
+   birlikte. Bilerek Tailwind @layer disinda (bu dosyanin geri kalaninda
+   oldugu gibi) - Cascade Layers kurali geregi katmanli utility'lerin
+   ONUNE gecer, "text-xs" gibi eski bir sinifla yan yana kalirsa bile
+   kazanir (bkz. asagidaki .dark override'larindaki ayni not).
+   ------------------------------------------------------------------------ */
+.ns-page-title { font-size: var(--text-ns-page-title); font-weight: 900; }
+.ns-section-title { font-size: var(--text-ns-section-title); font-weight: 900; }
+.ns-card-title { font-size: var(--text-ns-card-title); font-weight: 800; }
+.ns-label { font-size: var(--text-ns-label); font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: .02em; }
+.dark .ns-label { color: #94a3b8; }
+/* NOT: ".ns-label" bazen (Aceze formu gibi) input'u SARAN bir <label>
+   uzerinde kullaniliyor - "text-transform: uppercase" varsayilan olarak
+   MIRAS alinir (input/select/textarea bunu sifirlamaz). ".ns-body" bunu
+   ACIKCA "none"a cekip degeri buyuk harfe cevrilmekten korur. */
+.ns-body { font-size: var(--text-ns-body); font-weight: 600; color: #0f172a; text-transform: none; letter-spacing: normal; }
+.dark .ns-body { color: #e2e8f0; }
+.ns-help { font-size: var(--text-ns-help); font-weight: 600; color: #64748b; }
+.dark .ns-help { color: #94a3b8; }
+/* Buton boyut varyantlari - "sm/md/lg" tutarli padding + punto (renk/arka
+   plan cagiran bilesende kalir, boylece mevcut marka renkleriyle serbestce
+   birlesir: ör. className={`ns-btn-md rounded-xl bg-[#0076b6] text-white`}). */
+.ns-btn-sm { padding: 0.375rem 0.75rem; font-size: var(--text-ns-help); font-weight: 800; }
+.ns-btn-md { padding: 0.5rem 1rem; font-size: var(--text-ns-label); font-weight: 800; }
+.ns-btn-lg { padding: 0.625rem 1.25rem; font-size: var(--text-ns-body); font-weight: 800; }
+
+.dark {
+  /* Kullanici istegi (28 Agustos 2026): gece modu "daha profesyonel/estetik"
+     olsun. Onceki surumde SAYFA zemini ile KART/panel zemini AYNI renkti
+     (#131d33) - kartlar sayfaya karisip "duz/ucuz" bir gorunum veriyordu.
+     Artik sayfa biraz daha KOYU (#0e1728), kartlar (.bg-white) bir kademe
+     ACIK (#172336) - premium koyu panellerdeki gibi kartlar zeminden hafifce
+     "yukselir", katman hissi olusur. */
+  --background: #0e1728;
+  --foreground: #e6ebf3;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, "Roboto", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* "Yazdırıldı" bildirimi (documents/page.tsx) icin giris animasyonu -
+   kullanicinin "eskisi kucuk/farkedilmiyordu, ortada ve renkli olsun"
+   geri bildirimi uzerine, sag ust kosedeki soluk beyaz kutu yerine ekran
+   ortasinda hafif "pop" ile beliren renkli bir bildirime tasindi. */
+@keyframes print-toast-pop {
+  0% { opacity: 0; transform: scale(0.86) translateY(-12px); }
+  60% { opacity: 1; transform: scale(1.03) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.print-toast-pop {
+  animation: print-toast-pop 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Gece modunda govde duz tek renk yerine, "premium" koyu panel uygulamalarda
+   alisilmis, cok hafif bir kose isigi (koseli vinyet) alir - tamamen duz
+   siyah/lacivert bir sayfa yerine hafif bir derinlik hissi verir. Fark
+   gozle zor secilir ama sayfayi "flat/ucuz" degil "tasarlanmis" gosterir. */
+.dark body {
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgba(56, 189, 248, 0.06), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(16, 185, 129, 0.05), transparent 55%),
+    var(--background);
+}
+
+/* ------------------------------------------------------------------------
+   Gece modu - SAYFA ICERIGI icin genel gecer (blanket) kapsama.
+   ------------------------------------------------------------------------
+   Bu uygulamadaki her sayfa (Dosyalar, Bireyler, Dosya Yönetimi, Ana Sayfa,
+   yardım raporları...) ayni birkac "imza" Tailwind sinifini (bg-white,
+   bg-slate-50, text-slate-900, border-slate-200 vb.) YUZLERCE dosyada tekrar
+   tekrar kullaniyor. Bunlarin HER BIRINE, her dosyada tek tek "dark:" varyanti
+   eklemek gercekci degil (binlerce satir). Bunun yerine, en cok kullanilan bu
+   "imza" siniflari, .dark kapsaminda GENEL OLARAK koyu esdegerlerine ceviren
+   bir kural seti - Tailwind'in katmanli (@layer) utility kurallarinin DISINDA
+   yazildigi icin CSS Cascade Layers kurali geregi onlarin ONUNE gecer, tek
+   tek "!important" eklemeye gerek kalmaz.
+   Kapsam disi kalanlar: renkli rozet/durum etiketleri (bg-emerald-600 gibi
+   anlam tasiyan renkler), logo/marka kartlari (bg-white/95 gibi opaklikli
+   varyantlar farkli bir sinif oldugu icin bu kurallardan ETKILENMEZ) - bu
+   bilerek boyle, aksi halde durum renkleri/marka kartlari anlamini yitirirdi. */
+.dark .bg-white { background-color: #172336; }
+.dark .bg-gray-50 { background-color: #202f45; }
+.dark .bg-gray-100 { background-color: #172336; }
+.dark .bg-slate-50 { background-color: #202f45; }
+.dark .bg-slate-100 { background-color: #202f45; }
+/* Koseli-parantez/hex ve bolu-cizgi (opaklik) iceren Tailwind arbitrary
+   siniflari (ör. "bg-[#eaf7fd]", "bg-white/85") CSS'te escape edilmesi
+   gereken karakterler icerir (\[ \] \# \/); bu escape'ler bazi derleyicilerde
+   guvenilmez calisabildigi icin, bunun yerine HTML class ozniteliginin
+   HAM (escape'siz) metnini arayan [class~="..."] öznitelik secicisi
+   kullanildi - Tailwind bu siniflari DOM'a AYNEN bu sekilde (escape'siz)
+   yazdigi icin garanti eslesir. */
+.dark [class~="bg-[#eaf7fd]"] { background-color: #075985; }
+.dark [class~="bg-[#e6f3dd]"] { background-color: #065f46; }
+.dark .bg-sky-50,
+.dark .bg-sky-100 { background-color: #075985; }
+.dark .bg-emerald-50,
+.dark .bg-emerald-100 { background-color: #065f46; }
+.dark .bg-cyan-50,
+.dark .bg-cyan-100 { background-color: #155e75; }
+.dark .bg-amber-50,
+.dark .bg-amber-100,
+.dark .bg-yellow-50,
+.dark .bg-yellow-100 { background-color: #92400e; }
+.dark .bg-rose-50,
+.dark .bg-rose-100,
+.dark .bg-red-100,
+.dark .bg-pink-50,
+.dark .bg-pink-100 { background-color: #9f1239; }
+.dark .bg-violet-50,
+.dark .bg-violet-100,
+.dark .bg-indigo-100,
+.dark .bg-purple-50,
+.dark .bg-purple-100 { background-color: #5b21b6; }
+.dark .bg-teal-50,
+.dark .bg-teal-100 { background-color: #115e59; }
+.dark .bg-lime-50,
+.dark .bg-lime-100 { background-color: #3f6212; }
+.dark .bg-fuchsia-100 { background-color: #86198f; }
+.dark .bg-blue-100 { background-color: #1e40af; }
+.dark .bg-orange-100 { background-color: #9a3412; }
+.dark .bg-fuchsia-50 { background-color: #86198f; }
+/* "Adres No uyuşmazlığı" / "Evli" gibi satir vurgulama (highlight) renkleri
+   (bg-blue-200, bg-red-200, bg-[#f1faed] gibi acik tonlar) genel-gecer
+   kapsamada UNUTULMUSTU - bu satirlar acik mavi/acik yesil zeminde
+   BEYAZ yazi (text-slate-900 -> #fff) ile birleşince yazi tamamen
+   okunmaz hale geliyordu (kullanicinin bildirdigi tam olarak buydu). */
+.dark .bg-blue-200 { background-color: #1e40af; }
+.dark .hover\:bg-blue-300:hover { background-color: #1d4ed8; }
+.dark .hover\:bg-red-200:hover { background-color: #be123c; }
+.dark [class~="bg-[#f1faed]"] { background-color: #14532d; }
+.dark [class~="hover:bg-[#eaf7fd]"]:hover { background-color: #075985; }
+
+/* "hover:bg-sky-50" gibi FARE UZERINE GELINCE devreye giren siniflar,
+   yukaridaki "bg-sky-50" (normal durum) kurallarindan TAMAMEN AYRI birer
+   sinif tokenidir (Tailwind varyantlari ayri sinif adi uretir) - bu yuzden
+   yukaridaki kurallar bunlari KAPSAMAZ. Sonuc: satirin uzerine gelince
+   zemin acik moddaki gibi (neredeyse beyaz) kaliyor, uzerindeki BEYAZ yazi
+   (text-slate-900 -> #fff) ile birlesip veriler tamamen okunmaz hale
+   geliyordu - kullanicinin bildirdigi tam olarak buydu. Uygulama genelinde
+   yuzlerce yerde kullanilan bu "hover:bg-*-50/100" kaliplarinin TAMAMI
+   burada, ayni rengin normal-durum tonuyla eslesecek sekilde kapsandi. */
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-gray-50:hover { background-color: #253449; }
+.dark .hover\:bg-sky-50:hover,
+.dark .hover\:bg-sky-100:hover,
+.dark .hover\:bg-blue-50:hover { background-color: #075985; }
+.dark .hover\:bg-emerald-50:hover,
+.dark .hover\:bg-emerald-100:hover { background-color: #065f46; }
+.dark .hover\:bg-cyan-50:hover,
+.dark .hover\:bg-cyan-100:hover { background-color: #155e75; }
+.dark .hover\:bg-amber-50:hover,
+.dark .hover\:bg-yellow-50:hover { background-color: #92400e; }
+.dark .hover\:bg-rose-50:hover,
+.dark .hover\:bg-rose-100:hover,
+.dark .hover\:bg-red-50:hover,
+.dark .hover\:bg-red-100:hover,
+.dark .hover\:bg-pink-100:hover { background-color: #9f1239; }
+.dark .hover\:bg-violet-50:hover,
+.dark .hover\:bg-violet-100:hover,
+.dark .hover\:bg-indigo-50:hover,
+.dark .hover\:bg-indigo-100:hover { background-color: #5b21b6; }
+.dark .hover\:bg-teal-50:hover,
+.dark .hover\:bg-teal-100:hover { background-color: #115e59; }
+.dark .hover\:bg-orange-50:hover,
+.dark .hover\:bg-orange-100:hover { background-color: #9a3412; }
+.dark .hover\:bg-lime-100:hover { background-color: #3f6212; }
+.dark .hover\:bg-fuchsia-100:hover { background-color: #86198f; }
+/* Ayni sorun "group-hover:" (ust ogeye fare gelince alt ogenin degismesi)
+   varyanti icin de gecerli - ayni sekilde kapsandi. */
+.dark .group-hover\:bg-sky-100:is(:where(.group):hover *) { background-color: #075985; }
+.dark .group-hover\:bg-rose-100:is(:where(.group):hover *) { background-color: #9f1239; }
+.dark .group-hover\:bg-violet-100:is(:where(.group):hover *) { background-color: #5b21b6; }
+.dark .group-hover\:bg-indigo-100:is(:where(.group):hover *) { background-color: #5b21b6; }
+.dark .group-hover\:bg-emerald-100:is(:where(.group):hover *) { background-color: #065f46; }
+.dark .group-hover\:bg-cyan-100:is(:where(.group):hover *) { background-color: #155e75; }
+.dark .group-hover\:bg-amber-100:is(:where(.group):hover *) { background-color: #92400e; }
+
+/* Degrade (gradient) "banner/panel basligi" arkaplanlari - "bg-gradient-to-*"
+   ile birlikte kullanilan ACIK renkli durak (stop) siniflari (from-sky-50,
+   via-white, to-emerald-50 gibi). Bunlar background-color DEGIL, ayri
+   --tw-gradient-from/via/to degiskenlerini ayarlar; bu yuzden yukaridaki
+   bg-* kurallari bunlari KAPSAMAZ - Ana Sayfa'daki "Belge Kayıtları" tablo
+   basligi ve arama kutusu gibi acik degrade seritlerin gece modunda hala
+   beyaz/acik gorunmesinin sebebi buydu.
+   Ucu ucu AYNI duz renge (#131d33) DEGIL, birbirine yakin ama farkli iki
+   koyu tona ceviriyoruz (from acik, to koyu) - boylece "duz boyanmis
+   dikdortgen" degil, orijinal tasarimdaki gibi hafif bir yon/parlaklik
+   hissi olan, daha "tasarlanmis" bir gorunum korunuyor. */
+.dark .from-white,
+.dark .from-slate-50,
+.dark .from-gray-50,
+.dark .from-sky-50,
+.dark .from-sky-100,
+.dark .from-emerald-50,
+.dark .from-cyan-50,
+.dark .from-violet-50,
+.dark .from-amber-50,
+.dark .from-rose-50,
+.dark .from-orange-50,
+.dark .from-blue-50,
+.dark .from-fuchsia-50,
+.dark .from-teal-50,
+.dark .from-lime-50,
+.dark .from-pink-50,
+.dark .from-purple-50,
+.dark .from-yellow-50 { --tw-gradient-from: #253449; }
+
+.dark .via-white,
+.dark .via-slate-50,
+.dark .via-sky-50,
+.dark .via-emerald-50,
+.dark .via-violet-50,
+.dark .via-orange-50,
+.dark .via-fuchsia-50,
+.dark .via-teal-50,
+.dark .via-lime-100,
+.dark .via-green-100 { --tw-gradient-via: #1a2740; }
+
+.dark .to-white,
+.dark .to-slate-50,
+.dark .to-sky-50,
+.dark .to-emerald-50,
+.dark .to-emerald-100,
+.dark .to-cyan-50,
+.dark .to-rose-50,
+.dark .to-orange-50,
+.dark .to-fuchsia-50,
+.dark .to-teal-50,
+.dark .to-lime-100,
+.dark .to-pink-50,
+.dark .to-purple-50,
+.dark .to-yellow-50 { --tw-gradient-to: #131d33; }
+
+/* Opaklikli acik-renk varyantlar (bg-white/85, bg-amber-50/70 gibi) - Tailwind'de
+   "bg-white" ile "bg-white/85" AYRI siniflardir, opaklik yuzdesi de sinifin
+   PARCASI oldugu icin (bg-amber-50/20, /40, /60, /70, /80, /95 ...) her
+   olasi yuzdeyi tek tek listelemek yerine ICEREN (substring, [class*=...])
+   secici kullanildi - "bg-amber-50/" ile baslayan HERHANGI bir opaklik
+   varyantini, yuzdesi ne olursa olsun yakalar. Rapor/liste tablolarindaki
+   (ör. İnceleme Raporları) alternatif satir renklerinin gece modunda hala
+   soluk/gri gorunmesinin sebebi tam olarak buydu - bu tablolar tam opak
+   "bg-amber-50" degil, "bg-amber-50/70" gibi kismi opaklikli sinifiar
+   kullaniyor. */
+.dark [class*="bg-white/"],
+.dark [class*="bg-slate-50/"],
+.dark [class*="bg-slate-100/"],
+.dark [class*="bg-gray-50/"] { background-color: #253449; }
+/* Rapor tablolarindaki (İnceleme Raporları, Ev Ziyareti Formları, Dış Kurum
+   Yardımları) alternatif satir renkleri gibi kullanimlar - acik modda ince
+   bir "tint" (renk ipucu) iken, koyu modda bunlari DUZ/OPAK doygun bir renge
+   (ör. amber-900) cevirmek satirlarin koyu lacivert genelin icinde "sırıtan",
+   bulanik/kahverengimsi bir blok gibi durmasina yol aciyordu - ayrica
+   amber/orange ve violet/fuchsia gibi cift-renk kombinasyonlari AYNI koyu
+   tona esleniyordu, bu da alternatif satirlarin (zebra) birbirinden hic
+   ayirt edilememesine sebep oluyordu. Bunun yerine, koyu lacivert zemin
+   UZERINE dusuk-opaklikli (yari saydam) bir renk katmani uygulaniyor - hem
+   genel koyu paletle uyumlu/yumusak kaliyor hem de her renk ailesi kendi
+   ayirt edici tonunu koruyor. */
+.dark [class*="bg-amber-50/"] { background-color: rgba(217, 119, 6, 0.16); }
+.dark [class*="bg-orange-50/"] { background-color: rgba(194, 65, 12, 0.18); }
+.dark [class*="bg-emerald-50/"] { background-color: rgba(5, 150, 105, 0.14); }
+.dark [class*="bg-teal-50/"] { background-color: rgba(13, 148, 136, 0.16); }
+.dark [class*="bg-sky-50/"] { background-color: rgba(14, 165, 233, 0.14); }
+.dark [class*="bg-blue-50/"] { background-color: rgba(37, 99, 235, 0.16); }
+.dark [class*="bg-cyan-50/"] { background-color: rgba(6, 182, 212, 0.14); }
+.dark [class*="bg-violet-50/"],
+.dark [class*="bg-indigo-50/"],
+.dark [class*="bg-purple-50/"] { background-color: rgba(139, 92, 246, 0.16); }
+.dark [class*="bg-fuchsia-50/"] { background-color: rgba(217, 70, 239, 0.14); }
+.dark [class*="bg-rose-50/"] { background-color: rgba(244, 63, 94, 0.14); }
+.dark [class*="bg-pink-50/"] { background-color: rgba(236, 72, 153, 0.14); }
+.dark [class*="bg-lime-50/"] { background-color: rgba(132, 204, 22, 0.14); }
+.dark [class*="bg-yellow-50/"] { background-color: rgba(234, 179, 8, 0.14); }
+
+/* Metin/veri (rakamlar, basliklar, degerler) okunabilirligi icin her katman
+   bir onceki surumden BIRAZ daha parlak tutuldu - ozellikle rakam/deger
+   gosteren hucrelerde kontrast dusuklugu goze batiyordu. Alan basliklari,
+   tablo/filtre basliklari (genelde text-slate-500/600 kucuk-buyuk harf
+   etiketler) ve veri hucreleri "bulanik" gorundugu icin (kontrast dusuk
+   kaldigi icin) merdiven bir kademe daha yukari cekildi - en ust kademe
+   (950/900) artik saf beyaza yakin, orta kademeler (600/500) de belirgin
+   sekilde parlaklastirildi. */
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-gray-950,
+.dark .text-gray-900,
+.dark .text-gray-800 { color: #ffffff; }
+.dark .text-slate-700,
+.dark .text-gray-700 { color: #f8fafc; }
+.dark .text-slate-600,
+.dark .text-gray-600 { color: #eef2f7; }
+.dark .text-slate-500,
+.dark .text-gray-500 { color: #dbe4ed; }
+
+/* Tablo/kart hucrelerindeki veri metni rengi zaten en parlak (#fff) - ama
+   renkli/degrade veya yari saydam renkli (ör. rapor tablosu satirlarindaki
+   amber/mor tonlar) zeminlerin UZERINDE, kucuk punto+koyu olmayan kenarlar
+   yuzunden "bulanik/net degil" hissi verebiliyor. Rengi daha da
+   parlaklastirmak mumkun degil (zaten saf beyaz) - bunun yerine metnin
+   ARKASINA cok hafif, koyu bir golge vererek kenarlarin (özellikle degrade/
+   noktali zeminlerde) netlesmesini sagliyoruz - okunurlugu gozle gorulur
+   sekilde artirir, renk tonunu degistirmez. */
+.dark table td,
+.dark table th {
+  text-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.55);
+}
+.dark .text-slate-400,
+.dark .text-gray-400 { color: #aebcce; }
+.dark [class~="text-[#005f95]"] { color: #7dd3fc; }
+.dark [class~="text-[#0076b6]"] { color: #7dd3fc; }
+.dark [class~="text-[#4f8f2f]"] { color: #86efac; }
+.dark [class~="text-[#3f7f28]"] { color: #86efac; }
+
+/* Renkli "-50" arkaplanlarla (yukarida koyulastirildi) birlikte kullanilan
+   koyu vurgu metinleri (ör. bg-emerald-50 + text-emerald-800) - okunabilirlik
+   icin acik tonlara ceviriyoruz. Orta tonlar (500/600 - ozellikle
+   text-rose-500/600, text-indigo-600 gibi cok sik kullanilan "vurgu/onemli
+   deger" renkleri) acik modda beyaz zemine karsi net gorunse de, koyu
+   lacivert zemine karsi SOLUK/donuk kaliyordu - bu yuzden 500/600 tonlari da
+   ailenin 700-900 icin secilen AYNI parlak pastel tona cekildi (kademeli
+   degil, tek ve okunakli bir koyu-mod tonu). */
+.dark .text-sky-500,
+.dark .text-sky-600,
+.dark .text-sky-700,
+.dark .text-sky-800,
+.dark .text-sky-900,
+.dark .text-sky-950 { color: #7dd3fc; }
+.dark .text-emerald-500,
+.dark .text-emerald-600,
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-emerald-900,
+.dark .text-emerald-950,
+.dark .text-green-600,
+.dark .text-green-900,
+.dark .text-green-950 { color: #6ee7b7; }
+.dark .text-cyan-500,
+.dark .text-cyan-600,
+.dark .text-cyan-700,
+.dark .text-cyan-800,
+.dark .text-cyan-900,
+.dark .text-cyan-950 { color: #67e8f9; }
+.dark .text-amber-500,
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-amber-950 { color: #fcd34d; }
+.dark .text-rose-400,
+.dark .text-rose-500,
+.dark .text-rose-600,
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-rose-900,
+.dark .text-rose-950 { color: #fda4af; }
+.dark .text-violet-500,
+.dark .text-violet-600,
+.dark .text-violet-700,
+.dark .text-violet-800,
+.dark .text-violet-900,
+.dark .text-violet-950 { color: #c4b5fd; }
+.dark .text-orange-500,
+.dark .text-orange-600,
+.dark .text-orange-700,
+.dark .text-orange-800,
+.dark .text-orange-900,
+.dark .text-orange-950 { color: #fdba74; }
+.dark .text-blue-500,
+.dark .text-blue-600,
+.dark .text-blue-700,
+.dark .text-blue-800,
+.dark .text-blue-900,
+.dark .text-blue-950 { color: #93c5fd; }
+.dark .text-red-500,
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800,
+.dark .text-red-900,
+.dark .text-red-950 { color: #fca5a5; }
+.dark .text-yellow-500,
+.dark .text-yellow-600,
+.dark .text-yellow-700,
+.dark .text-yellow-800,
+.dark .text-yellow-900,
+.dark .text-yellow-950 { color: #fde047; }
+.dark .text-indigo-500,
+.dark .text-indigo-600,
+.dark .text-indigo-700,
+.dark .text-indigo-800,
+.dark .text-indigo-900,
+.dark .text-indigo-950 { color: #a5b4fc; }
+.dark .text-teal-500,
+.dark .text-teal-600,
+.dark .text-teal-700,
+.dark .text-teal-800,
+.dark .text-teal-900,
+.dark .text-teal-950 { color: #5eead4; }
+.dark .text-fuchsia-500,
+.dark .text-fuchsia-600,
+.dark .text-fuchsia-700,
+.dark .text-fuchsia-800,
+.dark .text-fuchsia-900,
+.dark .text-fuchsia-950 { color: #f0abfc; }
+.dark .text-pink-500,
+.dark .text-pink-600,
+.dark .text-pink-700,
+.dark .text-pink-800,
+.dark .text-pink-900,
+.dark .text-pink-950 { color: #f9a8d4; }
+.dark .text-purple-500,
+.dark .text-purple-600,
+.dark .text-purple-700,
+.dark .text-purple-800,
+.dark .text-purple-900,
+.dark .text-purple-950 { color: #d8b4fe; }
+.dark .text-lime-500,
+.dark .text-lime-600,
+.dark .text-lime-700,
+.dark .text-lime-800,
+.dark .text-lime-900,
+.dark .text-lime-950 { color: #bef264; }
+
+/* ------------------------------------------------------------------------
+   Gece modu - "imza" (bespoke) HEX metin renkleri.
+   ------------------------------------------------------------------------
+   Dosya Yönetimi, İş Akışı, Header ve Sidebar gibi OZEL PALETLI ekranlar,
+   Tailwind'in adli renk siniflari (text-slate-900 vb.) yerine dogrudan HEX
+   arbitrary siniflari (text-[#16232B], text-[#0A5F67] ...) kullaniyor.
+   Yukaridaki adli-renk koyu-mod haritasi bunlari KAPSAMIYORDU - sonuc: koyu
+   lacivert zemin uzerinde neredeyse-siyah/koyu yazi cikip HEM WEB HEM MOBILDE
+   okunamiyordu (kullanicinin bildirdigi sorun). Asagida bu HEX degerleri,
+   ait olduklari renk ailesinin koyu-mod pastel tonuna eslenir. text-black ve
+   Tailwind'in neutral/zinc/stone gri aileleri (adli haritada sadece slate/
+   gray vardi) de burada tamamlanir. */
+.dark [class~="text-black"],
+.dark .hover\:text-black:hover,
+.dark [class~="text-[#16232B]"],
+.dark [class~="text-[#16232b]"],
+.dark [class~="text-[#24384A]"],
+.dark [class~="text-[#24384a]"],
+.dark [class~="text-[#3A4A55]"],
+.dark [class~="text-[#3f4a55]"],
+.dark [class~="text-[#1f2937]"],
+.dark [class~="text-[#111827]"],
+.dark [class~="text-[#0f172a]"],
+.dark [class~="text-[#1e293b]"],
+.dark [class~="text-[#334155]"] { color: #f1f5f9; }
+.dark [class~="text-[#5B6B74]"],
+.dark [class~="text-[#5b6b74]"],
+.dark [class~="text-[#3A4A55]"],
+.dark [class~="text-[#5C6B74]"],
+.dark [class~="text-[#475569]"],
+.dark [class~="text-[#64748b]"] { color: #cbd5e1; }
+
+.dark .text-neutral-950,
+.dark .text-neutral-900,
+.dark .text-neutral-800,
+.dark .text-neutral-700,
+.dark .text-zinc-950,
+.dark .text-zinc-900,
+.dark .text-zinc-800,
+.dark .text-zinc-700,
+.dark .text-stone-950,
+.dark .text-stone-900,
+.dark .text-stone-800,
+.dark .text-stone-700 { color: #f1f5f9; }
+.dark .text-neutral-600,
+.dark .text-neutral-500,
+.dark .text-zinc-600,
+.dark .text-zinc-500,
+.dark .text-stone-600,
+.dark .text-stone-500 { color: #cbd5e1; }
+
+/* Teal / turkuaz aile (Dosya Yönetimi baslik ve etiket rengi) */
+.dark [class~="text-[#0A5F67]"],
+.dark [class~="text-[#0a5f67]"],
+.dark [class~="text-[#0E7C86]"],
+.dark [class~="text-[#0e7c86]"],
+.dark [class~="text-[#1d8a8c]"],
+.dark [class~="text-[#1D8A8C]"],
+.dark [class~="text-[#5B8F93]"],
+.dark [class~="text-[#5b8f93]"],
+.dark [class~="text-[#0d9488]"],
+.dark [class~="text-[#0f766e]"] { color: #5eead4; }
+
+/* Mavi aile */
+.dark [class~="text-[#003f82]"],
+.dark [class~="text-[#00649b]"],
+.dark [class~="text-[#00649B]"],
+.dark [class~="text-[#087fb2]"],
+.dark [class~="text-[#087FB2]"],
+.dark [class~="text-[#0c6f9e]"],
+.dark [class~="text-[#0C6F9E]"],
+.dark [class~="text-[#1E3A8A]"],
+.dark [class~="text-[#1e3a8a]"],
+.dark [class~="text-[#1D4ED8]"],
+.dark [class~="text-[#1d4ed8]"],
+.dark [class~="text-[#1976d2]"],
+.dark [class~="text-[#2563eb]"] { color: #93c5fd; }
+
+/* Amber / kahve aile */
+.dark [class~="text-[#7A5A16]"],
+.dark [class~="text-[#7a5a16]"],
+.dark [class~="text-[#B98A34]"],
+.dark [class~="text-[#b98a34]"],
+.dark [class~="text-[#5C4110]"],
+.dark [class~="text-[#5c4110]"],
+.dark [class~="text-[#5B4110]"],
+.dark [class~="text-[#c9820a]"],
+.dark [class~="text-[#C9820A]"],
+.dark [class~="text-[#B45309]"],
+.dark [class~="text-[#b45309]"],
+.dark [class~="text-[#92400e]"] { color: #fcd34d; }
+
+/* Kirmizi aile */
+.dark [class~="text-[#C1453B]"],
+.dark [class~="text-[#c1453b]"],
+.dark [class~="text-[#d32f2f]"],
+.dark [class~="text-[#D32F2F]"],
+.dark [class~="text-[#b91c1c]"],
+.dark [class~="text-[#dc2626]"] { color: #fca5a5; }
+
+/* Mor aile */
+.dark [class~="text-[#6D4AA6]"],
+.dark [class~="text-[#6d4aa6]"],
+.dark [class~="text-[#8e24aa]"],
+.dark [class~="text-[#8E24AA]"],
+.dark [class~="text-[#7c3aed]"],
+.dark [class~="text-[#6d28d9]"] { color: #d8b4fe; }
+
+/* Yesil aile (zaten acik ama netlik icin) */
+.dark [class~="text-[#6fb744]"],
+.dark [class~="text-[#6FB744]"],
+.dark [class~="text-[#16a34a]"] { color: #86efac; }
+
+/* Inline style ile verilmis koyu metin renkleri (nadir - birkac yer).
+   Inline stil en yuksek oncelikte oldugu icin !important gerekir. Bu
+   secici SADECE "color:" iceren inline stilleri hedefler; ayni HEX bir
+   background icin kullanilmissa etkilenmez cunku "color: #xxx" tam kalibi
+   aranir. */
+.dark [style*="color: #16232B"],
+.dark [style*="color: #16232b"],
+.dark [style*="color:#16232B"],
+.dark [style*="color: #24384A"],
+.dark [style*="color:#24384A"],
+.dark [style*="color: #111827"],
+.dark [style*="color:#111827"],
+.dark [style*="color: #131d33"],
+.dark [style*="color: #0f172a"] { color: #f1f5f9 !important; }
+.dark [style*="color: #0E7C86"],
+.dark [style*="color: #0e7c86"] { color: #5eead4 !important; }
+.dark [style*="color: #C1453B"],
+.dark [style*="color: #d32f2f"] { color: #fca5a5 !important; }
+.dark [style*="color: #B98A34"] { color: #fcd34d !important; }
+.dark [style*="color: #6D4AA6"],
+.dark [style*="color: #8e24aa"] { color: #d8b4fe !important; }
+.dark [style*="color: #1976d2"] { color: #93c5fd !important; }
+
+/* Canlı/doygun marka renkleri (butonlar, rozetler, degrade basliklar) -
+   acik zeminde gayet dengeli duran bu renkler (bg-[#0076b6], bg-blue-600,
+   bg-rose-600 gibi) koyu lacivert zemine karsi ilk surumde GEREGINDEN FAZLA
+   parlak/doygun kalip "sirit"iyordu. Bunlari koyu tona CEVIRMIYORUZ
+   (anlamlarini ve marka kimligini korumalari gerekiyor) - onun yerine hafif
+   bir doygunluk kisitlamasiyla (filter) zeminle uyumlu bir seviyeye
+   çekiyoruz. Kullanicidan gelen tekrarlanan "genel olarak daha parlak
+   olsun" geri bildirimleri uzerine, parlaklik (brightness) kismi tamamen
+   kaldirildi - sadece hafif bir doygunluk (saturate) kisitlamasi kaldi,
+   boylece butonlar/rozetler ORIJINAL parlakliklarini koruyor, sadece
+   asiri "neon" doygunluklari hafifce yumusatiliyor. */
+.dark [class*="bg-[#0076b6]"],
+.dark [class*="bg-[#005f95]"],
+.dark [class*="bg-[#005c8f]"],
+.dark [class*="bg-[#00649b]"],
+.dark [class*="bg-[#003f82]"],
+.dark [class*="bg-[#6fb744]"],
+.dark [class*="bg-[#3f7f28]"],
+.dark [class*="bg-[#346a21]"],
+.dark [class*="bg-[#5aa333]"],
+.dark [class*="bg-[#5b9f35]"],
+.dark [class*="bg-[#00b884]"],
+.dark [class*="from-[#0076b6]"],
+.dark [class*="from-[#005f95]"],
+.dark [class*="from-[#087fb2]"],
+.dark [class*="from-[#006ba6]"],
+.dark [class*="from-[#2f93a1]"],
+.dark [class*="via-[#0076b6]"],
+.dark [class*="via-[#309690]"],
+.dark [class*="via-[#075b9f]"],
+.dark [class*="via-[#00b884]"],
+.dark [class*="to-[#0076b6]"],
+.dark [class*="to-[#6fb744]"],
+.dark [class*="to-[#00a77a]"],
+.dark [class*="to-[#70b94a]"],
+.dark [class*="to-[#38bdf8]"],
+.dark [class*="to-[#20a4d8]"],
+.dark [class*="to-[#0f8fb8]"],
+.dark [class*="to-[#00b884]"],
+.dark [class*="to-[#f59e0b]"],
+.dark [class*="from-[#f59e0b]"],
+.dark [class*="via-[#22c55e]"],
+.dark [class*="to-[#36a852]"],
+.dark [class*="bg-blue-4"],
+.dark [class*="bg-blue-5"],
+.dark [class*="bg-blue-6"],
+.dark [class*="bg-blue-7"],
+.dark [class*="bg-orange-4"],
+.dark [class*="bg-orange-5"],
+.dark [class*="bg-orange-6"],
+.dark [class*="bg-orange-7"],
+.dark [class*="bg-red-4"],
+.dark [class*="bg-red-5"],
+.dark [class*="bg-red-6"],
+.dark [class*="bg-red-7"],
+.dark [class*="bg-amber-4"],
+.dark [class*="bg-amber-5"],
+.dark [class*="bg-amber-6"],
+.dark [class*="bg-amber-7"],
+.dark [class*="bg-green-4"],
+.dark [class*="bg-green-5"],
+.dark [class*="bg-green-6"],
+.dark [class*="bg-green-7"],
+.dark [class*="bg-emerald-4"],
+.dark [class*="bg-emerald-5"],
+.dark [class*="bg-emerald-6"],
+.dark [class*="bg-emerald-7"],
+.dark [class*="bg-rose-4"],
+.dark [class*="bg-rose-5"],
+.dark [class*="bg-rose-6"],
+.dark [class*="bg-rose-7"],
+.dark [class*="bg-indigo-4"],
+.dark [class*="bg-indigo-5"],
+.dark [class*="bg-indigo-6"],
+.dark [class*="bg-indigo-7"],
+.dark [class*="bg-cyan-4"],
+.dark [class*="bg-cyan-5"],
+.dark [class*="bg-cyan-6"],
+.dark [class*="bg-cyan-7"],
+.dark [class*="bg-sky-4"],
+.dark [class*="bg-sky-5"],
+.dark [class*="bg-sky-6"],
+.dark [class*="bg-sky-7"],
+.dark [class*="bg-violet-4"],
+.dark [class*="bg-violet-5"],
+.dark [class*="bg-violet-6"],
+.dark [class*="bg-violet-7"],
+.dark [class*="bg-teal-4"],
+.dark [class*="bg-teal-5"],
+.dark [class*="bg-teal-6"],
+.dark [class*="bg-teal-7"],
+.dark [class*="bg-fuchsia-4"],
+.dark [class*="bg-fuchsia-5"],
+.dark [class*="bg-fuchsia-6"],
+.dark [class*="bg-fuchsia-7"],
+.dark [class*="bg-yellow-4"],
+.dark [class*="bg-yellow-5"],
+.dark [class*="bg-lime-6"],
+.dark [class*="bg-pink-6"],
+.dark [class*="bg-pink-7"],
+.dark [class*="bg-purple-6"],
+.dark [class*="bg-purple-7"],
+.dark [class*="from-amber-4"],
+.dark [class*="from-amber-5"],
+.dark [class*="from-amber-6"],
+.dark [class*="from-amber-7"],
+.dark [class*="to-amber-4"],
+.dark [class*="to-amber-5"],
+.dark [class*="to-amber-6"],
+.dark [class*="to-amber-7"],
+.dark [class*="from-orange-4"],
+.dark [class*="from-orange-5"],
+.dark [class*="from-orange-6"],
+.dark [class*="from-orange-7"],
+.dark [class*="to-orange-4"],
+.dark [class*="to-orange-5"],
+.dark [class*="to-orange-6"],
+.dark [class*="to-orange-7"],
+.dark [class*="from-violet-4"],
+.dark [class*="from-violet-5"],
+.dark [class*="from-violet-6"],
+.dark [class*="from-violet-7"],
+.dark [class*="to-violet-4"],
+.dark [class*="to-violet-5"],
+.dark [class*="to-violet-6"],
+.dark [class*="to-violet-7"],
+.dark [class*="from-fuchsia-4"],
+.dark [class*="from-fuchsia-5"],
+.dark [class*="from-fuchsia-6"],
+.dark [class*="from-fuchsia-7"],
+.dark [class*="to-fuchsia-4"],
+.dark [class*="to-fuchsia-5"],
+.dark [class*="to-fuchsia-6"],
+.dark [class*="to-fuchsia-7"],
+.dark [class*="from-cyan-4"],
+.dark [class*="from-cyan-5"],
+.dark [class*="from-cyan-6"],
+.dark [class*="from-cyan-7"],
+.dark [class*="to-cyan-4"],
+.dark [class*="to-cyan-5"],
+.dark [class*="to-cyan-6"],
+.dark [class*="to-cyan-7"],
+.dark [class*="from-teal-4"],
+.dark [class*="from-teal-5"],
+.dark [class*="from-teal-6"],
+.dark [class*="from-teal-7"],
+.dark [class*="to-teal-4"],
+.dark [class*="to-teal-5"],
+.dark [class*="to-teal-6"],
+.dark [class*="to-teal-7"],
+.dark [class*="from-blue-4"],
+.dark [class*="from-blue-5"],
+.dark [class*="from-blue-6"],
+.dark [class*="from-blue-7"],
+.dark [class*="to-blue-4"],
+.dark [class*="to-blue-5"],
+.dark [class*="to-blue-6"],
+.dark [class*="to-blue-7"],
+.dark [class*="from-emerald-4"],
+.dark [class*="from-emerald-5"],
+.dark [class*="from-emerald-6"],
+.dark [class*="from-emerald-7"],
+.dark [class*="to-emerald-4"],
+.dark [class*="to-emerald-5"],
+.dark [class*="to-emerald-6"],
+.dark [class*="to-emerald-7"],
+.dark [class*="from-rose-4"],
+.dark [class*="from-rose-5"],
+.dark [class*="from-rose-6"],
+.dark [class*="from-rose-7"],
+.dark [class*="to-rose-4"],
+.dark [class*="to-rose-5"],
+.dark [class*="to-rose-6"],
+.dark [class*="to-rose-7"],
+.dark [class*="from-red-4"],
+.dark [class*="from-red-5"],
+.dark [class*="from-red-6"],
+.dark [class*="from-red-7"],
+.dark [class*="to-red-4"],
+.dark [class*="to-red-5"],
+.dark [class*="to-red-6"],
+.dark [class*="to-red-7"],
+.dark [class*="from-sky-4"],
+.dark [class*="from-sky-5"],
+.dark [class*="from-sky-6"],
+.dark [class*="from-sky-7"],
+.dark [class*="to-sky-4"],
+.dark [class*="to-sky-5"],
+.dark [class*="to-sky-6"],
+.dark [class*="to-sky-7"],
+.dark [class*="from-indigo-4"],
+.dark [class*="from-indigo-5"],
+.dark [class*="from-indigo-6"],
+.dark [class*="from-indigo-7"],
+.dark [class*="to-indigo-4"],
+.dark [class*="to-indigo-5"],
+.dark [class*="to-indigo-6"],
+.dark [class*="to-indigo-7"] {
+  filter: saturate(0.85);
+}
+
+.dark .border-slate-200,
+.dark .border-gray-200,
+.dark .border-slate-100,
+.dark .border-gray-100,
+.dark .border-slate-300 { border-color: rgba(100, 116, 139, 0.65); }
+.dark .border-sky-200,
+.dark .border-sky-100 { border-color: rgba(56, 189, 248, 0.45); }
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-50 > :not([hidden]) ~ :not([hidden]) { border-color: rgba(71, 85, 105, 0.4); }
+.dark .shadow-inner { box-shadow: none; }
+
+.dark .placeholder\:text-slate-400::placeholder,
+.dark .placeholder\:text-gray-400::placeholder { color: #64748b; }
+
+/* Rozet/kart etrafindaki ince "ring" (halka) kenarliklari - acik modda
+   zar zor secilen bu ince renkli halkalar (ring-emerald-200, ring-sky-100
+   gibi), koyu zeminde PARLAK bir cerceve gibi "isik sacarak" sirit­iyordu.
+   Rengi tamamen kaldirmak yerine (anlam tasidiklari icin - ör. rozet
+   durumu) yari saydam/muted hallerine ceviriyoruz - hala renk ipucu var
+   ama artik gozu yormuyor. */
+.dark .ring-slate-100,
+.dark .ring-slate-200 { --tw-ring-color: rgba(100, 116, 139, 0.35); }
+.dark .ring-sky-100,
+.dark .ring-sky-200,
+.dark .ring-blue-100,
+.dark .ring-blue-200,
+.dark .ring-cyan-100,
+.dark .ring-cyan-200 { --tw-ring-color: rgba(56, 189, 248, 0.3); }
+.dark .ring-emerald-100,
+.dark .ring-emerald-200 { --tw-ring-color: rgba(52, 211, 153, 0.3); }
+.dark .ring-amber-100,
+.dark .ring-amber-200,
+.dark .ring-orange-100,
+.dark .ring-orange-200,
+.dark .ring-yellow-100,
+.dark .ring-yellow-200 { --tw-ring-color: rgba(251, 191, 36, 0.3); }
+.dark .ring-rose-100,
+.dark .ring-rose-200,
+.dark .ring-red-100,
+.dark .ring-red-200,
+.dark .ring-pink-100,
+.dark .ring-pink-200 { --tw-ring-color: rgba(251, 113, 133, 0.3); }
+.dark .ring-violet-100,
+.dark .ring-violet-200,
+.dark .ring-purple-100,
+.dark .ring-purple-200,
+.dark .ring-indigo-100,
+.dark .ring-indigo-200 { --tw-ring-color: rgba(167, 139, 250, 0.3); }
+
+/* Kart/panel "yukselti" (elevation) golgeleri - acik modda ince, zar zor
+   secilen golgeler (shadow-sm/md/lg/xl/2xl) koyu zeminde neredeyse hic
+   gorunmuyordu, bu da kartlarin sayfaya "yapisik" durmasina, derinliksiz
+   gorunmesine sebep oluyordu. Gece modunda belirgin, siyaha yaslanan
+   golgelerle kartlar zeminden net bir sekilde "yukseliyor" - daha
+   profesyonel bir SaaS/dashboard hissi icin. */
+.dark .shadow-sm { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4); }
+.dark .shadow,
+.dark .shadow-md { box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.35); }
+.dark .shadow-lg { box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.55), 0 4px 8px rgba(0, 0, 0, 0.35); }
+.dark .shadow-xl { box-shadow: 0 20px 36px -10px rgba(0, 0, 0, 0.6), 0 6px 12px rgba(0, 0, 0, 0.4); }
+.dark .shadow-2xl { box-shadow: 0 28px 56px -14px rgba(0, 0, 0, 0.65), 0 8px 16px rgba(0, 0, 0, 0.45); }
+
+/* Formlarda kullanicinin yazdigi metnin okunabilmesi icin input/select/
+   textarea zeminleri de kapsam disi birakilmadi; odak (focus) durumunda
+   ince bir parlak halka ile ekstra profesyonel/canli bir his katildi.
+   ONEMLI: bu kural bir ETIKET secicisi ("input") oldugu icin, CSS
+   ozgulluk (specificity) kurallari geregi ".text-slate-950" gibi SINIF
+   secicili kurallarin ONUNE geciyordu - sonuc olarak salt-okunur "deger
+   kutusu" olarak kullanilan <input readOnly> alanlari (ör. Kişi Bilgileri
+   bolumundeki KART NO/ADI/T.C. KİMLİK NO degerleri), aslinda beyaz
+   olmasi istenirken SESSIZCE daha soluk bir griye (#e2e8f0) sabitleniyordu.
+   Form alanlarinda "soluk" oldugu bildirilen degerlerin buyuk kismi bu
+   yuzdendi - artik girdi/metin alanlarinin metni de en parlak (beyaza
+   yakin) tonda. */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #131d33;
+  color: #f8fafc;
+}
+.dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark select:focus,
+.dark textarea:focus {
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+}
+
+/* Kaydirma cubugu (scrollbar) - varsayilan acik/beyaz tarayici scrollbar'i
+   koyu arkaplanda gozu yoruyor ve "bitmemis" gorunuyordu. */
+.dark ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+.dark ::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.6); border-color: rgba(15, 23, 42, 0.4); }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.85); }
+.dark body { scrollbar-color: rgba(100, 116, 139, 0.6) rgba(15, 23, 42, 0.4); }
+
+/* Kullanici istegi (15 Eylul 2026, 30. tur): "yukari kayan veriyi
+   okuyamiyoruz" - Sosyal Asistan sohbet kutusunda VE (31. tur) ana sayfa
+   dashboard kartlarinda (ör. "Belge Kayitlari") icerik overflow-y:auto ile
+   kaydiriliyor ama Windows/macOS "overlay" scrollbar varsayilani cok ince/
+   gorunmez oldugu icin kullanici scroll edilebilir oldugunu fark etmiyordu.
+   Bu genel-amacli sinif HER ZAMAN gorunur, belirgin renkli bir scrollbar
+   zorluyor (OS ayarindan bagimsiz) - hem asistanda hem dashboard kartlarinda
+   (bkz. components/shared/DashboardGrid.tsx) kullanilir. */
+.app-visible-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+.app-visible-scroll::-webkit-scrollbar { width: 10px; }
+.app-visible-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 999px; }
+.app-visible-scroll::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 999px; border: 2px solid #f1f5f9; }
+.app-visible-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
+.dark .app-visible-scroll { scrollbar-color: rgba(100, 116, 139, 0.7) transparent; }
+.dark .app-visible-scroll::-webkit-scrollbar-track { background: transparent; }
+.dark .app-visible-scroll::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.7); border-color: transparent; }
+
+/* ------------------------------------------------------------------------
+   "Dosya Yönetimi" (app/(modules)/documents/page.tsx) yeniden tasarimi -
+   kullanicinin paylastigi referans gorsele (koyu "ink" lacivert + teal +
+   bronz vurgu, Fraunces baslik fontu) gore. Bilerek DAR KAPSAMLI: sadece
+   ".dy-" ile baslayan, o sayfada elle eklenmis siniflari hedefler - baska
+   hicbir sayfayi/bileseni etkilemez.
+   ------------------------------------------------------------------------ */
+/* Kullanici istegi (Eylul 2026): "tum yazi fontlari resmi ve net okunur
+   olsun" - eskiden Fraunces (serif, CSP engelli -> Georgia'ya dusuyordu)
+   idi; artik geri kalan arayuzle AYNI Segoe UI ailesi. */
+.dy-id-name {
+  font-family: inherit;
+  letter-spacing: 0.01em;
+}
+
+/* "Dosya klasoru" motifi - Kisi Bilgileri kartinin sol ust kosesinde,
+   klasor sekmesi gibi tasan kucuk bronz etiket (referans gorseldeki
+   ".folder-tab" ile ayni fikir). */
+.dy-folder { position: relative; }
+.dy-folder-tab {
+  position: absolute;
+  top: -22px;
+  left: 20px;
+  background: #B98A34;
+  color: #3A2A08;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 7px 16px 9px;
+  border-radius: 8px 8px 0 0;
+}
+
+/* Kullanici istegi (Ekim 2026): Dosya Yonetimi'nde taban yazi 12 punto
+   (~16px). SADECE GERCEK MASAUSTUNDE (>= 1025px).
+   Kullanici istegi (28 Agustos 2026 - tablet): 641-1024px arasinda (tablet)
+   16px cok buyuktu, baslik yazilari butonlarla "ic ice giriyordu" - bu
+   aralikta 13.5px'e dusuruldu (basliklar da orantili kucultuldu). Mobilde
+   (< 641px) zaten Tailwind'in kendi kompakt boyutlari kalir. Form alanlari
+   mobilde yine 16px olur (iOS zoom engeli - bkz. asagidaki mobil blok).
+   Kullanici istegi (Eylul 2026): "ekrani buyutunce gorunum bozuluyor, onun
+   yerine yazi fontunu buyutelim, Tasarim Modu'nda kullanici secsin" - asagidaki
+   TUM sabit px degerleri, "--dy-fs" degiskeniyle (varsayilan 1 = degisiklik
+   yok) carpilir. Bu degisken sayfa kokune (".dy-base-16" tasiyan div, bkz.
+   app/(modules)/documents/page.tsx) Tasarim Modu'ndaki yuzde kaydiricidan
+   inline stil olarak yazilir - CSS DISINDA baska hicbir yer degismez. */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .dy-base-16,
+  .dy-base-16 p,
+  .dy-base-16 span,
+  .dy-base-16 a,
+  .dy-base-16 li,
+  .dy-base-16 td,
+  .dy-base-16 th,
+  .dy-base-16 dt,
+  .dy-base-16 dd,
+  .dy-base-16 label,
+  .dy-base-16 button,
+  .dy-base-16 input,
+  .dy-base-16 select,
+  .dy-base-16 textarea,
+  .dy-base-16 small,
+  .dy-base-16 strong,
+  .dy-base-16 b,
+  .dy-base-16 em,
+  .dy-base-16 div {
+    font-size: calc(12.5px * var(--dy-fs, 1));
+  }
+  .dy-base-16 h1 { font-size: calc(18px * var(--dy-fs, 1)); }
+  .dy-base-16 h2 { font-size: calc(15.5px * var(--dy-fs, 1)); }
+  .dy-base-16 h3 { font-size: calc(14px * var(--dy-fs, 1)); }
+  .dy-base-16 h4 { font-size: calc(13px * var(--dy-fs, 1)); }
+}
+
+/* Kullanici istegi (28 Agu 2026): "butonlarla yazi fontunu biraz daha
+   kucult" - mobil VE tablette (<=1024px) Dosya Yonetimi butonlarinin
+   yazisi biraz daha kucuk ve dis bosluklari (marj degil, IC yatay dolgu)
+   hafifce daraltilir; boylece baslik seritlerindeki butonlar daha rahat
+   sigar. Sadece Dosya Yonetimi (.dy-base-16) kapsaminda. */
+@media (max-width: 1024px) {
+  .dy-base-16 button { font-size: calc(11.5px * var(--dy-fs, 1)); }
+}
+/* Kullanici istegi (2026-10-07, 4. tur): "%100 tarayici yakinlastirmasinda,
+   sayfadaki veri alanlari, basliklar VE sekme basliklari (HANE BİLGİLERİ/
+   MÜRACAATLAR/YARDIMLAR/... gibi alt-sekme butonlari DAHIL) birbiriyle
+   TUTARLI, 16px taban olsun - tam butunluk/profesyonellik". Onceki tur
+   (Ekim 2026) basliklari (h1-h4) govde metninden BUYUK tutuyordu (19/29/
+   25/22/20px) - bu kez kullanici ACIKCA basliklarin DA 16px olmasini
+   istedi, hiyerarşi yerine TUTARLILIK tercih edildi. --dy-fs kaydiricisi
+   (Tasarim Modu yuzde ayari) yine AYNI oranda carpmaya devam eder. */
+@media (min-width: 1025px) {
+  .dy-base-16,
+  .dy-base-16 p,
+  .dy-base-16 span,
+  .dy-base-16 a,
+  .dy-base-16 li,
+  .dy-base-16 td,
+  .dy-base-16 th,
+  .dy-base-16 dt,
+  .dy-base-16 dd,
+  .dy-base-16 label,
+  .dy-base-16 button,
+  .dy-base-16 input,
+  .dy-base-16 select,
+  .dy-base-16 textarea,
+  .dy-base-16 small,
+  .dy-base-16 strong,
+  .dy-base-16 b,
+  .dy-base-16 em,
+  .dy-base-16 div {
+    font-size: calc(16px * var(--dy-fs, 1));
+  }
+  .dy-base-16 h1,
+  .dy-base-16 h2,
+  .dy-base-16 h3,
+  .dy-base-16 h4 { font-size: calc(16px * var(--dy-fs, 1)); }
+}
+
+/* Kompakt pencere - kullanici istegi (Eylul 2026): "web tarafinda cok
+   buyuk durdu, yazi/alanlari biraz kucultelim, tum alan ekrana sigsin".
+   .dy-base-16 tabani (16px) bu pencereler ICINDE 13px'e cekilir. Katmansiz +
+   .dy-base-16 kurallarindan SONRA yazildigi icin (esit ozgulluk) ONUN ONUNE
+   gecer. Media query yok -> her genislikte gecerli (mobilde de kompakt/OK).
+   Kullanilan yerler: Belgeler penceresi, Nakit Müracaat Aşama penceresi. */
+.dy-modal-compact,
+.dy-modal-compact p, .dy-modal-compact span, .dy-modal-compact a,
+.dy-modal-compact li, .dy-modal-compact label, .dy-modal-compact button,
+.dy-modal-compact input, .dy-modal-compact select, .dy-modal-compact textarea,
+.dy-modal-compact small, .dy-modal-compact strong, .dy-modal-compact b,
+.dy-modal-compact em, .dy-modal-compact div,
+.dy-modal-compact td, .dy-modal-compact th {
+  font-size: calc(12.5px * var(--dy-fs, 1));
+}
+.dy-modal-compact h3 { font-size: calc(15.5px * var(--dy-fs, 1)); }
+.dy-modal-compact h4 { font-size: calc(12.5px * var(--dy-fs, 1)); }
+.dy-modal-compact [class~="text-[11px]"] { font-size: calc(11px * var(--dy-fs, 1)); }
+.dy-modal-compact [class~="text-[10px]"] { font-size: calc(10px * var(--dy-fs, 1)); }
+.dy-modal-compact [class~="text-[9px]"] { font-size: calc(9px * var(--dy-fs, 1)); }
+
+/* Ekstra kompakt pencere - kullanici istegi (Eylul 2026): "Dosya Guncelle
+   penceresinde veriler/basliklar HALA buyuk, daha da kucultelim". Sayfa yazi
+   olcegini (--dy-fs) HIC uygulamaz -> sabit px; .dy-modal-compact'tan SONRA
+   yazildigi icin onun onune gecer. Dolgu/bosluk ut'lerini de biraz kisar.
+   Kullanildigi yer: Dosya Guncelle / Yeni Dosya Kaydi penceresi. */
+.dy-modal-xcompact,
+.dy-modal-xcompact p, .dy-modal-xcompact span, .dy-modal-xcompact a,
+.dy-modal-xcompact li, .dy-modal-xcompact label, .dy-modal-xcompact button,
+.dy-modal-xcompact input, .dy-modal-xcompact select, .dy-modal-xcompact textarea,
+.dy-modal-xcompact small, .dy-modal-xcompact strong, .dy-modal-xcompact b,
+.dy-modal-xcompact em, .dy-modal-xcompact div,
+.dy-modal-xcompact td, .dy-modal-xcompact th {
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.dy-modal-xcompact h3 { font-size: 15px; }
+.dy-modal-xcompact h4 { font-size: 12.5px; }
+.dy-modal-xcompact [class~="text-[11px]"],
+.dy-modal-xcompact [class~="text-xs"] { font-size: 12px; }
+.dy-modal-xcompact [class~="text-[10px]"] { font-size: 11px; }
+.dy-modal-xcompact [class~="text-[9px]"] { font-size: 10px; }
+.dy-modal-xcompact [class~="text-sm"] { font-size: 12.5px; }
+.dy-modal-xcompact [class~="text-lg"] { font-size: 15px; }
+.dy-modal-xcompact [class~="text-xl"] { font-size: 16px; }
+.dy-modal-xcompact [class~="text-2xl"] { font-size: 18px; }
+.dy-modal-xcompact [class~="text-3xl"] { font-size: 20px; }
+.dy-modal-xcompact input,
+.dy-modal-xcompact select,
+.dy-modal-xcompact textarea { font-size: 13px; }
+.dy-modal-xcompact input,
+.dy-modal-xcompact select { height: 2.1rem; }
+.dy-modal-xcompact [class~="p-4"] { padding: 0.7rem; }
+.dy-modal-xcompact [class~="p-3"] { padding: 0.55rem; }
+.dy-modal-xcompact [class~="px-4"] { padding-left: 0.7rem; padding-right: 0.7rem; }
+.dy-modal-xcompact [class~="py-3"] { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+.dy-modal-xcompact [class~="py-2"] { padding-top: 0.35rem; padding-bottom: 0.35rem; }
+.dy-modal-xcompact [class~="gap-4"] { gap: 0.5rem; }
+.dy-modal-xcompact [class~="gap-3"] { gap: 0.4rem; }
+.dy-modal-xcompact [class~="space-y-5"] > * + * { margin-top: 0.6rem; }
+.dy-modal-xcompact [class~="space-y-4"] > * + * { margin-top: 0.5rem; }
+
+/* Orta-punto varyant - kullanici istegi (Ekim 2026): SMS Gonder penceresinde
+   veriler biraz daha buyuk/okunur olsun. .dy-modal-xcompact yerlesiminin
+   AYNISI ama yazi 1-1.5px daha buyuk. */
+.dy-modal-xcompact.dy-modal-mid,
+.dy-modal-xcompact.dy-modal-mid p, .dy-modal-xcompact.dy-modal-mid span,
+.dy-modal-xcompact.dy-modal-mid a, .dy-modal-xcompact.dy-modal-mid li,
+.dy-modal-xcompact.dy-modal-mid label, .dy-modal-xcompact.dy-modal-mid button,
+.dy-modal-xcompact.dy-modal-mid input, .dy-modal-xcompact.dy-modal-mid select,
+.dy-modal-xcompact.dy-modal-mid textarea, .dy-modal-xcompact.dy-modal-mid small,
+.dy-modal-xcompact.dy-modal-mid strong, .dy-modal-xcompact.dy-modal-mid b,
+.dy-modal-xcompact.dy-modal-mid em, .dy-modal-xcompact.dy-modal-mid div,
+.dy-modal-xcompact.dy-modal-mid td, .dy-modal-xcompact.dy-modal-mid th {
+  font-size: 13.5px;
+}
+.dy-modal-xcompact.dy-modal-mid h3 { font-size: 16.5px; }
+.dy-modal-xcompact.dy-modal-mid h4 { font-size: 13.5px; }
+.dy-modal-xcompact.dy-modal-mid [class~="text-[11px]"],
+.dy-modal-xcompact.dy-modal-mid [class~="text-xs"] { font-size: 13px; }
+.dy-modal-xcompact.dy-modal-mid [class~="text-[10px]"] { font-size: 12px; }
+.dy-modal-xcompact.dy-modal-mid [class~="text-[9px]"] { font-size: 11px; }
+.dy-modal-xcompact.dy-modal-mid [class~="text-sm"] { font-size: 13.5px; }
+.dy-modal-xcompact.dy-modal-mid [class~="text-lg"] { font-size: 16.5px; }
+.dy-modal-xcompact.dy-modal-mid input,
+.dy-modal-xcompact.dy-modal-mid select,
+.dy-modal-xcompact.dy-modal-mid textarea { font-size: 14px; }
+.dy-modal-xcompact.dy-modal-mid input,
+.dy-modal-xcompact.dy-modal-mid select { height: 2.25rem; }
+
+/* Bir kademe daha buyuk - kullanici istegi (Ekim 2026): Inceleme Formu
+   penceresinde yazi biraz daha buyuk olsun. */
+.dy-modal-xcompact.dy-modal-lg,
+.dy-modal-xcompact.dy-modal-lg p, .dy-modal-xcompact.dy-modal-lg span,
+.dy-modal-xcompact.dy-modal-lg a, .dy-modal-xcompact.dy-modal-lg li,
+.dy-modal-xcompact.dy-modal-lg label, .dy-modal-xcompact.dy-modal-lg button,
+.dy-modal-xcompact.dy-modal-lg input, .dy-modal-xcompact.dy-modal-lg select,
+.dy-modal-xcompact.dy-modal-lg textarea, .dy-modal-xcompact.dy-modal-lg small,
+.dy-modal-xcompact.dy-modal-lg strong, .dy-modal-xcompact.dy-modal-lg b,
+.dy-modal-xcompact.dy-modal-lg em, .dy-modal-xcompact.dy-modal-lg div,
+.dy-modal-xcompact.dy-modal-lg td, .dy-modal-xcompact.dy-modal-lg th {
+  font-size: 14.5px;
+}
+.dy-modal-xcompact.dy-modal-lg h3 { font-size: 18px; }
+.dy-modal-xcompact.dy-modal-lg h4 { font-size: 14.5px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-[11px]"],
+.dy-modal-xcompact.dy-modal-lg [class~="text-xs"] { font-size: 13.5px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-[10px]"] { font-size: 12.5px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-[9px]"] { font-size: 11.5px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-sm"] { font-size: 14.5px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-lg"] { font-size: 18px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-xl"] { font-size: 19px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-2xl"] { font-size: 21px; }
+.dy-modal-xcompact.dy-modal-lg [class~="text-3xl"] { font-size: 24px; }
+.dy-modal-xcompact.dy-modal-lg input,
+.dy-modal-xcompact.dy-modal-lg select,
+.dy-modal-xcompact.dy-modal-lg textarea { font-size: 15px; }
+.dy-modal-xcompact.dy-modal-lg input,
+.dy-modal-xcompact.dy-modal-lg select { height: 2.4rem; }
+
+/* Kullanici istegi (Ekim 2026): Gulkart / Nakit Muracaat pencerelerinde
+   veriler "biraz daha buyuk ve KOYU, net okunsun". Bu ek sinif, kullanildigi
+   pencerede tum girdi/etiket metnini bir tik buyutur + kalinlastirir +
+   koyulastirir. Renkli rozet/badge'lere DOKUNMAZ (yalniz input/select/
+   textarea/td ve alan etiketi span'lari). */
+.dy-modal-strong input,
+.dy-modal-strong select,
+.dy-modal-strong textarea,
+.dy-modal-strong td {
+  font-weight: 800 !important;
+  color: #0b1220 !important;
+}
+.dy-modal-strong input::placeholder,
+.dy-modal-strong textarea::placeholder { font-weight: 600 !important; color: #64748b !important; }
+/* Alan etiketleri (label icindeki ilk span) - daha koyu + kalin */
+.dy-modal-strong label > span:first-child {
+  color: #1e293b !important;
+  font-weight: 900 !important;
+}
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong p,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong span,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong label,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong div,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong td,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong th { font-size: 15px; }
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong input,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong select,
+.dy-modal-xcompact.dy-modal-lg.dy-modal-strong textarea { font-size: 15.5px; }
+
+/* Kullanici istegi (2026-10-07): "uygulamadaki tüm açılan pencerelerin
+   (Eşleşen Dosyalar, Belgeler, Dosya Ekle/Güncelle, Yeni Müracaat/Müracaat
+   Düzenle, Yardım Güncelleme, ve benzeri) yazı puntosu 16px olsun, tüm
+   veriler ve başlıklar eşit olsun, hepsi aynı görünsün" - yukarida GORULEN
+   katmanli ".dy-modal-xcompact/.dy-modal-mid/.dy-modal-lg/.dy-modal-strong/
+   .dy-modal-mur-12" sistemi HER pencere icin FARKLI bir deger uretiyordu
+   (12/13/15/15.5/12px gibi) - tek tek SOKMEK yerine (digerlerini bozma
+   riski), BURADA "!important" ile TUMUNU alt eden TEK bir evrensel sinif
+   eklendi: ".dy-modal-eq16" - hangi diger dy-modal-* siniflariyla BIRLIKTE
+   kullanilirsa kullanilsin (ya da hic biri olmadan, tek basina) o pencere
+   icindeki TUM metni (govde + baslik h3/h4 dahil) ayni 16px'e esitler.
+   Kullanim: modalin KOK div'ine (diger siniflara EK olarak) eklenir. */
+.dy-modal-eq16,
+.dy-modal-eq16 p, .dy-modal-eq16 span, .dy-modal-eq16 a, .dy-modal-eq16 li,
+.dy-modal-eq16 label, .dy-modal-eq16 button, .dy-modal-eq16 input,
+.dy-modal-eq16 select, .dy-modal-eq16 textarea, .dy-modal-eq16 small,
+.dy-modal-eq16 strong, .dy-modal-eq16 b, .dy-modal-eq16 em, .dy-modal-eq16 div,
+.dy-modal-eq16 td, .dy-modal-eq16 th, .dy-modal-eq16 h3, .dy-modal-eq16 h4 {
+  font-size: calc(16px * var(--dy-fs, 1)) !important;
+}
+
+/* Kullanici istegi (2026-10-08): "Yardım Düzenle" penceresinde veri
+   alanlarinin (input/select/textarea) YUKSEKLIGI icindeki veriye gore
+   GEREGINDEN FAZLAYDI - "profesyonel/kurumsal gorunum icin alan
+   yuksekligi veriye tam sigacak sekilde daraltilsin" denildi, SONRA "tum
+   pencereler icin" bu istendi. dy-modal-eq16 TUM standartlastirilmis
+   pencerelerde (Belgeler, Dosya Ekle/Guncelle, Yeni Muracaat, Esleşen
+   Dosyalar, Yardim Duzenle) ORTAK oldugu icin, tek tek her inputun
+   Tailwind padding sinifini degistirmek yerine BURADA, bu ortak sinifa
+   tek bir kural eklenerek hepsi AYNI ANDA daraltildi. */
+.dy-modal-eq16 input,
+.dy-modal-eq16 select,
+.dy-modal-eq16 textarea {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+/* Kullanici istegi (2026-10-08): "Belgeler" penceresinin TAMAMI (sol "Yeni
+   Belge Ekle" formu + sag "Belge Kayıtları" tablosu, ikisi de) dy-modal-eq16
+   kapsaminda, kullanicinin kisisel --dy-fs buyutme ayariyla CARPILAN 16px
+   kuralini kullaniyordu. Once sadece tabloyu kucultmeyi denedik ama
+   kullanici "ikisi de 12px olsun, orantisizlik olmasin" dedi - bu yuzden
+   TUM pencereye (dy-modal-eq16'nin kapsadigi AYNI eleman listesi, button
+   dahil) --dy-fs ile CARPILMAYAN SABIT 12px veren bu sinif eklendi. Daha
+   SONRA tanimlandigi icin (ayni ozguluk - kaynak sirasiyla kazanir,
+   dy-modal-mur-12 ile ayni yontem) yukaridaki genel dy-modal-eq16 kuralini
+   ezer. */
+.dy-belge-modal,
+.dy-belge-modal p, .dy-belge-modal span, .dy-belge-modal a, .dy-belge-modal li,
+.dy-belge-modal label, .dy-belge-modal button, .dy-belge-modal input,
+.dy-belge-modal select, .dy-belge-modal textarea, .dy-belge-modal small,
+.dy-belge-modal strong, .dy-belge-modal b, .dy-belge-modal em, .dy-belge-modal div,
+.dy-belge-modal td, .dy-belge-modal th, .dy-belge-modal h3, .dy-belge-modal h4 {
+  font-size: 14px !important;
+  font-family: Arial, sans-serif !important;
+  font-weight: 700 !important;
+}
+
+/* Kullanici istegi (2026-10-08): "Eşleşen Dosyalar" (dosya arama sonucu)
+   penceresi de dy-modal-eq16 kapsaminda, --dy-fs ile CARPILAN 16px
+   kullaniyordu - "bu da 14px olsun, satir aralari minimuma insin" denildi.
+   AYNI yontem (dy-belge-modal ile ayni) - daha SONRA tanimlandigi icin
+   kaynak sirasiyla dy-modal-eq16'yi ezer. Satir araligi CSS'ten DEGIL,
+   tablonun kendi JSX'indeki hucre dolgusundan (td/th padding) geliyordu -
+   bkz. documents/page.tsx "Eşleşen Dosyalar" tablosu, py-3.5/py-3 -> py-1.5
+   azaltildi. */
+.dy-search-modal,
+.dy-search-modal p, .dy-search-modal span, .dy-search-modal a, .dy-search-modal li,
+.dy-search-modal label, .dy-search-modal button, .dy-search-modal input,
+.dy-search-modal select, .dy-search-modal textarea, .dy-search-modal small,
+.dy-search-modal strong, .dy-search-modal b, .dy-search-modal em, .dy-search-modal div,
+.dy-search-modal td, .dy-search-modal th, .dy-search-modal h3, .dy-search-modal h4 {
+  font-size: 14px !important;
+}
+
+/* Kullanici istegi (Ekim 2026): "Yeni Müracaat Ekle" penceresi (ve secilen
+   yardim turune gore icinde acilan TÜM alt formlar - Ekmek/Gıda/Giyim/
+   Hazır Yemek/Destek Paketi/Nakit/Dönem Dışı Gıda/Ayni-Nakdi) "yazi
+   puntosu 12px olsun" - bu pencere ".dy-modal-xcompact.dy-modal-lg.
+   dy-modal-strong" (15px/15.5px) kullaniyor, ama o UC-SINIFLI kural AYNI
+   ZAMANDA Gülkart İşlemleri ve Belgeler pencerelerinde de kullanildigi
+   icin dogrudan degistirilemedi (onlari da etkilerdi - Belgeler zaten
+   kendi "!text-[14px]" siniflariyla bagimsiz, ama Gülkart etkilenirdi).
+   Bu yuzden SADECE bu pencereye ozel, DAHA YUKSEK ozguluklu (4. sinif)
+   ayri bir kural eklendi - "dy-modal-mur-12" sadece bu modalin kök
+   div'ine eklenir (bkz. documents/page.tsx "Yeni Müracaat Ekleme
+   Modalı"). */
+.dy-modal-mur-12,
+.dy-modal-mur-12 p,
+.dy-modal-mur-12 span,
+.dy-modal-mur-12 label,
+.dy-modal-mur-12 div,
+.dy-modal-mur-12 td,
+.dy-modal-mur-12 th,
+.dy-modal-mur-12 button { font-size: 12px !important; }
+.dy-modal-mur-12 h3 { font-size: 14px !important; }
+.dy-modal-mur-12 h4 { font-size: 12.5px !important; }
+.dy-modal-mur-12 input,
+.dy-modal-mur-12 select,
+.dy-modal-mur-12 textarea { font-size: 12px !important; }
+
+/* Kullanici istegi (Ekim 2026): "Yardım Hareketleri" penceresi (Dosya
+   Yardım Geçmişi) "tüm sekmeler ve sayfa başlıkları aynı olsun, 14px
+   olarak ayarlayalım" - bu pencere ".dy-modal-compact" kullaniyor (12.5px
+   taban), ama o SINIF "Nakit Müracaat Aşama" penceresiyle DE ortak
+   oldugu icin dogrudan degistirilemedi. Ayri, SADECE bu pencereye ozel
+   bir sinif (bkz. documents/page.tsx "isAidMovementsModalOpen" kok div'i). */
+.dy-modal-yh-14,
+.dy-modal-yh-14 p,
+.dy-modal-yh-14 span,
+.dy-modal-yh-14 label,
+.dy-modal-yh-14 div,
+.dy-modal-yh-14 td,
+.dy-modal-yh-14 th,
+.dy-modal-yh-14 button,
+.dy-modal-yh-14 h4 { font-size: 14px !important; }
+.dy-modal-yh-14 h3 { font-size: 16px !important; }
+.dy-modal-yh-14 input,
+.dy-modal-yh-14 select,
+.dy-modal-yh-14 textarea { font-size: 14px !important; }
+/* Ust bilgi kartlarindaki (Yardım Türü/Toplam Kayıt/Rapor Tarihi) BUYUK
+   deger - kasitli tek istisna, kucuk KPI rakamlari okunsun diye. */
+.dy-modal-yh-14 .yh-stat-value { font-size: 18px !important; }
+
+/* Kullanici istegi (Ekim 2026): "Dosya Ekleme ve Dosya Güncelleme" penceresi
+   "yazı puntosu genel olarak 12px olsun" - bu pencere ".dy-modal-xcompact"
+   kullaniyor ama icindeki cok sayida farkli literal boyut (text-xs/sm/lg,
+   text-[10px]/[11px] vb.) hala tutarsizdi. Ayri, SADECE bu pencereye ozel
+   bir sinif (bkz. documents/page.tsx "isCreateFileModalOpen" kok div'i). */
+.dy-modal-df-12,
+.dy-modal-df-12 p,
+.dy-modal-df-12 span,
+.dy-modal-df-12 label,
+.dy-modal-df-12 div,
+.dy-modal-df-12 td,
+.dy-modal-df-12 th,
+.dy-modal-df-12 button,
+.dy-modal-df-12 h4 { font-size: 12px !important; }
+.dy-modal-df-12 h3 { font-size: 12px !important; }
+.dy-modal-df-12 input,
+.dy-modal-df-12 select,
+.dy-modal-df-12 textarea { font-size: 12px !important; }
+
+/* Kullanici istegi (2026-10-07): "Yardım Düzenle" penceresi (bkz.
+   documents/page.tsx "isEditAssistanceModalOpen" kok div'i) - "yazı
+   boyutları hala büyük" şikayeti üzerine, bu pencereye özel, daha yüksek
+   özgüllükte bir sınıf. Üstteki genel "taban" kuralı (yukarıda, ör.
+   [class~="text-[9px]"] -> 11px !important) ASIL SORUNDU: bu pencerede
+   text-[9px]/[11px] gibi literal boyutlar kullanılmıştı ama o küresel
+   kural her zaman en az 11px'e ZORLUYORDU - buradaki daha ÖZGÜL (scoped)
+   kural CSS cascade'inde kazanır. */
+.dy-modal-yd-10,
+.dy-modal-yd-10 p,
+.dy-modal-yd-10 span,
+.dy-modal-yd-10 label,
+.dy-modal-yd-10 div,
+.dy-modal-yd-10 td,
+.dy-modal-yd-10 th,
+.dy-modal-yd-10 button,
+.dy-modal-yd-10 h3,
+.dy-modal-yd-10 h4 { font-size: 14px !important; }
+.dy-modal-yd-10 input,
+.dy-modal-yd-10 select,
+.dy-modal-yd-10 textarea { font-size: 14px !important; }
+
+/* Kullanici istegi (2026-10-08): "Rapor / Tahkikat Bilgileri" (gecmis/
+   detay) penceresi - "yazi puntosunu pencere genelinde 14px yap, daha
+   kurumsal/profesyonel olsun". Bu pencere digerlerinden FARKLI olarak
+   font-size'i className degil DOGRUDAN inline style={{fontSize: 'calc(...)'}}
+   ile veriyordu (ör. 9px, 9.5px, 10px, 11px, 11.5px, 12px, 12.5px, 13px,
+   16px - COK FARKLI degerler karisik). Inline style normalde en yuksek
+   ozguluge sahiptir AMA stylesheet kurali !important tasiyorsa inline
+   style'i (!important TASIMIYORSA) EZER - bu yuzden tek bir !important
+   kural TUM bu dagınık degerleri 14px'e esitleyebiliyor. */
+/* Kullanici istegi (2026-10-08): "SMS Gönder" penceresi - once 12px
+   (dy-modal-mur-12), sonra 16px (dy-modal-eq16) denendi, son olarak 15px
+   istendi - SABIT (dy-fs ile CARPILMAYAN) ozel bir deger oldugu icin yeni
+   dedike bir sinif. */
+.dy-sms-modal-15,
+.dy-sms-modal-15 p, .dy-sms-modal-15 span, .dy-sms-modal-15 a, .dy-sms-modal-15 li,
+.dy-sms-modal-15 label, .dy-sms-modal-15 button, .dy-sms-modal-15 input,
+.dy-sms-modal-15 select, .dy-sms-modal-15 textarea, .dy-sms-modal-15 small,
+.dy-sms-modal-15 strong, .dy-sms-modal-15 b, .dy-sms-modal-15 em, .dy-sms-modal-15 div,
+.dy-sms-modal-15 td, .dy-sms-modal-15 th, .dy-sms-modal-15 h3, .dy-sms-modal-15 h4 {
+  font-size: 15px !important;
+}
+
+.dy-rapor-detay-14,
+.dy-rapor-detay-14 p, .dy-rapor-detay-14 span, .dy-rapor-detay-14 div,
+.dy-rapor-detay-14 li, .dy-rapor-detay-14 label,
+.dy-rapor-detay-14 h3, .dy-rapor-detay-14 h4 { font-size: 14px !important; }
+/* 18x18px yuvarlak sira numarasi rozeti - 14px'e buyutulunce tasiyor,
+   kucuk boyutunda birakildi. */
+.dy-rapor-detay-14 .dy-rapor-detay-step-badge { font-size: 10px !important; }
+
+/* Kullanici istegi (2026-10-07): "Hane Bireyini Düzenle" penceresi (bkz.
+   documents/page.tsx "isHouseholdModalOpen" kok div'i) - AYNI sebep/cozum:
+   kuresel taban kurali yerine, bu pencereye ozel, daha yuksek ozguluklu
+   bir sinif. Kullanici istegi (2026-10-08): "tum yazi boyutunu 14px yap,
+   kurumsal/profesyonel gorunsun" - 18/20px'den duz 14px'e dusuruldu (isim
+   tarihsel, artik "18" gostermiyor - diger dy-modal-* siniflarindaki ayni
+   oruntu). */
+.dy-modal-hane-18,
+.dy-modal-hane-18 p,
+.dy-modal-hane-18 span,
+.dy-modal-hane-18 label,
+.dy-modal-hane-18 div,
+.dy-modal-hane-18 td,
+.dy-modal-hane-18 th,
+.dy-modal-hane-18 button,
+.dy-modal-hane-18 h3,
+.dy-modal-hane-18 h4 { font-size: 14px !important; }
+.dy-modal-hane-18 input,
+.dy-modal-hane-18 select,
+.dy-modal-hane-18 textarea { font-size: 14px !important; }
+
+/* Kullanici istegi (2026-10-08): "Dosya Sahibini Degistir" penceresi -
+   "aynı şekilde düzenle" (Hane Bireyi penceresiyle ayni muamele): duz 14px,
+   kurumsal/profesyonel gorunum. AYNI gun icinde "Dosya Durumu" penceresine
+   de (ayni kucuk tek-sutun form deseni) bu sinif tekrar kullanildi. */
+.dy-owner-change-14,
+.dy-owner-change-14 p,
+.dy-owner-change-14 span,
+.dy-owner-change-14 label,
+.dy-owner-change-14 div,
+.dy-owner-change-14 button,
+.dy-owner-change-14 h3,
+.dy-owner-change-14 h4 { font-size: 14px !important; }
+.dy-owner-change-14 input,
+.dy-owner-change-14 select,
+.dy-owner-change-14 textarea { font-size: 14px !important; }
+
+/* Kullanici istegi (2026-10-08): "Ayni/Nakdi" muracaat penceresi - "genel
+   yazi puntosunu 14px yap, kurumsal/profesyonel olsun, VERILER BOZULMASIN".
+   Sadece bu turun kendi icerik sarmalayicisina uygulanir (ayni modal diger
+   yardim turleri icin de kullaniliyor - onlara dokunulmadi). Dar (130px)
+   TC dogrulama/cakisma uyari metinleri (.dy-nakit-chip-note) istisna -
+   14px'e buyurse tasip veriyi/duzeni bozar. */
+.dy-nakit-modal-14,
+.dy-nakit-modal-14 p, .dy-nakit-modal-14 span, .dy-nakit-modal-14 label,
+.dy-nakit-modal-14 div, .dy-nakit-modal-14 li, .dy-nakit-modal-14 legend,
+.dy-nakit-modal-14 button,
+.dy-nakit-modal-14 input, .dy-nakit-modal-14 select, .dy-nakit-modal-14 textarea {
+  font-size: 14px !important;
+}
+.dy-nakit-modal-14 .dy-nakit-chip-note { font-size: 9.5px !important; }
+
+/* Kullanici istegi (2026-10-07, 2. tur - ONCE sadece "Diğer Kurumlar
+   Raporu" icindi, sonra "Yardımlar sekmesi altindaki TUM yardim
+   raporlarinin yazi puntosu +2px buyusun" denilince GENELLESTIRILDI) -
+   paylasilan ManagedReportTablePage/AdvancedTable bilesenlerini kullanan
+   TUM yardim rapor sayfalarina (Diğer Kurumlar, Ekmek, Gıda Bankası,
+   Destek Paketi, Giyim, Hazır Yemek, Nakit, Dönem Dışı Gıda, Periyodik)
+   bu TEK sinif uygulanir - bilesenin KENDISI degistirilmedi (SADECE bu
+   sayfalara ozel +2px, kok bilesenin varsayilani hala 15px/13.5px). */
+.dy-yardim-rapor-17 table { font-size: 17px !important; }
+.dy-yardim-rapor-17 table th { font-size: 15.5px !important; }
+/* NOT (2026-10-07): AdvancedTable hucrelere (td/th) DOGRUDAN
+   "text-[14.5px] md:text-[15.5px]" gibi literal siniflar yaziyor (bkz.
+   components/shared/AdvancedTable.tsx cellTextSize/headTextSize/
+   dataTextSize) - bunlar yukaridaki "table{font-size}" kuralindan MIRAS
+   ALINMAZ (dogrudan atanmis deger miras alinan degeri HER ZAMAN ezer,
+   !important fark etmez). Bu yuzden hucre duzeyindeki gercek sinif
+   token'lari ayrica hedeflenir - "*=" alt metin eslesmesi KULLANILIR ki
+   "md:text-[15.5px]" gibi duyarli (responsive) onekli varyantlar da
+   yakalansin. */
+.dy-yardim-rapor-17 [class*="text-[14.5px]"] { font-size: 16.5px !important; }
+.dy-yardim-rapor-17 [class*="text-[15.5px]"] { font-size: 17.5px !important; }
+.dy-yardim-rapor-17 [class*="text-[17px]"] { font-size: 19px !important; }
+.dy-yardim-rapor-17 [class*="text-[11px]"] { font-size: 13px !important; }
+.dy-yardim-rapor-17 [class*="text-[12px]"] { font-size: 14px !important; }
+.dy-yardim-rapor-17 [class*="text-[10px]"] { font-size: 12px !important; }
+.dy-yardim-rapor-17 [class*="text-[10.5px]"] { font-size: 12.5px !important; }
+.dy-yardim-rapor-17 [class*="text-[16px]"] { font-size: 18px !important; }
+
+/* Kullanici istegi (2026-09-22): "Yardım Hareketleri" penceresindeki rapor
+   tablosu (bkz. documents/page.tsx "Dosya Yardım Geçmişi" modali) sayfa
+   genelindeki ".dy-base-16" sistemi ICINDE render oluyor - o sistem TÜM
+   td/th/span/div/p'nin font boyutunu SAYFA KÖKÜNDEKİ yazı boyutu ayarına
+   (--dy-fs, kullanıcı bazlı %80-180 kaydırıcı) göre kendisi belirliyor
+   (bkz. yukarıdaki ".dy-base-16 td/th" blokları) - bu, tablonun KENDİ
+   Tailwind text-[Npx] sınıflarını SESSİZCE eziyordu: React tarafında
+   punto ne kadar küçültülürse küçültülsün, kullanıcının yazı boyutu
+   ayarı yüksekse hücreler hep büyük kalıyordu. İLK denemede (7px,
+   !important, "dy-report-dense" sınıfı) bunu asırı derecede küçültmüştü
+   ("çok küçültmüş, standart boyut olsun" şikayeti) - o sınıf KALDIRILDI;
+   bunun yerine bu modalin kok div'ine, uygulamada zaten (ör. "Belgeler"
+   penceresinde) kullanılan STANDART "dy-modal-compact" ön ayarı verildi
+   (bkz. documents/page.tsx - kaynak sırası geregi ".dy-base-16"nin
+   ONUNE gecer, ayrica !important gerekmez).
+*/
+
+/* Dosya Yonetimi - MOBIL kompakt yerlesim: "alanlar arasinda cok fazla
+   bosluk" hissini gidermek icin bilgi alanlari (Field) daha sik dizilir. */
+@media (max-width: 640px) {
+  .dy-base-16 label.flex.flex-col {
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+  }
+  .dy-base-16 label.flex.flex-col > span:first-child { font-size: calc(10px * var(--dy-fs, 1)); }
+  .dy-base-16 label.flex.flex-col > span:last-child { font-size: calc(14px * var(--dy-fs, 1)); line-height: 1.15; }
+}
+
+/* ------------------------------------------------------------------------
+   Kullanici istegi (Ekim 2026): sol sidebar'in renk temasi ve duzeni
+   "Dosya Yönetimi" sayfasiyla uyumlu hale getirildi - teal (#0E7C86) vurgu,
+   koyu "ink" (#101E2B) baslik, bronz (#B98A34) aktif nokta, notr griler
+   (#F1F3EF / #E2E5DE). BILEREK sadece CSS override: components/layout/
+   sidebar.tsx'teki hicbir sinif/mantik/islev DEGISMEDI - eski "gokkusagi"
+   degrade ikon rozetleri burada tek tip teal'e cevriliyor.
+   ------------------------------------------------------------------------ */
+
+/* Ikon rozetlerindeki cok-renkli degradeler -> notr "kagit" zemin + teal
+   ikon. Kirmizi ALARM rozetleri (onay bekleyen / okunmamis mesaj) haric
+   tutulur - onlar bilerek dikkat cekmeli. */
+.dy-sidebar span[class*="bg-gradient-to-br"]:not([class*="from-red-"]) {
+  background-image: none !important;
+  background-color: #EEF1EE !important;
+  color: #0A5F67 !important;
+  border-color: #DEE3DE !important;
+}
+
+/* Aktif ogenin rozeti dolu teal olur. Aktif sarmalayicida "bg-sky-50"
+   SINIF ADI bulunur (hesaplanan renge degil, sinif adina bakariz). */
+.dy-sidebar .bg-sky-50 span[class*="bg-gradient-to-br"]:not([class*="from-red-"]) {
+  background-color: #0E7C86 !important;
+  color: #ffffff !important;
+  border-color: #0A5F67 !important;
+}
+
+/* Aktif oge zemini: notr gri yerine cok hafif teal tonu (sayfadaki
+   secili-sekme hissiyle ayni). */
+.dy-sidebar .bg-sky-50 {
+  background-color: rgba(14, 124, 134, 0.09) !important;
+  background-image: none !important;
+  color: #0A5F67 !important;
+}
+
+/* Aktif sol gosterge cubugu teal (aktif "nokta" zaten #B98A34 bronz). */
+.dy-sidebar .bg-sky-600 { background-color: #0E7C86 !important; }
+
+/* Alt-menu dikey ayrac cizgileri ve genel ince cizgiler - notr yesil-gri. */
+.dy-sidebar .border-slate-100,
+.dy-sidebar .border-slate-100\/60 { border-color: #E7EAE6 !important; }
+
+/* Hover zemini sayfayla ayni (#F1F3EF). */
+.dy-sidebar a:hover,
+.dy-sidebar button:hover,
+.dy-sidebar summary:hover { background-color: #F1F3EF !important; }
+
+/* Iki harfli alt-menu metin rozetleri: dark "ink" yerine teal aile. */
+.dy-sidebar span[class~="bg-[#F1F3EF]"] { color: #0A5F67 !important; }
+
+/* Kullanici istegi (Eylul 2026): "sidebar alandaki yazi boyutunu buyut".
+   Nav etiketleri text-[15px] (ust duzey) / text-[14px] (alt oge) idi.
+   Katmansiz kural -> Tailwind utility'lerini eser (bkz. yukaridaki .dark
+   blogu notu). */
+.dy-sidebar [class~="text-[15px]"] { font-size: 13.5px; }
+.dy-sidebar [class~="text-[14px]"] { font-size: 12.5px; }
+
+/* ------------------------------------------------------------------------
+   Kullanici istegi (Agustos 2026): "sol sidebardaki AYARLAR butonu DISINDA
+   kalan tum alanlar bu sayfaya uygun renklensin" + "web ve mobilde
+   HIZLANDIRALIM". Renk: yukaridaki .dy-sidebar teal override'lari zaten
+   tum bolumleri kapsiyor - burada SADECE (1) "Ayarlar" bolumunu bu
+   temadan MUAF tutuyoruz (kendi notr gri gorunumu), (2) gecis/animasyon
+   maliyetini dusuruyoruz (transition-all -> sadece renk; hover-buyutme
+   kapali) - islev/mantik DEGISMEZ.
+   ------------------------------------------------------------------------ */
+
+/* (1) "Ayarlar" bolumu teal temadan muaf - notr gri kalir, gorsel olarak
+   ayrisir. data-sidebar-settings, components/layout/sidebar.tsx'te SADECE
+   Ayarlar <details>'ine eklendi. */
+.dy-sidebar [data-sidebar-settings] span[class*="bg-gradient-to-br"] {
+  background-image: none !important;
+  background-color: #E7EAE6 !important;
+  color: #475569 !important;
+  border-color: #D4DAD4 !important;
+}
+.dy-sidebar [data-sidebar-settings] .bg-sky-50 span[class*="bg-gradient-to-br"] {
+  background-color: #64748B !important;
+  color: #ffffff !important;
+  border-color: #475569 !important;
+}
+.dy-sidebar [data-sidebar-settings] > summary .bg-sky-50,
+.dy-sidebar [data-sidebar-settings] .bg-sky-50 {
+  background-color: rgba(100, 116, 139, 0.12) !important;
+  color: #334155 !important;
+}
+.dy-sidebar [data-sidebar-settings] .bg-sky-600 { background-color: #64748B !important; }
+
+/* (2) HIZ: transition-all pahalidir (layout dahil her seyi animle eder) -
+   sidebarda sadece renk/gölge gecisi yeterli, sure de kisaltilir. */
+.dy-sidebar [class*="transition-all"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity !important;
+  transition-duration: 110ms !important;
+}
+.dy-sidebar [class~="duration-200"] { transition-duration: 110ms !important; }
+/* Ikon rozetlerindeki hover "scale-110" - her hover'da repaint/compositing
+   tetikliyor; kapatildi (gorunum ayni, his daha "aninda"). */
+.dy-sidebar .group:hover [class~="group-hover:scale-110"] {
+  --tw-scale-x: 1 !important;
+  --tw-scale-y: 1 !important;
+  transform: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dy-sidebar *, .dy-sidebar *::before, .dy-sidebar *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Kullanici istegi (Ekim 2026): Ana Sayfa (dashboard) da "Dosya Yönetimi"
+   sayfasinin gorsel diliyle (teal + notr griler + koyu "ink") uyumlu hale
+   getirildi. BILEREK sadece "chrome" (zemin, kart kenari, baslik seridi,
+   kurumsal mavi vurgu) hedeflenir - GRAFIK VERI RENKLERINE (bar/pasta/
+   cizgi renkleri, durum rozetleri) DOKUNULMAZ; onlar anlam tasir.
+   app/(modules)/dashboard/page.tsx'e sadece ".dy-dashboard" sinifi eklendi,
+   baska hicbir sey degismedi.
+   ------------------------------------------------------------------------ */
+
+/* Sayfa zemini: mavi-yesil degrade yerine sayfayla ayni notr acik zemin. */
+.dy-dashboard {
+  background-image: none !important;
+  background-color: #F4F6F3 !important;
+}
+
+/* Ust "hero" seridi: kurumsal mavi-yesil degrade -> teal ("ink" ipucu). */
+.dy-dashboard .dy-dashboard-hero {
+  background-image: linear-gradient(90deg, #0A5F67, #0E7C86 55%, #16323a) !important;
+  box-shadow: 0 18px 50px rgba(14, 124, 134, 0.24) !important;
+  --tw-ring-color: rgba(14, 124, 134, 0.25) !important;
+  border-color: #ffffff !important;
+}
+
+/* Kurumsal mavi (#0076b6 / #005f95 / #004f7c) -> teal aile. Metin, zemin
+   ve kenarlik olarak nerede gecerse. */
+.dy-dashboard [class~="text-[#0076b6]"],
+.dy-dashboard [class~="text-[#005f95]"] { color: #0A5F67 !important; }
+.dy-dashboard [class~="bg-[#0076b6]"],
+.dy-dashboard [class~="bg-[#005f95]"] { background-color: #0E7C86 !important; }
+.dy-dashboard [class~="border-[#0076b6]"] { border-color: #0E7C86 !important; }
+.dy-dashboard [class~="hover:border-[#0076b6]"]:hover { border-color: #0E7C86 !important; }
+
+/* Kart/kutu kenarlari ve acik gri zeminler - sayfadaki notr tonlar. */
+.dy-dashboard .border-slate-200 { border-color: #E2E5DE !important; }
+.dy-dashboard .border-slate-100 { border-color: #ECEFEA !important; }
+.dy-dashboard .bg-slate-50 { background-color: #F1F3EF !important; }
+.dy-dashboard .bg-slate-100 { background-color: #E9ECE7 !important; }
+
+/* "sky" vurgu tonlari -> cok hafif teal (durum rozetleri DEGIL, sadece
+   acik-50/100 arka planlar ve ring'ler). */
+.dy-dashboard .bg-sky-50,
+.dy-dashboard [class~="bg-sky-50/70"] { background-color: rgba(14, 124, 134, 0.07) !important; }
+.dy-dashboard .border-sky-100,
+.dy-dashboard .border-sky-200 { border-color: rgba(14, 124, 134, 0.22) !important; }
+.dy-dashboard .text-sky-700,
+.dy-dashboard .text-sky-800 { color: #0A5F67 !important; }
+.dy-dashboard .ring-sky-200 { --tw-ring-color: rgba(14, 124, 134, 0.25) !important; }
+
+/* Ana Sayfa - MOBIL: yazi boyutlari ve alanlar iyice sikilastirilir ki
+   her sey ekrana tam otursun; daha profesyonel/yogun bir gorunum
+   (Kullanici istegi, Ekim 2026). */
+@media (max-width: 640px) {
+  /* --- Yazi boyutlari (hepsi bir kademe daha kucuk) --- */
+  .dy-dashboard [class~="text-3xl"] { font-size: 1.15rem; line-height: 1.1; }
+  .dy-dashboard [class~="text-2xl"] { font-size: 1.02rem; line-height: 1.1; }
+  .dy-dashboard [class~="text-[28px]"] { font-size: 1rem; }
+  .dy-dashboard [class~="text-[26px]"] { font-size: 1.02rem; }
+  .dy-dashboard [class~="text-xl"] { font-size: 0.95rem; }
+  .dy-dashboard [class~="text-lg"] { font-size: 0.85rem; }
+  .dy-dashboard [class~="text-base"] { font-size: 0.8rem; }
+  .dy-dashboard [class~="text-sm"] { font-size: 0.75rem; }
+  .dy-dashboard [class~="text-[16px]"] { font-size: 0.82rem; }
+  .dy-dashboard [class~="text-[15px]"] { font-size: 0.78rem; }
+  .dy-dashboard [class~="text-[14px]"] { font-size: 0.74rem; }
+  .dy-dashboard [class~="text-[13px]"] { font-size: 0.7rem; }
+  .dy-dashboard [class~="text-[12px]"] { font-size: 0.66rem; }
+  .dy-dashboard [class~="text-[11px]"] { font-size: 0.62rem; }
+  .dy-dashboard [class~="text-[10px]"] { font-size: 0.58rem; }
+  .dy-dashboard [class~="text-[9px]"] { font-size: 0.55rem; }
+
+  /* --- Kart baslik seritleri (degrade "dashboard-drag-handle") mobilde
+     SURUKLENMEZ - o yuzden iyice ince/tek satir; dekoratif dikey seritler
+     ve fazla yukseklik kaldirilir. --- */
+  .dy-dashboard .dashboard-drag-handle {
+    min-height: 0 !important;
+    padding-top: 0.4rem !important;
+    padding-bottom: 0.4rem !important;
+    align-items: center !important;
+  }
+  /* baslik seridinin solundaki dekoratif dikey renk seridi */
+  .dy-dashboard .dashboard-drag-handle > [class~="w-2"],
+  .dy-dashboard .dashboard-drag-handle > [class~="h-8"][class~="w-2"] { display: none; }
+  /* seridin ikinci (aciklama) satiri - mobilde gereksiz yer kapliyor */
+  .dy-dashboard .dashboard-drag-handle p { display: none; }
+
+  /* --- Buyuk kart minimum yukseklikleri iyice kisaltilir --- */
+  .dy-dashboard [class~="min-h-[360px]"] { min-height: 220px; }
+  .dy-dashboard [class~="min-h-[280px]"] { min-height: 190px; }
+  .dy-dashboard [class~="min-h-[250px]"] { min-height: 180px; }
+  .dy-dashboard [class~="min-h-[220px]"] { min-height: 165px; }
+  .dy-dashboard [class~="min-h-[200px]"] { min-height: 155px; }
+  .dy-dashboard [class~="min-h-[160px]"] { min-height: 130px; }
+
+  /* --- Sadece bosluklar (dolgulara DOKUNMA - "-mx-4" gibi negatif
+     marjlarla eslesmis dolgulari bozar) --- */
+  .dy-dashboard [class~="gap-4"] { gap: 0.4rem; }
+  .dy-dashboard [class~="gap-3"] { gap: 0.35rem; }
+  .dy-dashboard [class~="gap-2.5"] { gap: 0.3rem; }
+  .dy-dashboard [class~="space-y-3"] > * + * { margin-top: 0.35rem; }
+  .dy-dashboard [class~="space-y-4"] > * + * { margin-top: 0.4rem; }
+
+  .dy-dashboard .rounded-2xl { border-radius: 0.6rem; }
+
+  /* Genis satir/tablo iceren kutular yatay tasarsa sayfayi degil KENDINI
+     kaydirsin. */
+  .dy-dashboard .dashboard-grid-item { overflow: hidden; }
+}
+
+/* Kullanici istegi (15 Eylul 2026, 26. tur): Tasarim Modu'ndaki surukleme
+   tutamaci imleci ("cursor: move") onceden components/shared/DashboardGrid.tsx
+   icinde Tailwind'in "[&_.dashboard-drag-handle]:cursor-move" turev-secici
+   (arbitrary descendant selector) sinifiyla veriliyordu - bu, Turbopack/
+   Lightning CSS derlemesinde (nedeni netlesmedi) bozuk baytli bir CSS secici
+   uretip HER build'de gorulen (zararsiz ama "next dev"de FATAL) 3 uyaridan
+   ikisine yol aciyordu. ".dashboard-drag-handle" pek cok FARKLI bilesende
+   (SummaryListPanel, AssistanceAlertCard vb.) kullanildigi icin dogrudan tek
+   bir elemente tasinamadi - bunun yerine DashboardGrid.tsx'te duz bir
+   isaretleyici sinif ("dashboard-design-mode-active") eklenip burada SAF
+   (Tailwind JIT'siz) bir CSS kurali yazildi - AYNI gorsel sonucu verir. */
+.dashboard-design-mode-active .dashboard-drag-handle {
+  cursor: move;
+}
+
+/* ------------------------------------------------------------------------
+   Kullanici istegi (Ekim 2026): "Dosyalar" (Tüm Dosyalar - /documents/all)
+   sayfasi da ayni gorsel dile cekildi. Yine sadece "chrome" (baslik seridi,
+   kurumsal mavi vurgu, kart kenarlari, acik zeminler) - tablo/durum
+   renklerine DOKUNULMAZ. Sayfa koküne ".dy-dosyalar", ReportPageHeader'a
+   ".dy-page-hero" sinifi eklendi; baska degisiklik yok.
+   ------------------------------------------------------------------------ */
+
+/* Baslik seridi: mavi-yesil kurumsal degrade -> teal. */
+.dy-dosyalar .dy-page-hero {
+  background-image: linear-gradient(90deg, #0A5F67, #0E7C86 55%, #16323a) !important;
+  border-color: #ffffff !important;
+}
+
+/* Kurumsal mavi (#0076b6 / #00649b / #005f95) -> teal aile. */
+.dy-dosyalar [class~="text-[#0076b6]"] { color: #0A5F67 !important; }
+.dy-dosyalar [class~="bg-[#0076b6]"] { background-color: #0E7C86 !important; }
+.dy-dosyalar [class~="hover:bg-[#00649b]"]:hover { background-color: #0A5F67 !important; }
+.dy-dosyalar [class~="border-[#0076b6]"] { border-color: #0E7C86 !important; }
+.dy-dosyalar [class~="focus:border-[#0076b6]"]:focus { border-color: #0E7C86 !important; }
+.dy-dosyalar [class~="hover:bg-[#eaf7fd]"]:hover { background-color: rgba(14, 124, 134, 0.08) !important; }
+
+/* Kart kenarlari / acik gri zeminler / "sky" vurgular -> notr + hafif teal. */
+.dy-dosyalar .border-slate-200,
+.dy-dosyalar .border-slate-300 { border-color: #E2E5DE !important; }
+.dy-dosyalar .border-slate-100 { border-color: #ECEFEA !important; }
+.dy-dosyalar .bg-slate-50 { background-color: #F1F3EF !important; }
+.dy-dosyalar .border-sky-100,
+.dy-dosyalar .border-sky-200 { border-color: rgba(14, 124, 134, 0.22) !important; }
+.dy-dosyalar .bg-sky-50,
+.dy-dosyalar [class~="bg-sky-50/80"] { background-color: rgba(14, 124, 134, 0.07) !important; }
+.dy-dosyalar .text-sky-700,
+.dy-dosyalar .text-sky-800 { color: #0A5F67 !important; }
+
+/* Sayfanin ust arama kutusundaki mavi-yesil degrade zemin -> notr. */
+.dy-dosyalar [class~="from-sky-50/80"] {
+  background-image: none !important;
+  background-color: #F6F8F5 !important;
+}
+
+/* ========================================================================
+   MOBIL - profesyonel gorunum temeli (Kullanici istegi, Ekim 2026).
+   Uygulama genelinde gecerli; masaustu (>= 641px) davranisi degismez.
+   ======================================================================== */
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+* { -webkit-tap-highlight-color: transparent; }
+
+/* Kullanici istegi (2026-09-12, mobil/tablet dokunma iyilestirmesi):
+   dokunmatik ekranlarda tarayici, bir tiklamanin "cift-tiklama/zoom mu"
+   oldugunu anlamak icin ~300ms bekler - butonlar/linkler bu yuzden hafif
+   gecikmeli hissettiriyordu. "touch-action: manipulation" bu bekleme
+   suresini kaldirir, cift-tiklama-zoom davranisini iptal eder - SADECE
+   dokunma fizigi degisir, hicbir tiklama/onClick islevine dokunmaz. */
+button,
+a,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+summary {
+  touch-action: manipulation;
+}
+
+/* Yatay kaydirilan alanlarin (genis tablolar) akici dokunmatik kaydirma
+   fizigi - eskiden SADECE telefon genisliginde (<=640px) uygulaniyordu.
+   iPad/tablet gibi dokunmatik tabletlerde de AYNI akicilik beklenir; bu
+   yuzden esik tablet genisligine (<=1024px) cikarildi. Sadece YATAY
+   kaydirmayi kapsar (mevcut dikey scroll davranislarina dokunulmaz). */
+@media (max-width: 1024px) {
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+}
+
+@media (max-width: 640px) {
+  /* iOS: 16px altindaki bir alana odaklaninca sayfa otomatik yakinlasir
+     (ve bir daha uzaklasmaz). Mobilde TUM form alanlarini >= 16px yaparak
+     bunu engelliyoruz - ayrica dokunma hedefi olarak da daha rahat. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Yatay kaydirilan alanlarda (genis tablolar) parmakla akici kaydirma
+     ve dikey sayfa kaydirmasiyla catismayan jest yonetimi. */
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  /* Bir kutu tasarsa tum sayfanin saga kaymasini kesin engelle. */
+  body { overflow-x: hidden; }
+
+  /* Ekranin ortasinda acilan pencereler (modal/dialog) mobilde nefes
+     payi birakip kenara yapismasin, cok dar kalmasin. Uygulamadaki
+     yaygin kalip: fixed inset-0 > flex > (rounded + max-w-*) panel. */
+  .fixed.inset-0 > .w-full[class*="max-w-"] {
+    max-height: 92vh;
+  }
+
+  /* Kullanici istegi/hata raporu (2026-09-12): "yazilarin bazilari buyuk
+     bazilari kucuk, duzenli durmuyor" - kok neden: uygulama genelinde
+     bilesenler "text-[Npx]" gibi ham/bagimsiz piksel degerleri kullaniyor
+     (denetimde 8-19px arasi ~20 farkli deger bulundu); masaustunde/tablette
+     kabuk zoom'u (bkz. yukaridaki ".app-scaled" bloklari, 768-1600px)
+     bunlari ORANTILI kucultup birbirine yaklastiriyor, ama <768px'te bu
+     zoom BILINCLI olarak KAPALI (duzen bozulmasin diye) - sonuc olarak
+     mobilde ayni satirda ör. 9px bir etiket 16px bir deger yaninda
+     GERCEK/ham haliyle goruluyor, aradaki oran masaustundekinden COK daha
+     carpici/dagitik hissettiriyor. ".dy-modal-xcompact" bloğundaki
+     (yukarida, ör. text-sm/text-lg icin) AYNI "[class~=...]" kalibi burada
+     TUM uygulama icin, sadece en UCTAKI (cok kucuk / gereginden buyuk)
+     degerlere uygulanir - ORTADAKI, zaten birbirine yakin olan 11-14.5px
+     bandina DOKUNULMAZ (bu zaten tutarli/okur bir govde-metni bandi).
+     16px ve uzeri (form alanlarinin iOS-zoom-guvenli boyutu DAHIL - bkz.
+     yukaridaki input/select/textarea kurali - ve gercek baslik/KPI
+     buyuklukleri) KASITLI OLARAK BURAYA DAHIL EDILMEZ. */
+  [class~="text-[7px]"], [class~="text-[7.5px]"], [class~="text-[8px]"] {
+    font-size: 10px !important;
+  }
+  [class~="text-[9px]"], [class~="text-[9.5px]"], [class~="text-[10px]"], [class~="text-[10.5px]"] {
+    font-size: 11px !important;
+  }
+  [class~="text-[15px]"], [class~="text-[15.5px]"] {
+    font-size: 14px !important;
+  }
+}
+
+/* Kullanici istegi (2026-09-12): "sol sidebar'i biraz daraltalim, icindeki
+   buton basliklari TAM okunacak sekilde" - mobil cekmece (bkz. AppShell.tsx
+   - w-[min(78vw,280px)], eskiden 86vw/320px'ti) daraltildi; bu daralmayla
+   ".truncate" tasiyan alt-menu etiketleri (ör. "Yardım Alan Dosya
+   Raporları") artik daha kolay kirpilabilir - bu yuzden sidebar'in kendi
+   yazi boyutlari burada BIR KADEME daha kucultulur (14px alt-menu -> 13px,
+   ikon kutusu biraz daraltilir), boylece etiketler daralan alanda kirpilmadan
+   sigar. SADECE mobil/tablet genisliginde (<1024px, masaustu SidebarShell'in
+   render edildigi esik) gecerlidir - gercek masaustu sabit sidebar HIC
+   etkilenmez. */
+@media (max-width: 1023.98px) {
+  .dy-sidebar [class~="text-[14px]"] {
+    font-size: 13px !important;
+  }
+  .dy-sidebar [class~="text-[15px]"] {
+    font-size: 13.5px !important;
+  }
+  .dy-sidebar .h-6.w-6 {
+    height: 1.25rem !important;
+    width: 1.25rem !important;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Kullanici istegi (Agustos 2026): "mobilde acilan pencereleri ve sayfalari
+   STABIL ve EKRANA SIGACAK sekilde yap - isleyisi bozma". Uygulamadaki tum
+   modal/dialog'lar AYNI kalibi kullaniyor:
+     <div class="fixed inset-0 z-[NNNN] flex items-center justify-center
+                 bg-... p-* backdrop-blur-sm"> <PANEL class="w-full max-w-*
+                 ... flex flex-col overflow-hidden ..."> ... </PANEL> </div>
+   Bildirim/toast katmanlari "pointer-events-none" tasidigi icin haric tutulur.
+   Sadece kucuk ekranda devreye girer; gercek masaustu HIC etkilenmez.
+   Panellerin ICINDEKI kaydirma yapisina (flex-col + inner overflow-y-auto)
+   DOKUNULMAZ - yalnizca dis olcu (max yukseklik/genislik) sinirlanir, boylece
+   sabit "h-[92vh]" veya olcu vermemis pencereler kucuk ekranlara sigar.
+
+   Kullanici istegi (Agustos 2026, 2. tur): SADECE telefon degil, 7"/8"/9"/10"
+   TABLETLER de dikkate alinmali - esik 767px'den 1024px'e cikarildi. Boylece
+   tum tablet DIKEY (max ~834px) ve tablet YATAY (~960-1180px) genisliklerinde
+   modallar ekrana sigar. 1024px ustu (gercek masaustu / laptop) degismez.
+   ------------------------------------------------------------------------ */
+@media (max-width: 1024px) {
+  .fixed.inset-0.flex.justify-center:not(.pointer-events-none) {
+    padding: 0.5rem !important;
+  }
+  .fixed.inset-0.flex.justify-center:not(.pointer-events-none) > * {
+    max-height: calc(100svh - 1rem) !important;
+    max-width: calc(100vw - 1rem) !important;
+  }
+  /* Kendi ic kaydirmasini yonetmeyen (flex-col + overflow-hidden kalibinda
+     OLMAYAN) duz paneller: tasan icerik kendi icinde kaysin, ekran disina
+     tasmasin. "overflow-hidden" tasiyan paneller (zaten ic flex-1 alanlari
+     kaydiriyor) BU kuraldan haric - onlarin yapisina dokunulmaz. */
+  .fixed.inset-0.flex.justify-center:not(.pointer-events-none) > *:not([class*="overflow-hidden"]) {
+    overflow-y: auto !important;
+  }
+  /* Sabit yukseklikli (h-[9x vh] / h-[8x vh]) paneller de tasmasin - dogal
+     yukseklige birak, yukaridaki max-height sinirlar. */
+  .fixed.inset-0.flex.justify-center:not(.pointer-events-none) > [class*="h-["][class*="vh]"] {
+    height: auto !important;
+  }
+  /* Cok genis min-genislik veren ic tablolar/gridler modali/sayfayi yatay
+     itmesin - kendi alaninda YATAY kaydirilir (dikey icerik akisi bozulmaz). */
+  .fixed.inset-0.flex.justify-center .overflow-x-auto { max-width: 100%; }
+}
+
+/* svh desteklemeyen eski taraycilar icin guvenli yedek. */
+@supports not (height: 100svh) {
+  @media (max-width: 1024px) {
+    .fixed.inset-0.flex.justify-center:not(.pointer-events-none) > * {
+      max-height: 94vh !important;
+    }
+  }
+}
+
+/* Centik (notch) guvenli alt bosluk - viewport-fit:cover ile birlikte. */
+@supports (padding: max(0px)) {
+  .pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  /* AppShell <main> alt bosluk - eskiden JSX'te arbitrary sinif olarak
+     ("pb-[max(1.5rem,env(safe-area-inset-bottom))]") yaziliydi; Turbopack
+     dev derleyicisi bu env() arbitrary degerini artan derlemede bozup
+     "Parsing CSS source code failed" hatasi veriyordu. Adli utility'ye
+     tasindi. SADECE < 640px'te devreye girer -> "sm:pb-8 / md:pb-10"
+     Tailwind override'lariyla cakismaz. */
+  @media (max-width: 639.98px) {
+    .dy-main-safe { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+  }
+}
+
+/* ========================================================================
+   GECE MODU - 2. tur (28 Agustos 2026): "basliklar, sekmeler ve bazi
+   alanlar HALA BEYAZ - hem Dosya Yonetimi hem Ana Sayfa rapor ozetlerinde".
+   ------------------------------------------------------------------------
+   Kok neden 2 grup kural:
+   (1) Dosya Yonetimi / Dosyalar / Ana Sayfa ekranlari icin yazilan ".dy-*"
+       ozel-palet override'lari KOSULSUZ (!important) ACIK renk dayatiyordu
+       (bkz. yukaridaki .dy-dashboard / .dy-dosyalar / .dy-sidebar bloklari).
+   (2) Bu ekranlar adli Tailwind siniflari yerine "bespoke" HEX arbitrary
+       siniflari kullaniyor: bg-[#F1F3EF] (acik gri cip), border-[#E2E5DE],
+       bg-[#F3E6C8]/60 (krem rozet) vb. - blanket .dark haritasinda YOKTU.
+   Asagida ikisi de .dark ile, daha yuksek ozgullukte geri aliniyor.
+   ======================================================================== */
+
+/* --- (2) Bespoke ACIK HEX arka planlar -> koyu esdegerler --- */
+.dark [class~="bg-[#F1F3EF]"],
+.dark [class~="bg-[#f4f7f8]"],
+.dark [class~="bg-[#f7f7f7]"],
+.dark [class~="bg-[#f4f4f4]"],
+.dark [class~="bg-[#FAFBFA]"],
+.dark [class~="bg-[#F6F8F5]"],
+.dark [class~="bg-[#e8eff1]"],
+.dark [class~="bg-[#F4F6F3]"],
+.dark [class~="bg-[#FBFAF7]"] { background-color: #202f45 !important; }
+
+.dark [class~="bg-[#f7fcff]"],
+.dark [class~="bg-[#f2fbff]"],
+.dark [class~="bg-[#eaf7fd]"] { background-color: rgba(56, 189, 248, 0.12) !important; }
+
+.dark [class~="bg-[#f1faed]"],
+.dark [class~="bg-[#e6f3dd]"],
+.dark [class~="bg-[#e5f5dc]"] { background-color: rgba(34, 197, 94, 0.13) !important; }
+
+.dark [class~="bg-[#FBF6EA]"],
+.dark [class~="bg-[#F5EAD2]"],
+.dark [class~="bg-[#F3E6C8]"],
+.dark [class*="bg-[#F3E6C8]/"],
+.dark [class*="bg-[#F5EAD2]/"] { background-color: rgba(217, 180, 74, 0.16) !important; }
+
+/* Bespoke ACIK HEX kenarliklar */
+.dark [class~="border-[#E2E5DE]"],
+.dark [class~="border-[#ECEFEA]"],
+.dark [class~="border-[#E7EAE6]"] { border-color: rgba(148, 163, 184, 0.22) !important; }
+.dark [class~="border-[#d8efcb]"],
+.dark [class~="border-[#d8eff9]"] { border-color: rgba(94, 234, 212, 0.28) !important; }
+.dark [class~="border-[#E4D8BE]"],
+.dark [class~="border-[#F3E6C8]"] { border-color: rgba(217, 180, 74, 0.30) !important; }
+
+/* --- (1) ".dy-*" acik-tema chrome override'larinin koyu-mod karsiliklari --- */
+.dark .dy-dashboard,
+.dark .dy-dosyalar {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+.dark .dy-dashboard .bg-slate-50,
+.dark .dy-dosyalar .bg-slate-50 { background-color: #202f45 !important; }
+.dark .dy-dashboard .bg-slate-100 { background-color: #26374f !important; }
+.dark .dy-dashboard .border-slate-200,
+.dark .dy-dashboard .border-slate-100,
+.dark .dy-dosyalar .border-slate-200,
+.dark .dy-dosyalar .border-slate-300,
+.dark .dy-dosyalar .border-slate-100 { border-color: rgba(148, 163, 184, 0.20) !important; }
+.dark .dy-dashboard [class~="text-[#0076b6]"],
+.dark .dy-dashboard [class~="text-[#005f95]"],
+.dark .dy-dosyalar [class~="text-[#0076b6]"],
+.dark .dy-dashboard .text-sky-700,
+.dark .dy-dashboard .text-sky-800,
+.dark .dy-dosyalar .text-sky-700,
+.dark .dy-dosyalar .text-sky-800 { color: #7dd3fc !important; }
+.dark .dy-dashboard .bg-sky-50,
+.dark .dy-dashboard [class~="bg-sky-50/70"],
+.dark .dy-dosyalar .bg-sky-50,
+.dark .dy-dosyalar [class~="bg-sky-50/80"] { background-color: rgba(56, 189, 248, 0.10) !important; }
+.dark .dy-dosyalar [class~="from-sky-50/80"] {
+  background-color: #172336 !important;
+  background-image: none !important;
+}
+/* Dosya Yonetimi / Dosyalar ust baslik seridi - koyu teal degrade (acik
+   moddaki teal degradenin koyu karsiligi). */
+.dark .dy-dashboard .dy-dashboard-hero,
+.dark .dy-dosyalar .dy-page-hero {
+  background-image: linear-gradient(90deg, #0b3f45, #0e5a63 55%, #0d1b2b) !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+}
+
+/* Sidebar: gece modunda acik hover/aktif zeminleri koyulastir */
+.dark .dy-sidebar a:hover,
+.dark .dy-sidebar button:hover,
+.dark .dy-sidebar summary:hover { background-color: rgba(148, 163, 184, 0.12) !important; }
+.dark .dy-sidebar .bg-sky-50 { background-color: rgba(45, 212, 191, 0.16) !important; }
+.dark .dy-sidebar span[class*="bg-gradient-to-br"]:not([class*="from-red-"]) {
+  background-color: #1e2f3a !important;
+  color: #5eead4 !important;
+  border-color: rgba(94, 234, 212, 0.25) !important;
+}
+.dark .dy-sidebar .bg-sky-50 span[class*="bg-gradient-to-br"]:not([class*="from-red-"]) {
+  background-color: #0e7c86 !important;
+  color: #ffffff !important;
+}
+.dark .dy-sidebar .border-slate-100,
+.dark .dy-sidebar [class~="border-slate-100/60"] { border-color: rgba(148, 163, 184, 0.16) !important; }
+.dark .dy-sidebar span[class~="bg-[#F1F3EF]"] { color: #5eead4 !important; }
+.dark .dy-sidebar [data-sidebar-settings] span[class*="bg-gradient-to-br"] {
+  background-color: #202a3a !important;
+  color: #cbd5e1 !important;
+  border-color: rgba(148, 163, 184, 0.2) !important;
+}
+
+/* ============================================================================
+   KATMAN 0 - Kabuk olcekleme CSS yedegi
+   ----------------------------------------------------------------------------
+   ScaledArea'daki useViewportScale hook'u baglanip GERCEK olcumu yapana kadarki
+   ILK BOYA icin kaba yedek. Hook devreye girince ScaledArea inline `zoom`
+   degeri bu media-query kurallarini ezer (inline stil > sinif). Eski Firefox
+   (<126) `zoom`'u yok sayar -> sayfa 1.0'da kalir ama BOZULMAZ.
+   Sadece ana icerik (.app-scaled) etkilenir; sidebar/header net kalir.
+   ========================================================================== */
+.app-scaled {
+  transform-origin: top left;
+}
+/* Kullanici istegi (2026-10-07): "her yerde sabit gercek boyut" - otomatik
+   kucultme KAPATILDI (bkz. ScaledArea.tsx'teki ayni tarihli not). Bu kurallar
+   SADECE JS hook'u baglanana kadarki ilk-boya yedegiydi - artik hook zaten
+   hep 1 dondugu icin burada da 1'e sabitlenir (tutarlilik + ilk-boya
+   titremesi olmasin diye). Eski kademeli degerler (0.92/0.84/0.78/0.72)
+   gerekirse geri alinabilir - sadece asagidaki satirlar degistirilir. */
+@media (min-width: 768px) and (max-width: 1600px) { .app-scaled { zoom: 1; } }
+@media (min-width: 768px) and (max-width: 1440px) { .app-scaled { zoom: 1; } }
+@media (min-width: 768px) and (max-width: 1280px) { .app-scaled { zoom: 1; } }
+@media (min-width: 768px) and (max-width: 1100px) { .app-scaled { zoom: 1; } }
+@media print { .app-scaled { zoom: 1 !important; } }
+
+/* Tam ekran acilan pencereler / bindirmeler (fixed + inset-0 overlay) kabuk
+   zoom'undan ETKILENMESIN - tablet/dar ekranda modal da %78 kuculup ortada
+   minik bir kutu gibi goruluyordu. Bu overlay'ler ust ".app-scaled"in
+   zoom'unu "--shell-unzoom" ile geri alir -> GERCEK viewport boyutunda acilir.
+   Genis ekranda --shell-unzoom=1 -> etkisiz. "fixed inset-0" kalibi neredeyse
+   her zaman bir overlay/backdrop oldugu icin otomatik yakalanir; ".app-modal"
+   acik opt-in olarak da calisir. */
+.app-scaled .fixed.inset-0,
+.app-scaled .app-modal { zoom: var(--shell-unzoom, 1); }
+
+/* Dosya Yonetimi sayfasi kendi SABIT duzeni + yatay kaydirmasiyla akiskan -
+   kabuk `zoom` emniyet agina ihtiyaci yok, hatta yaziyi kucultup kotu
+   gosteriyor. Bu sayfada zoom devre disi. */
+:where(.app-scaled):has(.dy-fluid) { zoom: 1 !important; }
+
+/* .dy-fluid: Dosya Yonetimi ic yazi/olcu tabani - yazilar okunur bir tabanin
+   altina inmez. Yalnizca bu sayfada gecerli. */
+.dy-fluid {
+  font-size: clamp(0.8125rem, 0.78rem + 0.18vw, 0.9375rem);
+}
+
+/* ========================================================================
+   GECE MODU - GENEL UYUMLULUK KATMANI (Kullanici istegi/hata raporu,
+   2026-09-12): "mobilde bazı açılan pencerelerde gece modu düzgün
+   çalışmıyor, tam anlamıyla gündüz ve gece modu teması uygulansın".
+   ------------------------------------------------------------------------
+   Kok neden: uygulamanin EN BUYUK/EN COK KULLANILAN dosyalari - Dosya
+   Yonetimi (app/(modules)/documents/page.tsx, 17000+ satir, ONLARCA
+   pencere/modal iceriyor), ManagedReportTablePage.tsx (tum "Kayıt
+   Güncelle"/"Personel Ata"/vb. pencereleri), AdvancedTable.tsx (ana tablo
+   bileseni) - HICBIRINDE tek bir "dark:" varyanti YOK (denetlendi, 0
+   sonuc). Sadece kabuk (header/sidebar) ve birkac ".dy-dashboard"/
+   ".dy-dosyalar" ozel siniflandirilmis alan gece modunu DOGRU uyguluyor;
+   geri kalan her pencere/panel gece modunda oldugu gibi (beyaz zemin,
+   koyu yazi) kaliyor - kabugun koyu temasiyla CELISIYOR.
+   Binlerce satirlik bu dosyalarin HER birine tek tek "dark:" eklemek yerine,
+   ".dy-dashboard"/".dy-dosyalar" icin zaten kullanilan AYNI yontem - en
+   YAYGIN kullanilan acik-tema Tailwind siniflarina GENEL bir .dark
+   karsiligi - burada TUM UYGULAMAYA uygulanir. Renkler, bu dosyadaki
+   MEVCUT gece modu paletiyle (--background/--foreground, ".dy-*"
+   overrideleri) AYNI tonlar (#172336 kart zemini, #202f45/#26374f daha
+   koyu zeminler, #e6ebf3/#e2e8f0/#94a3b8 yazi tonlari).
+   ":not([class*='dark:...'])" korumasi ONEMLI: bir eleman KENDI ACIKCA bir
+   "dark:" varyanti tanimlamissa (ör. header.tsx/sidebar.tsx - bunlar zaten
+   doğru calisiyor, GlobalConfirmDialog.tsx gibi), bu genel kural ONA HIC
+   DOKUNMAZ - sadece "dark: hic tanimlanmamis" elemanlari yakalar.
+   ======================================================================== */
+.dark .bg-white:not([class*="dark:bg-"]) { background-color: #172336 !important; }
+/* Hata raporu (2026-09-12, devami): Belgeler tablosu (ve ayni "zebra" -
+   cizgili satir - kalibini kullanan 16 farkli yerdeki) tek-satir-atla
+   renklendirmesi "odd:bg-white" / "even:bg-slate-50/60" DURUM-VARYANTI
+   (state variant) siniflariyla yapiliyor - bunlar ".bg-white" ile TAM
+   ESLESMEZ (farkli class token'i: "odd:bg-white"), bu yuzden TEK satirlar
+   (odd) hala duz beyaz zeminde kaliyor, ustune miras alinan (artik acik
+   renge cevrilmis) yazi GORUNMEZ oluyordu. */
+.dark [class~="odd:bg-white"]:not([class*="dark:"]) { background-color: #172336 !important; }
+.dark .bg-slate-50:not([class*="dark:bg-"]) { background-color: #202f45 !important; }
+.dark .bg-slate-100:not([class*="dark:bg-"]) { background-color: #26374f !important; }
+.dark .text-black:not([class*="dark:text-"]),
+.dark .text-slate-950:not([class*="dark:text-"]),
+.dark .text-slate-900:not([class*="dark:text-"]) { color: #e6ebf3 !important; }
+.dark .text-slate-800:not([class*="dark:text-"]),
+.dark .text-slate-700:not([class*="dark:text-"]) { color: #e2e8f0 !important; }
+.dark .text-slate-600:not([class*="dark:text-"]),
+.dark .text-slate-500:not([class*="dark:text-"]),
+.dark .text-slate-400:not([class*="dark:text-"]) { color: #b6c2d1 !important; }
+.dark .border-slate-100:not([class*="dark:border-"]),
+.dark .border-slate-200:not([class*="dark:border-"]),
+.dark .border-slate-300:not([class*="dark:border-"]) { border-color: rgba(148, 163, 184, 0.2) !important; }
+/* Hata raporu (2026-09-12): "gece modunda bazı yazılar siyah görünüyor,
+   okunmuyor" - yukaridaki kurallar sadece ISIMLI Tailwind gri tonlarini
+   (text-slate-900 vb.) kapsiyordu; denetimde uygulama genelinde bunun
+   YERINE cok sayida BESPOKE koyu HEX metin rengi kullanildigi goruldu
+   (ör. "text-[#16232B]" TEK BASINA 31 farkli yerde, koyu lacivert/siyaha
+   yakin - Kişi Bilgileri paneli dahil). Bu hex'ler marka rengi (ör.
+   "#0076b6" mavi/teal - 163+ kullanim) DEGIL, DUZ GOVDE METNI icin
+   secilmis "siyaha yakin" tonlar - bu yuzden SADECE bunlar (marka
+   renklerine DOKUNMADAN) acik gece-modu tonlarina cevrilir. */
+.dark [class~="text-[#16232B]"]:not([class*="dark:text-"]),
+.dark [class~="text-[#101E2B]"]:not([class*="dark:text-"]) { color: #e6ebf3 !important; }
+.dark [class~="text-[#24384A]"]:not([class*="dark:text-"]) { color: #e2e8f0 !important; }
+.dark [class~="text-[#3A4A55]"]:not([class*="dark:text-"]),
+.dark [class~="text-[#5B6B74]"]:not([class*="dark:text-"]) { color: #94a3b8 !important; }
+/* Form alanlari (input/select/textarea) - acik-tema pencerelerde genelde
+   "bg-white border-slate-300" ile yazilir, ust kurallar zaten bunlari
+   kapsar; burada AYRICA placeholder/focus rengi de koyu temaya uyarlanir. */
+.dark input:not([class*="dark:"]),
+.dark select:not([class*="dark:"]),
+.dark textarea:not([class*="dark:"]) {
+  background-color: #1b283d !important;
+  color: #e6ebf3 !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+}
+.dark input:not([class*="dark:"])::placeholder,
+.dark textarea:not([class*="dark:"])::placeholder { color: #64748b !important; }
+/* Native tarih/saat alanlarinin (input type=date/time/datetime-local/month/
+   week) tarayici tarafindan cizilen IC parcalari (takvim ikonu, gun/ay/yil
+   bolmeleri) - "color" CSS ozelligini HER TARAYICIDA guvenilir sekilde
+   miras almaz; standart cozum "color-scheme: dark" - tarayici KENDI ic
+   bilesenlerini otomatik koyu-temaya uygun (kontrastli) cizer. */
+.dark input[type="date"]:not([class*="dark:"]),
+.dark input[type="time"]:not([class*="dark:"]),
+.dark input[type="datetime-local"]:not([class*="dark:"]),
+.dark input[type="month"]:not([class*="dark:"]),
+.dark input[type="week"]:not([class*="dark:"]) { color-scheme: dark; }
+
+/* Hata raporu (2026-09-12, devami): "Hanedeki Bireyler" tablosundaki satir
+   hucreleri OKUNMUYORDU - kok neden farkliydi: bu hucreler duz "bg-white"
+   SINIFI TASIMIYOR, bunun yerine ebeveyn satirin ustundeki Tailwind
+   "[&>span]:bg-white/75" (alt-secici) kalibiyla STIL ALIYORLAR - yani
+   "bg-white" hicbir zaman <span>'in kendi class'inda gorunmuyor, SADECE
+   ebeveynin class'inda "[&>span]:bg-white/75" METNI olarak var. Yukaridaki
+   ".bg-white" kurali bu yuzden bu hucreleri YAKALAYAMAZ. Cozum: ebeveynin
+   class'inda bu METNI arayip (yine [class*=...] ile, Tailwind'in bunu NASIL
+   escape ettigiyle ilgilenmeden - burada sadece HAM class ATTRIBUTE
+   degeriyle string eslesmesi yapiliyor) DOGRUDAN alt <span>'lari hedefleriz. */
+.dark [class*="[&>span]:bg-white"] > span:not([class*="dark:"]) { background-color: #26374f !important; }
+
+/* Hata raporu (2026-09-12, devami): "hala sıkıntılı, bazı başlıklar siyah
+   okunmuyor, bazı alanlar gri" - kok neden, uygulamadaki YAYGIN "rozet/
+   uyari kutusu" kalibi: acik tema icin "bg-{renk}-50/100 + border-{renk}-
+   100/200/300 + text-{renk}-700/800/900" (ör. "border-emerald-200 bg-
+   emerald-50 text-emerald-700" - basari kutusu; "border-amber-200 bg-amber-
+   50 text-amber-800" - uyari kutusu - YUZLERCE/BINLERCE yerde kullanilmis:
+   rose-700 tek basina 179, emerald-700 148 kez). Bu ISIMLI renk ailelerinin
+   HICBIRI yukaridaki slate/hex kurallariyla kapsanmiyordu - koyu temada
+   metin (700-950, KOYU) HALA KOYU kaliyor, kutunun kendi acik zemini
+   (50-100) de aciklığini koruyordu; ama bu kutu koyu bir govde (bg-white
+   vb, artik yukaridaki kuralla lacivert) ICINE yerlestirilmisse, kutunun
+   KENDI acik zemini olmadan sadece "text-{renk}-900" kalirsa koyu metin
+   dogrudan koyu zemin ustunde KALIP siyah/okunmaz goruluyordu.
+   Kullanici istegi: "zemin ve tema ayarını gece modunda siyah yapalım ama
+   yazı fontu beyaz/tam okunabilir olsun, sadece gece modunda" - asagida
+   HER renk ailesi icin: acik zeminler (bg-50/100) KOYU/YARI-SAYDAM kendi
+   rengine, koyu metinler (text-700/800/900/950) ise AYNI rengin ACIK
+   (300) tonuna cevrilir - boylece rozet/kutu KENDI ICINDE (marka rengiyle)
+   okunur kalir, HEM de artik koyu zemine gomulu kalsa bile kontrast
+   korunur. Kenarliklar (border-100/200/300) da yari-saydam kendi rengine. */
+.dark [class~="bg-red-50"]:not([class*="dark:bg-"]), .dark [class~="bg-red-100"]:not([class*="dark:bg-"]) { background-color: rgba(239, 68, 68, 0.14) !important; }
+.dark [class~="border-red-100"]:not([class*="dark:border-"]), .dark [class~="border-red-200"]:not([class*="dark:border-"]), .dark [class~="border-red-300"]:not([class*="dark:border-"]) { border-color: rgba(239, 68, 68, 0.3) !important; }
+.dark [class~="text-red-700"]:not([class*="dark:text-"]), .dark [class~="text-red-800"]:not([class*="dark:text-"]), .dark [class~="text-red-900"]:not([class*="dark:text-"]), .dark [class~="text-red-950"]:not([class*="dark:text-"]) { color: #fca5a5 !important; }
+
+.dark [class~="bg-orange-50"]:not([class*="dark:bg-"]), .dark [class~="bg-orange-100"]:not([class*="dark:bg-"]) { background-color: rgba(249, 115, 22, 0.14) !important; }
+.dark [class~="border-orange-100"]:not([class*="dark:border-"]), .dark [class~="border-orange-200"]:not([class*="dark:border-"]), .dark [class~="border-orange-300"]:not([class*="dark:border-"]) { border-color: rgba(249, 115, 22, 0.3) !important; }
+.dark [class~="text-orange-700"]:not([class*="dark:text-"]), .dark [class~="text-orange-800"]:not([class*="dark:text-"]), .dark [class~="text-orange-900"]:not([class*="dark:text-"]), .dark [class~="text-orange-950"]:not([class*="dark:text-"]) { color: #fdba74 !important; }
+
+.dark [class~="bg-amber-50"]:not([class*="dark:bg-"]), .dark [class~="bg-amber-100"]:not([class*="dark:bg-"]) { background-color: rgba(245, 158, 11, 0.14) !important; }
+.dark [class~="border-amber-100"]:not([class*="dark:border-"]), .dark [class~="border-amber-200"]:not([class*="dark:border-"]), .dark [class~="border-amber-300"]:not([class*="dark:border-"]) { border-color: rgba(245, 158, 11, 0.3) !important; }
+.dark [class~="text-amber-700"]:not([class*="dark:text-"]), .dark [class~="text-amber-800"]:not([class*="dark:text-"]), .dark [class~="text-amber-900"]:not([class*="dark:text-"]), .dark [class~="text-amber-950"]:not([class*="dark:text-"]) { color: #fcd34d !important; }
+
+.dark [class~="bg-yellow-50"]:not([class*="dark:bg-"]), .dark [class~="bg-yellow-100"]:not([class*="dark:bg-"]) { background-color: rgba(234, 179, 8, 0.14) !important; }
+.dark [class~="border-yellow-100"]:not([class*="dark:border-"]), .dark [class~="border-yellow-200"]:not([class*="dark:border-"]), .dark [class~="border-yellow-300"]:not([class*="dark:border-"]) { border-color: rgba(234, 179, 8, 0.3) !important; }
+.dark [class~="text-yellow-700"]:not([class*="dark:text-"]), .dark [class~="text-yellow-800"]:not([class*="dark:text-"]), .dark [class~="text-yellow-900"]:not([class*="dark:text-"]), .dark [class~="text-yellow-950"]:not([class*="dark:text-"]) { color: #fde047 !important; }
+
+.dark [class~="bg-lime-50"]:not([class*="dark:bg-"]), .dark [class~="bg-lime-100"]:not([class*="dark:bg-"]) { background-color: rgba(132, 204, 22, 0.14) !important; }
+.dark [class~="border-lime-100"]:not([class*="dark:border-"]), .dark [class~="border-lime-200"]:not([class*="dark:border-"]), .dark [class~="border-lime-300"]:not([class*="dark:border-"]) { border-color: rgba(132, 204, 22, 0.3) !important; }
+.dark [class~="text-lime-700"]:not([class*="dark:text-"]), .dark [class~="text-lime-800"]:not([class*="dark:text-"]), .dark [class~="text-lime-900"]:not([class*="dark:text-"]), .dark [class~="text-lime-950"]:not([class*="dark:text-"]) { color: #bef264 !important; }
+
+.dark [class~="bg-green-50"]:not([class*="dark:bg-"]), .dark [class~="bg-green-100"]:not([class*="dark:bg-"]),
+.dark [class~="bg-emerald-50"]:not([class*="dark:bg-"]), .dark [class~="bg-emerald-100"]:not([class*="dark:bg-"]) { background-color: rgba(16, 185, 129, 0.14) !important; }
+.dark [class~="border-green-100"]:not([class*="dark:border-"]), .dark [class~="border-green-200"]:not([class*="dark:border-"]), .dark [class~="border-green-300"]:not([class*="dark:border-"]),
+.dark [class~="border-emerald-100"]:not([class*="dark:border-"]), .dark [class~="border-emerald-200"]:not([class*="dark:border-"]), .dark [class~="border-emerald-300"]:not([class*="dark:border-"]) { border-color: rgba(16, 185, 129, 0.3) !important; }
+.dark [class~="text-green-700"]:not([class*="dark:text-"]), .dark [class~="text-green-800"]:not([class*="dark:text-"]), .dark [class~="text-green-900"]:not([class*="dark:text-"]), .dark [class~="text-green-950"]:not([class*="dark:text-"]),
+.dark [class~="text-emerald-700"]:not([class*="dark:text-"]), .dark [class~="text-emerald-800"]:not([class*="dark:text-"]), .dark [class~="text-emerald-900"]:not([class*="dark:text-"]), .dark [class~="text-emerald-950"]:not([class*="dark:text-"]) { color: #6ee7b7 !important; }
+
+.dark [class~="bg-teal-50"]:not([class*="dark:bg-"]), .dark [class~="bg-teal-100"]:not([class*="dark:bg-"]) { background-color: rgba(20, 184, 166, 0.14) !important; }
+.dark [class~="border-teal-100"]:not([class*="dark:border-"]), .dark [class~="border-teal-200"]:not([class*="dark:border-"]), .dark [class~="border-teal-300"]:not([class*="dark:border-"]) { border-color: rgba(20, 184, 166, 0.3) !important; }
+.dark [class~="text-teal-700"]:not([class*="dark:text-"]), .dark [class~="text-teal-800"]:not([class*="dark:text-"]), .dark [class~="text-teal-900"]:not([class*="dark:text-"]), .dark [class~="text-teal-950"]:not([class*="dark:text-"]) { color: #5eead4 !important; }
+
+.dark [class~="bg-cyan-50"]:not([class*="dark:bg-"]), .dark [class~="bg-cyan-100"]:not([class*="dark:bg-"]) { background-color: rgba(6, 182, 212, 0.14) !important; }
+.dark [class~="border-cyan-100"]:not([class*="dark:border-"]), .dark [class~="border-cyan-200"]:not([class*="dark:border-"]), .dark [class~="border-cyan-300"]:not([class*="dark:border-"]) { border-color: rgba(6, 182, 212, 0.3) !important; }
+.dark [class~="text-cyan-700"]:not([class*="dark:text-"]), .dark [class~="text-cyan-800"]:not([class*="dark:text-"]), .dark [class~="text-cyan-900"]:not([class*="dark:text-"]), .dark [class~="text-cyan-950"]:not([class*="dark:text-"]) { color: #67e8f9 !important; }
+
+.dark [class~="bg-sky-50"]:not([class*="dark:bg-"]), .dark [class~="bg-sky-100"]:not([class*="dark:bg-"]) { background-color: rgba(14, 165, 233, 0.14) !important; }
+.dark [class~="border-sky-100"]:not([class*="dark:border-"]), .dark [class~="border-sky-200"]:not([class*="dark:border-"]), .dark [class~="border-sky-300"]:not([class*="dark:border-"]) { border-color: rgba(14, 165, 233, 0.3) !important; }
+.dark [class~="text-sky-700"]:not([class*="dark:text-"]), .dark [class~="text-sky-800"]:not([class*="dark:text-"]), .dark [class~="text-sky-900"]:not([class*="dark:text-"]), .dark [class~="text-sky-950"]:not([class*="dark:text-"]) { color: #7dd3fc !important; }
+
+.dark [class~="bg-blue-50"]:not([class*="dark:bg-"]), .dark [class~="bg-blue-100"]:not([class*="dark:bg-"]) { background-color: rgba(59, 130, 246, 0.14) !important; }
+.dark [class~="border-blue-100"]:not([class*="dark:border-"]), .dark [class~="border-blue-200"]:not([class*="dark:border-"]), .dark [class~="border-blue-300"]:not([class*="dark:border-"]) { border-color: rgba(59, 130, 246, 0.3) !important; }
+.dark [class~="text-blue-700"]:not([class*="dark:text-"]), .dark [class~="text-blue-800"]:not([class*="dark:text-"]), .dark [class~="text-blue-900"]:not([class*="dark:text-"]), .dark [class~="text-blue-950"]:not([class*="dark:text-"]) { color: #93c5fd !important; }
+
+.dark [class~="bg-indigo-50"]:not([class*="dark:bg-"]), .dark [class~="bg-indigo-100"]:not([class*="dark:bg-"]) { background-color: rgba(99, 102, 241, 0.14) !important; }
+.dark [class~="border-indigo-100"]:not([class*="dark:border-"]), .dark [class~="border-indigo-200"]:not([class*="dark:border-"]), .dark [class~="border-indigo-300"]:not([class*="dark:border-"]) { border-color: rgba(99, 102, 241, 0.3) !important; }
+.dark [class~="text-indigo-700"]:not([class*="dark:text-"]), .dark [class~="text-indigo-800"]:not([class*="dark:text-"]), .dark [class~="text-indigo-900"]:not([class*="dark:text-"]), .dark [class~="text-indigo-950"]:not([class*="dark:text-"]) { color: #a5b4fc !important; }
+
+.dark [class~="bg-violet-50"]:not([class*="dark:bg-"]), .dark [class~="bg-violet-100"]:not([class*="dark:bg-"]) { background-color: rgba(139, 92, 246, 0.14) !important; }
+.dark [class~="border-violet-100"]:not([class*="dark:border-"]), .dark [class~="border-violet-200"]:not([class*="dark:border-"]), .dark [class~="border-violet-300"]:not([class*="dark:border-"]) { border-color: rgba(139, 92, 246, 0.3) !important; }
+.dark [class~="text-violet-700"]:not([class*="dark:text-"]), .dark [class~="text-violet-800"]:not([class*="dark:text-"]), .dark [class~="text-violet-900"]:not([class*="dark:text-"]), .dark [class~="text-violet-950"]:not([class*="dark:text-"]) { color: #c4b5fd !important; }
+
+.dark [class~="bg-purple-50"]:not([class*="dark:bg-"]), .dark [class~="bg-purple-100"]:not([class*="dark:bg-"]) { background-color: rgba(168, 85, 247, 0.14) !important; }
+.dark [class~="border-purple-100"]:not([class*="dark:border-"]), .dark [class~="border-purple-200"]:not([class*="dark:border-"]), .dark [class~="border-purple-300"]:not([class*="dark:border-"]) { border-color: rgba(168, 85, 247, 0.3) !important; }
+.dark [class~="text-purple-700"]:not([class*="dark:text-"]), .dark [class~="text-purple-800"]:not([class*="dark:text-"]), .dark [class~="text-purple-900"]:not([class*="dark:text-"]), .dark [class~="text-purple-950"]:not([class*="dark:text-"]) { color: #d8b4fe !important; }
+
+.dark [class~="bg-fuchsia-50"]:not([class*="dark:bg-"]), .dark [class~="bg-fuchsia-100"]:not([class*="dark:bg-"]) { background-color: rgba(217, 70, 239, 0.14) !important; }
+.dark [class~="border-fuchsia-100"]:not([class*="dark:border-"]), .dark [class~="border-fuchsia-200"]:not([class*="dark:border-"]), .dark [class~="border-fuchsia-300"]:not([class*="dark:border-"]) { border-color: rgba(217, 70, 239, 0.3) !important; }
+.dark [class~="text-fuchsia-700"]:not([class*="dark:text-"]), .dark [class~="text-fuchsia-800"]:not([class*="dark:text-"]), .dark [class~="text-fuchsia-900"]:not([class*="dark:text-"]), .dark [class~="text-fuchsia-950"]:not([class*="dark:text-"]) { color: #f0abfc !important; }
+
+.dark [class~="bg-pink-50"]:not([class*="dark:bg-"]), .dark [class~="bg-pink-100"]:not([class*="dark:bg-"]) { background-color: rgba(236, 72, 153, 0.14) !important; }
+.dark [class~="border-pink-100"]:not([class*="dark:border-"]), .dark [class~="border-pink-200"]:not([class*="dark:border-"]), .dark [class~="border-pink-300"]:not([class*="dark:border-"]) { border-color: rgba(236, 72, 153, 0.3) !important; }
+.dark [class~="text-pink-700"]:not([class*="dark:text-"]), .dark [class~="text-pink-800"]:not([class*="dark:text-"]), .dark [class~="text-pink-900"]:not([class*="dark:text-"]), .dark [class~="text-pink-950"]:not([class*="dark:text-"]) { color: #f9a8d4 !important; }
+
+.dark [class~="bg-rose-50"]:not([class*="dark:bg-"]), .dark [class~="bg-rose-100"]:not([class*="dark:bg-"]) { background-color: rgba(244, 63, 94, 0.14) !important; }
+.dark [class~="border-rose-100"]:not([class*="dark:border-"]), .dark [class~="border-rose-200"]:not([class*="dark:border-"]), .dark [class~="border-rose-300"]:not([class*="dark:border-"]) { border-color: rgba(244, 63, 94, 0.3) !important; }
+.dark [class~="text-rose-700"]:not([class*="dark:text-"]), .dark [class~="text-rose-800"]:not([class*="dark:text-"]), .dark [class~="text-rose-900"]:not([class*="dark:text-"]), .dark [class~="text-rose-950"]:not([class*="dark:text-"]) { color: #fda4af !important; }
+
+/* Hata raporu (2026-09-12, devami - ekran goruntuleriyle): "Rapor/Tahkikat
+   Bilgileri" penceresindeki gorunmez/soluk kutucuklar. Kok neden: bu
+   panel govdesi Tailwind GRADIENT utility'leriyle boyanmis (ör.
+   "bg-gradient-to-b from-indigo-50/70 to-white") - bunlar "bg-white" ya
+   da "bg-{renk}-50" GIBI DUZ tek-sinif arka planlar DEGIL (ayri "from-",
+   "via-", "to-" class'lari, "background-image" uretir), bu yuzden yukaridaki
+   HICBIR kural bunlari yakalamiyordu - panel oldugu gibi ACIK kaldi,
+   icindeki (artik ust kurallarla acik renge cevrilmis) yazilar KENDI
+   acik zeminlerinde GORUNMEZ hale geliyordu. Gradient'in HANGI renkte
+   oldugu onemli degil - bir durakta "white" GECEN (ya da renk ailesi
+   "-50" tonu icin) HERHANGI bir gradient, gece modunda GORUNTUYU duz/koyu
+   bir kart rengine indirger (gradient KALDIRILIR). */
+.dark [class*="bg-gradient-to-"][class*="from-white"]:not([class*="dark:from-"]),
+.dark [class*="bg-gradient-to-"][class*="via-white"]:not([class*="dark:via-"]),
+.dark [class*="bg-gradient-to-"][class*="to-white"]:not([class*="dark:to-"]) {
+  background-image: none !important;
+  background-color: #172336 !important;
+}
+.dark [class*="bg-gradient-to-"][class*="from-slate-50"]:not([class*="dark:from-"]),
+.dark [class*="bg-gradient-to-"][class*="from-emerald-50"]:not([class*="dark:from-"]),
+.dark [class*="bg-gradient-to-"][class*="from-green-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(16, 185, 129, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-sky-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(14, 165, 233, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-rose-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(244, 63, 94, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-indigo-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(99, 102, 241, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-violet-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(139, 92, 246, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-cyan-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(6, 182, 212, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-blue-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(59, 130, 246, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-amber-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(245, 158, 11, 0.14) !important; }
+.dark [class*="bg-gradient-to-"][class*="from-teal-50"]:not([class*="dark:from-"]) { background-image: none !important; background-color: rgba(20, 184, 166, 0.14) !important; }
+
+/* Hata raporu (2026-09-12, devami): "Konu" kutusu gibi baslikli alanlar
+   HALA soluk/okunaksiz kaliyordu - kok neden, yukaridaki renkli-rozet
+   kurallari "[class~=...]" (TAM/tek token esleme) kullaniyordu, ama
+   uygulamada bu zeminler cogunlukla OPAKLIK ekiyle yaziliyor (ör.
+   "bg-amber-50/70" - "border-amber-200 bg-amber-50/70" Rapor/Tahkikat
+   penceresindeki "Konu" kutusu) - "bg-amber-50/70" TAM OLARAK "bg-amber-
+   50" degil (farkli bir class token'i), bu yuzden hic eslesmiyordu. Asagida
+   "[class*='bg-{renk}-50/']" (SONUNDA "/" ile) kullanilir - bu hem
+   "bg-amber-500" gibi FARKLI bir tona YANLISLIKLA eslesmeyi ONLER (
+   "amber-500" digeriyle baslamiyor, "/" hemen ardindan gelmiyor), hem de
+   TUM opaklik varyantlarini (/40, /50, /60, /70, /95 vb.) tek seferde yakalar. */
+.dark [class*="bg-red-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-red-100/"]:not([class*="dark:bg-"]) { background-color: rgba(239, 68, 68, 0.14) !important; }
+.dark [class*="bg-orange-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-orange-100/"]:not([class*="dark:bg-"]) { background-color: rgba(249, 115, 22, 0.14) !important; }
+.dark [class*="bg-amber-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-amber-100/"]:not([class*="dark:bg-"]) { background-color: rgba(245, 158, 11, 0.14) !important; }
+.dark [class*="bg-yellow-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-yellow-100/"]:not([class*="dark:bg-"]) { background-color: rgba(234, 179, 8, 0.14) !important; }
+.dark [class*="bg-lime-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-lime-100/"]:not([class*="dark:bg-"]) { background-color: rgba(132, 204, 22, 0.14) !important; }
+.dark [class*="bg-green-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-green-100/"]:not([class*="dark:bg-"]),
+.dark [class*="bg-emerald-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-emerald-100/"]:not([class*="dark:bg-"]) { background-color: rgba(16, 185, 129, 0.14) !important; }
+.dark [class*="bg-teal-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-teal-100/"]:not([class*="dark:bg-"]) { background-color: rgba(20, 184, 166, 0.14) !important; }
+.dark [class*="bg-cyan-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-cyan-100/"]:not([class*="dark:bg-"]) { background-color: rgba(6, 182, 212, 0.14) !important; }
+.dark [class*="bg-sky-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-sky-100/"]:not([class*="dark:bg-"]) { background-color: rgba(14, 165, 233, 0.14) !important; }
+.dark [class*="bg-blue-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-blue-100/"]:not([class*="dark:bg-"]) { background-color: rgba(59, 130, 246, 0.14) !important; }
+.dark [class*="bg-indigo-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-indigo-100/"]:not([class*="dark:bg-"]) { background-color: rgba(99, 102, 241, 0.14) !important; }
+.dark [class*="bg-violet-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-violet-100/"]:not([class*="dark:bg-"]) { background-color: rgba(139, 92, 246, 0.14) !important; }
+.dark [class*="bg-purple-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-purple-100/"]:not([class*="dark:bg-"]) { background-color: rgba(168, 85, 247, 0.14) !important; }
+.dark [class*="bg-fuchsia-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-fuchsia-100/"]:not([class*="dark:bg-"]) { background-color: rgba(217, 70, 239, 0.14) !important; }
+.dark [class*="bg-pink-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-pink-100/"]:not([class*="dark:bg-"]) { background-color: rgba(236, 72, 153, 0.14) !important; }
+.dark [class*="bg-rose-50/"]:not([class*="dark:bg-"]), .dark [class*="bg-rose-100/"]:not([class*="dark:bg-"]) { background-color: rgba(244, 63, 94, 0.14) !important; }
+.dark [class*="bg-white/"]:not([class*="dark:bg-"]) { background-color: rgba(23, 35, 54, 0.85) !important; }
+.dark [class*="bg-slate-50/"]:not([class*="dark:bg-"]) { background-color: rgba(32, 47, 69, 0.85) !important; }
