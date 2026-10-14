@@ -18803,6 +18803,50 @@ function DocumentsPageContent() {
             // TARİHİ, MÜRACAAT TARİHİ vb.) ilk harflerini kesiyordu - sutun
             // ~1cm (38px) genisletildi.
             : '@[440px]/panel:grid-cols-[minmax(213px,233px)_minmax(0,1fr)]'}`}>
+            {/* 2026-10-14 (kullanici): ozet seridi panelin EN BASINDAN baslar -
+                izgaranin ilk ogesi, tum sutunlara yayilir (dy-serit-satir:
+                grid-column 1/-1, order -1); fotografli kart ve bilgiler ALTINA iner. */}
+            <div className="dy-serit-satir">
+              {/* 2026-10-14 (kullanici secimi "G · Bilgi seridi"): eski renkli
+                  rozet satiri yerine AYNI yukseklikte tek ince serit - ince
+                  ayraclarla bolunmus, her bolumde kucuk etiket + deger. Yardim
+                  onceligi ilk bolumde, hafif renkli + alt renk cizgisi (yesil =
+                  oncelikli). Hane geliri BILINCLI olarak gosterilmez. Bos "—". */}
+              {hasSelectedFile && (() => {
+                const medeniHal = getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, displayedPerson.maritalStatus)
+                const aileNiteligi = familyTypeOptions.find((option) => option.id === String(displayedPerson.familyType ?? ''))?.name
+                  || (String(displayedPerson.familyType ?? '') === '1' ? 'Normal Aile' : String(displayedPerson.familyType ?? '') === '4' ? 'Mülteci Ailesi' : displayedPerson.familyType || '')
+                const derece = Number(displayedPerson.aidPriority)
+                const dereceVar = Boolean(displayedPerson.aidPriority) && Number.isInteger(derece) && derece >= 1
+                const dereceAdi = ({ 1: 'Çok Kötü', 2: 'Kötü', 3: 'Orta', 4: 'İyi', 5: 'Çok İyi' } as Record<number, string>)[derece]
+                // Kurum kurali: yesil = ONCELIKLI. 1-2 yesil, 3 sari, 4 turuncu, 5 kirmizi.
+                const ton = !dereceVar ? '' : derece <= 2 ? 'ton-yesil' : derece === 3 ? 'ton-sari' : derece === 4 ? 'ton-turuncu' : derece === 5 ? 'ton-kirmizi' : ''
+                const parcalar: Array<[string, string]> = [
+                  ['Medeni Hal', medeniHal || ''],
+                  ['Aile', aileNiteligi],
+                  ['Uyruk', displayedPerson.nationality || ''],
+                  ['Konut', displayedPerson.housingStatus || ''],
+                ]
+                return (
+                  <div className="dy-serit">
+                    <div className={`dy-serit-parca oncelik ${ton}`} title="Yardım önceliği (tahkikat formundan) - yeşil: öncelikli">
+                      <span className="dy-serit-etiket">Yardım Önceliği</span>
+                      <span className={`dy-serit-deger${dereceVar ? '' : ' bos'}`}>
+                        {dereceVar && <span className="dy-serit-nokta" aria-hidden="true" />}
+                        {dereceVar ? `${derece}. Derece${dereceAdi ? ` · ${dereceAdi}` : ''}` : '—'}
+                      </span>
+                    </div>
+                    {parcalar.map(([etiket, deger]) => (
+                      <div key={etiket} className="dy-serit-parca">
+                        <span className="dy-serit-etiket">{etiket}</span>
+                        <span className={`dy-serit-deger${deger ? '' : ' bos'}`}>{deger || '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+
             {/* Fotograf sutunu - genisligi dis izgara track'i sinirlar; asiri buyumez.
                 Kullanici istegi (Eylul 2026): "profil resmi alanini saga dogru
                 biraz genislet" -> masaustu foto sutunu 160-200px -> 200-240px. */}
@@ -19010,55 +19054,6 @@ function DocumentsPageContent() {
                   niteligi/uyruk) verilerin, isim basliginin hemen altinda
                   hizli goz atmak icin KUCUK ROZETLER halinde TEKRARI - yeni
                   bir veri kaynagi/mantik EKLENMEDI. */}
-              {hasSelectedFile && (
-                <div className="flex flex-wrap gap-1.5">
-                  {getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, displayedPerson.maritalStatus) && (
-                    <span className="dy-chip rounded-md border border-[#D5DDE2] bg-white px-2.5 py-1 text-[13px] font-semibold text-[#334155]">
-                      {getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, displayedPerson.maritalStatus)}
-                    </span>
-                  )}
-                  <span className="dy-chip rounded-md border border-[#D5DDE2] bg-white px-2.5 py-1 text-[13px] font-semibold text-[#334155]">
-                    {familyTypeOptions.find((option) => option.id === String(displayedPerson.familyType ?? ''))?.name
-                      || (String(displayedPerson.familyType ?? '') === '1' ? 'Normal Aile' : String(displayedPerson.familyType ?? '') === '4' ? 'Mülteci Ailesi' : displayedPerson.familyType || 'Aile Niteliği Belirtilmedi')}
-                  </span>
-                  {/* 2026-10-14: dosyalar.yaronceliksirasi - Hane Ziyareti formundaki
-                      "Yardım Önceliği" (1. Derece Çok Kötü ... 5. Derece Çok İyi) */}
-                  {(() => {
-                    const derece = Number(displayedPerson.aidPriority)
-                    if (!displayedPerson.aidPriority || !Number.isFinite(derece)) return null
-                    const ad = ({ 1: 'Çok Kötü', 2: 'Kötü', 3: 'Orta', 4: 'İyi', 5: 'Çok İyi' } as Record<number, string>)[derece]
-                    // Kurum kurali (kullanici, 2026-10-14): yesil = ONCELIKLI yardim
-                    // edilecek. 1-2 yesil, 3 sari, 4 turuncu, 5 kirmizi.
-                    const renk = derece >= 1 && derece <= 2 ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                      : derece === 3 ? 'border-amber-300 bg-amber-50 text-amber-800'
-                        : derece === 4 ? 'border-orange-300 bg-orange-50 text-orange-800'
-                          : derece === 5 ? 'border-rose-300 bg-rose-50 text-rose-800'
-                            : 'border-[#D5DDE2] bg-white text-[#334155]'
-                    return (
-                      <span className={`dy-chip rounded-md border px-2.5 py-1 text-[13px] font-semibold ${renk}`} title="Yardım önceliği (tahkikat formundan)">
-                        Yardım Önceliği: {ad ? `${derece}. Derece (${ad})` : derece}
-                      </span>
-                    )
-                  })()}
-                  {/* 2026-10-14: tahkikat formundan dosyaya islenen konut / toplam gelir */}
-                  {displayedPerson.housingStatus && (
-                    <span className="dy-chip rounded-md border border-[#D5DDE2] bg-white px-2.5 py-1 text-[13px] font-semibold text-[#334155]" title="Konut / mülkiyet durumu (tahkikat formundan)">
-                      Konut: {displayedPerson.housingStatus}
-                    </span>
-                  )}
-                  {displayedPerson.totalIncome && Number.isFinite(Number(displayedPerson.totalIncome)) && (
-                    <span className="dy-chip rounded-md border border-[#C7D7EE] bg-[#F3F7FC] px-2.5 py-1 text-[13px] font-semibold text-[#1E3A8A]" title="Haneye giren toplam aylık gelir (tahkikat formundan)">
-                      Hane Geliri: {Number(displayedPerson.totalIncome).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} TL
-                    </span>
-                  )}
-                  {displayedPerson.nationality && (
-                    <span className="dy-chip rounded-md border border-[#E9D9B0] bg-[#FBF6EA] px-2.5 py-1 text-[13px] font-semibold text-[#6B4E12]">
-                      {displayedPerson.nationality} Uyruklu
-                    </span>
-                  )}
-                </div>
-              )}
-
               {/* Alanlar: TEK sutun -> etiket/deger kirpilmaz. 2 sutuna ancak
                   ORTA sutunda gercekten yer varken gecer. Mobil/tablet modunda
                   3. sutun (hizli islem) alani yedigi icin esik daha yuksek. */}
