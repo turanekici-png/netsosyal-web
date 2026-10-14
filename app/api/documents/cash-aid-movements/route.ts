@@ -23,6 +23,7 @@ type CashAidRow = {
   etiket: string | null
   muracaat_aciklama: string | null
   aciklama: string | null
+  durum_aciklama: string | null
 }
 
 function normalizeBigInt(value: unknown) {
@@ -68,7 +69,9 @@ export async function GET(request: NextRequest) {
             -- bkz. app/api/documents/fetch/route.ts'teki ayni duzeltme notu -
             -- SADECE muracaatnotu okunur (bos ise aciklama da bos gorunur,
             -- ilgisiz asamanotu/durumuaciklama'ya DUSULMEZ).
-            NULLIF(t.muracaatnotu, '')::text AS aciklama
+            NULLIF(t.muracaatnotu, '')::text AS aciklama,
+            -- 2026-10-14: iptal edilen kaydın yanında iptal nedeni görünsün
+            NULLIF(t.durumuaciklama, '')::text AS durum_aciklama
           FROM public.yrd_ayninakti t
           WHERE t.dosyaid = $1::bigint
             AND t.durumu IN (0, 1, 6)
@@ -94,6 +97,7 @@ export async function GET(request: NextRequest) {
         status: formatCode(row.durumu),
         amount: row.miktar || '-',
         stage: row.asama || '-',
+        cancelReason: row.durumu === 1 ? (row.durum_aciklama || '') : '',
         paymentDay: '-',
         paymentStartDate: '-',
         paymentEndDate: '-',

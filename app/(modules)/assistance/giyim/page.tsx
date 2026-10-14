@@ -11,15 +11,15 @@ export default function GiyimYardimiPage({
     <AssistanceListPage
       searchParams={searchParams}
       config={{
-        title: 'Giyim Yardimi Listesi',
-        newButtonLabel: 'Yeni Giyim Yardimi',
+        title: 'Giyim Yardımı Listesi',
+        newButtonLabel: 'Yeni Giyim Yardımı',
         routePath: '/assistance/giyim',
         tableName: 'yrd_giyim',
         tableId: 'yrd_giyim',
         whereClause: 't.durumu != 0',
         searchColumns: ['t.muracaateden', 't.aciklama', 't.etiket', 'd.dosyano'],
-        searchPlaceholder: 'Muracaat eden, etiket, dosya no veya aciklama ara',
-        emptyMessage: 'Goruntulenecek giyim yardimi kaydi bulunamadi.',
+        searchPlaceholder: 'Müracaat eden, etiket, dosya no veya açıklama ara',
+        emptyMessage: 'Görüntülenecek giyim yardımı kaydı bulunamadı.',
         excludedColumns: [
           'dosyaid', 'kullaniciid', 'ilkkullaniciid', 'islemtarihi', 'ilkislemtarihi',
           'donemadi', 'dnm_durumu', 'donemint', 'donemstr',

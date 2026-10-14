@@ -1,5 +1,7 @@
 import { ManagedReportTablePage } from '@/components/shared/ManagedReportTablePage'
 import { AssistanceModeTabs } from '../../_components/AssistanceModeTabs'
+import { AssistanceStatStrip } from '../../_components/AssistanceStatStrip'
+import { getAssistanceKicker } from '../../_components/assistanceModeTabsConfig'
 import { getAssistanceStatusMap } from '@/lib/services/assistanceStatusLabels.service'
 import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
 import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
@@ -34,6 +36,7 @@ const FILTER_COLUMN_MAP: Record<string, string> = {
   miktar: 't.miktar',
   durumu: 't.durumu',
   sureturu: 't.sureturu',
+  donem: 't.donem',
   durakadi: 't.durakadi',
   sorumlu_personel: "COALESCE(NULLIF(k.kullanicitamadi, ''), NULLIF(k.kullaniciadi, ''))",
   aciklama: 't.aciklama',
@@ -57,6 +60,7 @@ const COLUMN_LABELS: Record<string, string> = {
   miktar: 'Miktar',
   durumu: 'Durum',
   sureturu: 'Süre Türü',
+  donem: 'Dönem',
   durakadi: 'Durak',
   sorumlu_personel: 'Sorumlu Personel',
   aciklama: 'Açıklama',
@@ -75,6 +79,7 @@ const PREFERRED_COLUMNS = [
   'dosya_adresi',
   'bastarih',
   'bittarih',
+  'donem',
   'miktar',
   'durumu',
   'sorumlu_personel',
@@ -157,6 +162,9 @@ export default async function EkmekYardimiAlmayanlarPage({
         t.miktar,
         t.durumu,
         t.sureturu,
+        -- bkz. ../page.tsx AYNI notu - "donem" bazen gercek bir sure/mevsim
+        -- bilgisi yerine sadece yardim TURUNUN kendisini tasiyor, anlamsiz.
+        CASE WHEN UPPER(TRIM(t.donem)) = 'EKMEK YARDIMI' THEN NULL ELSE t.donem END AS donem,
         t.durakadi,
         COALESCE(NULLIF(k.kullanicitamadi, ''), NULLIF(k.kullaniciadi, ''), '-') AS sorumlu_personel,
         t.aciklama,
@@ -223,6 +231,15 @@ export default async function EkmekYardimiAlmayanlarPage({
 
           UNION ALL
           SELECT 'bittarih', t.bittarih::text, TO_CHAR(t.bittarih, 'DD.MM.YYYY')
+          FROM yrd_ekmek t
+          LEFT JOIN dosyalar d ON t.dosyaid = d.id
+          LEFT JOIN kullanicilar k ON k.id::text = t.kullaniciid::text
+          WHERE ${baseWhere}
+
+          UNION ALL
+          SELECT 'donem',
+            CASE WHEN UPPER(TRIM(t.donem)) = 'EKMEK YARDIMI' THEN NULL ELSE NULLIF(t.donem, '') END::text,
+            CASE WHEN UPPER(TRIM(t.donem)) = 'EKMEK YARDIMI' THEN NULL ELSE NULLIF(t.donem, '') END::text
           FROM yrd_ekmek t
           LEFT JOIN dosyalar d ON t.dosyaid = d.id
           LEFT JOIN kullanicilar k ON k.id::text = t.kullaniciid::text
@@ -332,12 +349,23 @@ export default async function EkmekYardimiAlmayanlarPage({
         excludedColumns={['dosyaid', 'id']}
         // Kullanici istegi (2026-09-30, 10. tur): sekmeler artik (Nakit
         // Yardimi ile AYNI yontemle) basligin ALTINDA.
+        corporateHeader={{ kicker: getAssistanceKicker('/assistance/ekmek') }}
         afterHeader={(
-          <AssistanceModeTabs
-            basePath="/assistance/ekmek"
-            yardimlarLabel="Yardım Alanlar"
-            extraTabs={[{ id: 'yardim-almayanlar', label: 'Yardım Almayanlar', href: '/assistance/ekmek/yardim-almayanlar' }]}
-          />
+          <div className="space-y-3">
+            <AssistanceModeTabs
+              basePath="/assistance/ekmek"
+              yardimlarLabel="Yardım Alanlar"
+              extraTabs={[{ id: 'yardim-almayanlar', label: 'Yardım Almayanlar', href: '/assistance/ekmek/yardim-almayanlar' }]}
+            />
+            {!errorMessage && (
+              <AssistanceStatStrip
+                items={[
+                  { label: 'Kayıt', value: totalCount },
+                  { label: 'Kart No Eksik', value: missingCardCount, tone: 'warn' },
+                ]}
+              />
+            )}
+          </div>
         )}
         // Kullanici istegi: hicbir sutun artik zorla gorunur/kilitli degil -
         // kullanici HER sutunu gosterip gizleyebilir (sayfa tasarimi

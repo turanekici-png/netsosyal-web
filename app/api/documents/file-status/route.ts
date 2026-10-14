@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { parseSessionValue, readSessionCookie } from '@/lib/auth'
 import { requireApiAccess } from '@/lib/apiAuth'
 import { getAuditMetaFromRequest, withAuditedWrite } from '@/lib/db/auditContext'
+import { activeAssistanceExistsSql } from '@/lib/services/fileStatusAutoSync.service'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,7 +48,12 @@ export async function POST(request: NextRequest) {
 
     const payload = await request.json()
     const fileId = cleanBigInt(payload.fileId)
-    const status = cleanNumber(payload.status)
+    // Kullanici istegi (2026-10-14): Sonuc Bekleyen > Kaydet'te durum
+    // istemcideki listeye gore degil, VERITABANINDAKI aktif yardima gore
+    // belirlenir - aktif (durumu=2) Gida/Donem Disi Gida/Destek Paketi/Ekmek/
+    // Hazir Yemek varsa 3 (Yardim Yapilabilir), yoksa 4 (Yardim Yapilamaz).
+    const autoByActiveAssistance = payload.autoByActiveAssistance === true
+    let status = autoByActiveAssistance ? 0 : cleanNumber(payload.status)
     const date = clean(payload.date)
     const description = clean(payload.description)
 
@@ -62,16 +68,25 @@ export async function POST(request: NextRequest) {
     }
 
     const currentUserId = getCurrentUserId(request)
-    const updatedCount = await withAuditedWrite((tx) => tx.$executeRaw`
-      UPDATE dosyalar
-      SET
-        kullaniciid = ${currentUserId},
-        durumu = ${status},
-        durumutarih = ${date}::date,
-        durumuaciklama = ${description},
-        islemtarihi = NOW()
-      WHERE id = ${fileId};
-    `, getAuditMetaFromRequest(request))
+    const updatedCount = await withAuditedWrite(async (tx) => {
+      if (autoByActiveAssistance) {
+        const rows = await tx.$queryRawUnsafe<Array<{ aktif: boolean }>>(
+          `SELECT ${activeAssistanceExistsSql('$1::bigint')} AS aktif`,
+          fileId.toString(),
+        )
+        status = rows[0]?.aktif ? 3 : 4
+      }
+      return tx.$executeRaw`
+        UPDATE dosyalar
+        SET
+          kullaniciid = ${currentUserId},
+          durumu = ${status},
+          durumutarih = ${date}::date,
+          durumuaciklama = ${description},
+          islemtarihi = NOW()
+        WHERE id = ${fileId};
+      `
+    }, getAuditMetaFromRequest(request))
 
     if (Number(updatedCount) === 0) {
       return NextResponse.json({ success: false, error: 'Guncellenecek dosya bulunamadi.' }, { status: 404 })

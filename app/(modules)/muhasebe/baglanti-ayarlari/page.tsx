@@ -101,7 +101,7 @@ export default function MuhasebeBaglantiAyarlariPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[#2A3B4D] bg-[#1E2A38] p-8 text-white shadow-sm sm:p-10">
+      <div className="ns-sayfa-baslik rounded-2xl border border-[#2A3B4D] bg-[#1E2A38] p-8 text-white shadow-sm sm:p-10">
         <p className="text-base font-black uppercase tracking-wide text-white/80">Muhasebe</p>
         <h1 className="mt-2 text-4xl font-black leading-tight">Bağlantı Ayarları</h1>
         <p className="mt-3 text-lg font-semibold leading-relaxed text-white/80">

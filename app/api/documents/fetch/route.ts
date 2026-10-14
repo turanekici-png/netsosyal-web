@@ -6,6 +6,7 @@ import { updateExpiredAssistanceStatuses } from '@/lib/services/assistanceExpiry
 import { createCashPredefinedLabelResolver } from '@/lib/services/cashPredefinedLabels.service'
 import { userService } from '@/lib/services'
 import { triggerStaleAddressAutoRefresh } from '@/lib/services/addressAutoRefresh.service'
+import { mulkiyetDurumuEtiketleri } from '@/lib/services/mulkiyetDurumu.service'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +16,10 @@ type DocumentSearchRow = {
   dosya_muracaat_tarihi: Date | null
   dosya_durumu: number | null
   dosya_aile_niteligi: number | null
+  dosya_yardim_onceligi: number | null
+  dosya_toplam_gelir: string | null
+  dosya_konut_durumu: string | null
+  dosya_mulkiyet_durumu: number | null
   dosya_aciklama: string | null
   dosya_adres: string | null
   dosya_telefon: string | null
@@ -112,6 +117,8 @@ type ServiceMovementRow = {
   // "Yardım Kişi Sayısı" alaninin KENDISI - SADECE yrd_ayninakti icin var
   // (bkz. yrd_ayninakti.yardimkisisayisi), digerlerinde NULL.
   yardim_kisi_sayisi: string | null
+  asama_notu: string | null
+  durum_aciklama: string | null
 }
 
 type ExternalAidRow = {
@@ -335,6 +342,9 @@ function mapApplicationRow(row: ServiceMovementRow, index: number) {
     otomatikRedIptal: Boolean(row.otomatikrediptal),
     assistPersonTcList: row.yardim_kisi_tc || '',
     assistPersonCount: row.yardim_kisi_sayisi || '',
+    // 2026-10-14: Müracaat Aşamaları > Açıklama (asamanotu) + iptal nedeni
+    stageNote: row.asama_notu || '',
+    cancelReason: row.durumu === 1 ? (row.durum_aciklama || '') : '',
   }
 }
 
@@ -370,6 +380,8 @@ function mapAssistanceRow(row: ServiceMovementRow, index: number) {
     // Dönem Dışı Gıda ve Giyim icin dolu gelir (bkz. yukaridaki
     // ServiceMovementRow.alisveris_miktari notu), digerlerinde '-'.
     shoppingAmount: row.alisveris_miktari || '-',
+    // 2026-10-14: Yardım Hareketleri'nde iptal edilen kaydın yanında iptal nedeni
+    cancelReason: row.durumu === 1 ? (row.durum_aciklama || '') : '',
     paymentDay: row.odemegunu || '-',
     paymentStartDate: formatDate(row.odeme_baslangic),
     paymentEndDate: formatDate(row.odeme_bitis),
@@ -489,6 +501,10 @@ export async function GET(request: NextRequest) {
           d.muracaattarihi AS dosya_muracaat_tarihi,
           d.durumu AS dosya_durumu,
           d.aileniteligi AS dosya_aile_niteligi,
+          d.yaronceliksirasi AS dosya_yardim_onceligi,
+          d.toplamgelir::text AS dosya_toplam_gelir,
+          d.konutdurumu AS dosya_konut_durumu,
+          d.mulkiyetdurumu AS dosya_mulkiyet_durumu,
           d.aciklama AS dosya_aciklama,
           d.adres AS dosya_adres,
           d.telefon AS dosya_telefon,
@@ -538,6 +554,10 @@ export async function GET(request: NextRequest) {
           d.muracaattarihi AS dosya_muracaat_tarihi,
           d.durumu AS dosya_durumu,
           d.aileniteligi AS dosya_aile_niteligi,
+          d.yaronceliksirasi AS dosya_yardim_onceligi,
+          d.toplamgelir::text AS dosya_toplam_gelir,
+          d.konutdurumu AS dosya_konut_durumu,
+          d.mulkiyetdurumu AS dosya_mulkiyet_durumu,
           d.aciklama AS dosya_aciklama,
           d.adres AS dosya_adres,
           d.telefon AS dosya_telefon,
@@ -651,7 +671,9 @@ export async function GET(request: NextRequest) {
           NULL::boolean AS otomatikrediptal,
           NULL::text AS alisveris_miktari,
           NULL::text AS yardim_kisi_tc,
-          NULL::text AS yardim_kisi_sayisi
+          NULL::text AS yardim_kisi_sayisi,
+          NULL::text AS asama_notu,
+          NULL::text AS durum_aciklama
         FROM yrd_ekmek t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         WHERE t.dosyaid = ${file.file_id}
@@ -698,7 +720,9 @@ export async function GET(request: NextRequest) {
           NULL::boolean AS otomatikrediptal,
           t.alisverismiktari::text AS alisveris_miktari,
           NULL::text AS yardim_kisi_tc,
-          NULL::text AS yardim_kisi_sayisi
+          NULL::text AS yardim_kisi_sayisi,
+          NULL::text AS asama_notu,
+          NULL::text AS durum_aciklama
         FROM yrd_gidabankasi t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         LEFT JOIN LATERAL (
@@ -804,7 +828,9 @@ export async function GET(request: NextRequest) {
           NULL::boolean AS otomatikrediptal,
           t.alisverismiktari::text AS alisveris_miktari,
           NULL::text AS yardim_kisi_tc,
-          NULL::text AS yardim_kisi_sayisi
+          NULL::text AS yardim_kisi_sayisi,
+          NULL::text AS asama_notu,
+          NULL::text AS durum_aciklama
         FROM yrd_destekpaketi t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         LEFT JOIN LATERAL (
@@ -896,7 +922,9 @@ export async function GET(request: NextRequest) {
           NULL::boolean AS otomatikrediptal,
           t.alisverismiktari::text AS alisveris_miktari,
           NULL::text AS yardim_kisi_tc,
-          NULL::text AS yardim_kisi_sayisi
+          NULL::text AS yardim_kisi_sayisi,
+          NULL::text AS asama_notu,
+          NULL::text AS durum_aciklama
         FROM yrd_ddgidadosyali t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         LEFT JOIN LATERAL (
@@ -950,7 +978,9 @@ export async function GET(request: NextRequest) {
           NULL::boolean AS otomatikrediptal,
           t.alisverismiktari::text AS alisveris_miktari,
           NULL::text AS yardim_kisi_tc,
-          NULL::text AS yardim_kisi_sayisi
+          NULL::text AS yardim_kisi_sayisi,
+          NULL::text AS asama_notu,
+          NULL::text AS durum_aciklama
         FROM yrd_giyim t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         WHERE t.dosyaid = ${file.file_id}
@@ -1003,7 +1033,12 @@ export async function GET(request: NextRequest) {
           t.otomatikrediptal,
           NULL::text AS alisveris_miktari,
           t.yardimkisitc::text AS yardim_kisi_tc,
-          t.yardimkisisayisi::text AS yardim_kisi_sayisi
+          t.yardimkisisayisi::text AS yardim_kisi_sayisi,
+          -- 2026-10-14: Müracaat Düzenle > Müracaat Aşamaları > Açıklama (asamanotu)
+          -- pencere açılınca dolu gelsin; iptal edilmiş kayıtta iptal nedeni
+          -- (durumuaciklama) da gösterilsin (Yardım Hareketleri + pencere).
+          NULLIF(t.asamanotu, '')::text AS asama_notu,
+          NULLIF(t.durumuaciklama, '')::text AS durum_aciklama
         FROM yrd_ayninakti t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         WHERE t.dosyaid = ${file.file_id}
@@ -1053,7 +1088,9 @@ export async function GET(request: NextRequest) {
           NULL::boolean AS otomatikrediptal,
           NULL::text AS alisveris_miktari,
           NULL::text AS yardim_kisi_tc,
-          NULL::text AS yardim_kisi_sayisi
+          NULL::text AS yardim_kisi_sayisi,
+          NULL::text AS asama_notu,
+          NULL::text AS durum_aciklama
         FROM yrd_haziryemek t
         LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
         WHERE t.dosyaid = ${file.file_id}
@@ -1211,6 +1248,15 @@ export async function GET(request: NextRequest) {
           maritalStatus: formatMaritalStatus(primaryBeneficiary.medenihali),
           mobilePhone: firstTextOrDash(primaryBeneficiary.ceptel, file.dosya_telefon),
           familyType: formatCode(file.dosya_aile_niteligi),
+          // 2026-10-14: dosyalar.yaronceliksirasi (tahkikat formundan islenir)
+          aidPriority: file.dosya_yardim_onceligi === null || file.dosya_yardim_onceligi === undefined ? '' : String(file.dosya_yardim_onceligi),
+          // 2026-10-14: tahkikat formundan islenen toplam gelir / konut durumu.
+          // Konut metni yoksa mulkiyet kodunun adi Hazır Değerler'den.
+          totalIncome: file.dosya_toplam_gelir ?? '',
+          housingStatus: file.dosya_konut_durumu
+            || (file.dosya_mulkiyet_durumu !== null && file.dosya_mulkiyet_durumu !== undefined
+              ? (await mulkiyetDurumuEtiketleri())[String(file.dosya_mulkiyet_durumu)] ?? ''
+              : ''),
           neighborhood: firstTextOrDash(
             primaryBeneficiary.nfmahkoy,
             file.dosya_mahalleadi,

@@ -140,7 +140,11 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=(self), browsing-topics=()' },
+          // 2026-10-14: microphone=() mikrofonu TAMAMEN yasakliyordu - tarayici
+          // izin penceresini hic acmadan reddediyordu (tablet/telefonda
+          // "izni acin" deyip acilacak yer yoktu). Rapor alanlarindaki
+          // konusarak yazma icin kendi sitemize izin verildi.
+          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=(self), browsing-topics=()' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'X-DNS-Prefetch-Control', value: 'off' },
           { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },

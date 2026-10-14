@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { requireApiAccess } from '@/lib/apiAuth'
 import { getSqlMonitorPool } from '@/lib/services/sqlMonitor.service'
+import { getAuditMetaFromRequest, withAuditedPoolWrite } from '@/lib/db/auditContext'
+import { ensureOnlineApplicationsAuditTrigger } from '@/lib/onlineApplications/listQuery'
+import { normalizeIbanInput, validateOnlineApplicationEdit } from '@/lib/onlineApplications/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -94,11 +97,11 @@ export async function PATCH(request: Request) {
   const fullName = cleanText(payload.fullName, 120)
 
   if (!id) {
-    return NextResponse.json({ success: false, error: 'Guncellenecek basvuru secilmedi.' }, { status: 400 })
+    return NextResponse.json({ success: false, error: 'Güncellenecek başvuru seçilmedi.' }, { status: 400 })
   }
 
   if (!tc) {
-    return NextResponse.json({ success: false, error: 'TC Kimlik No 11 haneli olmalidir.' }, { status: 400 })
+    return NextResponse.json({ success: false, error: 'TC Kimlik No 11 haneli olmalıdır.' }, { status: 400 })
   }
 
   if (!fullName) {
@@ -108,7 +111,8 @@ export async function PATCH(request: Request) {
   const { firstName, lastName } = splitFullName(fullName)
   const birthDate = cleanDate(payload.birthDate)
   const phone = cleanNullableText(payload.phone, 20)
-  const iban = cleanNullableText(payload.iban, 45)?.replace(/\s+/g, '').toUpperCase() ?? null
+  const rawIban = cleanNullableText(payload.iban, 45)
+  const iban = rawIban ? normalizeIbanInput(rawIban) : null
   const income = cleanNullableText(payload.income, 30)
   const vehicleStatus = cleanNullableText(payload.vehicleStatus, 30)
   const vehicleModelYear = cleanNullableText(payload.vehicleModelYear, 10)
@@ -122,15 +126,24 @@ export async function PATCH(request: Request) {
   const stage = cleanNullableText(payload.stage, 50)
   const description = cleanNullableText(payload.description, 1000)
 
+  // 2026-10-14: vatandaş formundaki İBAN (doğrulama hanesi dahil), telefon ve
+  // araç model yılı kuralları personel düzenlemesinde de uygulanır - hatalı
+  // İBAN düzenleme penceresinden kaydedilip ödemeye gitmesin.
+  const validationError = validateOnlineApplicationEdit({ iban, phone, vehicleModelYear })
+  if (validationError) {
+    return NextResponse.json({ success: false, error: validationError }, { status: 400 })
+  }
+
   try {
     const pool = getSqlMonitorPool()
+    await ensureOnlineApplicationsAuditTrigger(pool)
     const existingResult = await pool.query<{ answers: unknown }>(
       'SELECT answers FROM public.online_basvurular WHERE id = $1::int LIMIT 1',
       [id],
     )
 
     if (existingResult.rows.length === 0) {
-      return NextResponse.json({ success: false, error: 'Basvuru bulunamadi.' }, { status: 404 })
+      return NextResponse.json({ success: false, error: 'Başvuru bulunamadı.' }, { status: 404 })
     }
 
     const answersJson = JSON.stringify({
@@ -155,7 +168,8 @@ export async function PATCH(request: Request) {
       asama: stage || '',
     })
 
-    const result = await pool.query(
+    // İşlem kaydı: kim, neyi, eski/yeni değeriyle (sistem_hareket_log).
+    const result = await withAuditedPoolWrite(pool, (client) => client.query(
       `
         UPDATE public.online_basvurular
         SET
@@ -190,16 +204,16 @@ export async function PATCH(request: Request) {
         answersJson,
         id,
       ],
-    )
+    ), getAuditMetaFromRequest(request))
 
     if ((result.rowCount || 0) === 0) {
-      return NextResponse.json({ success: false, error: 'Basvuru bulunamadi.' }, { status: 404 })
+      return NextResponse.json({ success: false, error: 'Başvuru bulunamadı.' }, { status: 404 })
     }
 
     return NextResponse.json({ success: true, data: { updated: result.rowCount || 0 } })
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Basvuru guncellenemedi.' },
+      { success: false, error: error instanceof Error ? error.message : 'Başvuru güncellenemedi.' },
       { status: 500 },
     )
   }

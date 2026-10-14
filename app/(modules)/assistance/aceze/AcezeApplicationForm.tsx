@@ -284,25 +284,19 @@ export function AcezeApplicationForm() {
   }
 
   return (
-    <form onSubmit={submit} className="overflow-hidden rounded-3xl border border-sky-200/80 bg-white shadow-[0_24px_65px_-35px_rgba(0,95,149,0.65)]">
-      <div className="relative overflow-hidden border-b border-white/15 bg-gradient-to-br from-[#004f7d] via-[#007bb8] to-[#28a776] px-5 py-6 text-white sm:px-7 sm:py-7">
-        <div className="absolute -right-16 -top-20 h-52 w-52 rounded-full border-[28px] border-white/10" />
-        <div className="absolute bottom-0 right-1/4 h-20 w-20 translate-y-1/2 rounded-full bg-emerald-300/20 blur-xl" />
-        <div className="relative flex items-center gap-4">
-          <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/25 bg-white/15 shadow-inner backdrop-blur sm:flex">
-            <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" /></svg>
-          </div>
-          <div><p className="text-[11px] font-black uppercase tracking-[0.2em] text-sky-100">Aceze Yardımı</p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Yeni Başvuru Formu</h1>
-          <p className="mt-1.5 text-sm font-semibold text-white/85">Başvuru sahibi ve yardım bilgilerini eksiksiz girin.</p></div>
-        </div>
+    <form onSubmit={submit} className="overflow-hidden rounded-xl border border-slate-200 border-t-[3px] border-t-[#1E2A38] bg-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)]">
+      {/* Kurumsal tur (2026-10-14): mavi-yesil degrade "Yeni Başvuru Formu"
+          basligi sadelestirildi - sayfa basligi artik page.tsx'te. */}
+      <div className="border-b border-slate-200 bg-slate-50 px-5 py-3 sm:px-7">
+        <p className="text-[15px] font-bold uppercase tracking-wide text-[#1E2A38]">Yeni Başvuru Formu</p>
+        <p className="mt-0.5 text-[12.5px] font-medium text-slate-500">Başvuru sahibi ve yardım bilgilerini eksiksiz girin.</p>
       </div>
 
-      <div className="grid min-w-0 gap-5 bg-gradient-to-b from-slate-50/70 to-white p-4 lg:grid-cols-2 lg:p-7">
-        <fieldset className="grid min-w-0 gap-3 rounded-2xl border border-sky-200 bg-gradient-to-br from-white to-sky-50/70 p-4 shadow-[0_14px_30px_-24px_rgba(2,132,199,0.8)] sm:p-5">
-          <legend className="ns-section-title rounded-full border border-sky-200 bg-sky-100 px-4 py-1.5 uppercase tracking-wider text-[#005f95] shadow-sm">Kişi Bilgileri</legend>
+      <div className="grid min-w-0 gap-5 bg-white p-4 lg:grid-cols-2 lg:p-7">
+        <fieldset className="grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <legend className="ns-section-title rounded-md border border-[#2A3B4D] bg-[#1E2A38] px-3 py-1 uppercase tracking-wider text-white">Kişi Bilgileri</legend>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-            <div className="grid min-w-0 gap-3 rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-100/80 to-cyan-50 p-3 shadow-inner sm:col-span-2 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:col-span-2 sm:grid-cols-2">
               <Field label="T.C. Kimlik No"><input inputMode="numeric" maxLength={11} value={form.identityNumber} onChange={(e) => { update('identityNumber', e.target.value.replace(/\D/g, '')); setLookupMessage('') }} className={inputClass} /></Field>
               <Field label="Doğum Tarihi"><input type="date" value={form.birthDate} onChange={(e) => { update('birthDate', e.target.value); setLookupMessage('') }} className={inputClass} /></Field>
               <div className="flex min-w-0 flex-col gap-2 sm:col-span-2 sm:flex-row sm:items-center">
@@ -326,8 +320,8 @@ export function AcezeApplicationForm() {
           </div>
         </fieldset>
 
-        <fieldset className="grid min-w-0 content-start gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-br from-white to-emerald-50/80 p-4 shadow-[0_14px_30px_-24px_rgba(5,150,105,0.8)] sm:p-5">
-          <legend className="ns-section-title rounded-full border border-emerald-200 bg-emerald-100 px-4 py-1.5 uppercase tracking-wider text-emerald-800 shadow-sm">Yardım Bilgileri</legend>
+        <fieldset className="grid min-w-0 content-start gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <legend className="ns-section-title rounded-md border border-[#2A3B4D] bg-[#1E2A38] px-3 py-1 uppercase tracking-wider text-white">Yardım Bilgileri</legend>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">
             <Field label="Başvuru Tarihi" required><input required type="date" value={form.date} onChange={(e) => update('date', e.target.value)} className={inputClass} /></Field>
             <Field label="Kişi Sayısı" required><input required type="number" min="1" max="99" value={form.personCount} onChange={(e) => update('personCount', e.target.value)} className={inputClass} /></Field>
@@ -340,10 +334,10 @@ export function AcezeApplicationForm() {
 
       {(error || success) && <div className={`mx-4 mb-4 rounded-lg border px-4 py-3 text-sm font-bold lg:mx-6 ${error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{error || success}</div>}
 
-      <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-gradient-to-r from-slate-50 via-white to-sky-50 px-4 py-5 sm:flex-row sm:justify-end sm:px-7">
-        <button type="button" onClick={() => { setForm({ ...initialForm, date: today() }); setLookupMessage(''); setError(''); setSuccess(''); setLastSaved(null) }} className="min-h-11 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md">Formu Temizle</button>
-        <button disabled={saving} className="min-h-11 rounded-xl bg-gradient-to-r from-[#006ba6] to-[#0095cf] px-7 text-sm font-black text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 hover:shadow-xl disabled:opacity-60">{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
-        <button type="button" onClick={() => void printSavedApplication()} disabled={!lastSaved || printing} className="min-h-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-7 text-sm font-black text-white shadow-lg shadow-emerald-200 transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50">{printing ? 'Yazdırılıyor...' : 'Yazdır'}</button>
+      <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-4 py-4 sm:flex-row sm:justify-end sm:px-7">
+        <button type="button" onClick={() => { setForm({ ...initialForm, date: today() }); setLookupMessage(''); setError(''); setSuccess(''); setLastSaved(null) }} className="min-h-11 rounded-xl border border-slate-300 bg-white px-5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-100">Formu Temizle</button>
+        <button disabled={saving} className="min-h-11 rounded-xl bg-[#1E2A38] px-7 text-sm font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:opacity-60">{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
+        <button type="button" onClick={() => void printSavedApplication()} disabled={!lastSaved || printing} className="min-h-11 rounded-xl border border-[#1E2A38] bg-white px-7 text-sm font-bold uppercase tracking-wide text-[#1E2A38] shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50">{printing ? 'Yazdırılıyor...' : 'Yazdır'}</button>
       </div>
     </form>
   )

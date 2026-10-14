@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AdvancedTable } from '@/components/shared/AdvancedTable'
+import { reportHeaderGhostButton } from '@/components/shared/ReportPageHeader'
 import { downloadXlsx } from '@/lib/utils/xlsxExport'
 import type { CustomReportSource } from '@/lib/constants/customReportSources'
 import type { CustomReportPreset } from '@/lib/constants/customReportPresets'
@@ -300,22 +301,16 @@ export function OzelRaporClient({
 
   return (
     <div className="space-y-6 text-slate-950">
-      <div className="overflow-hidden rounded-2xl border border-white shadow-[0_18px_45px_rgba(15,23,42,0.10)] ring-1 ring-slate-200 print:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-[#0076b6] via-[#0076b6] to-[#3f7f28] px-5 py-4 text-white">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/30 text-2xl">
-              📊
-            </div>
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-wide text-white/80">Raporlar</p>
-              <h1 className="text-lg font-black leading-tight">Özel Rapor Oluştur</h1>
-            </div>
-          </div>
-          <button type="button" onClick={() => window.print()} className="rounded-lg bg-white/15 px-4 py-2 text-[15px] font-black text-white ring-1 ring-white/30 hover:bg-white/25">
+      {/* Kurumsal rapor basligi (2026-10-13): diger rapor sayfalarindaki
+          ReportPageHeader ile ayni koyu lacivert zemin, baslik ve dugme olcusu. */}
+      <div className="overflow-hidden rounded-xl border border-[#2A3B4D] shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)] print:hidden">
+        <div className="flex flex-col gap-2 bg-[#1E2A38] px-4 py-3 text-white md:flex-row md:items-center md:justify-between md:gap-3 md:px-5 md:py-4">
+          <h1 className="text-[18px] font-semibold uppercase leading-tight tracking-wide md:text-[26px]">Özel Rapor Oluştur</h1>
+          <button type="button" onClick={() => window.print()} className={reportHeaderGhostButton}>
             Yazdır
           </button>
         </div>
-        <div className="bg-gradient-to-b from-sky-50/60 via-white to-white px-5 py-2.5 text-xs font-bold text-slate-500">
+        <div className="bg-white px-5 py-2.5 text-xs font-bold text-slate-500">
           {selectedSource?.label || 'Kaynak'} kaynağından {firstRecord}-{lastRecord} arası kayıt gösteriliyor (toplam {totalCount}).
         </div>
       </div>

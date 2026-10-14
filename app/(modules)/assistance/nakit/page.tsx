@@ -11,15 +11,15 @@ export default function NakitYardimiPage({
     <AssistanceListPage
       searchParams={searchParams}
       config={{
-        title: 'Nakit Yardım Listesi',
-        newButtonLabel: 'Yeni Nakit Yardimi',
+        title: 'Nakit Yardımı Listesi',
+        newButtonLabel: 'Yeni Nakit Yardımı',
         routePath: '/assistance/nakit',
         tableName: 'yrd_ayninakti',
         tableId: 'yrd_ayninakti',
         whereClause: 't.durumu = 6',
         searchColumns: ['t.muracaateden', 't.tckimlikno', 't.iban', 'd.dosyano'],
-        searchPlaceholder: 'Muracaat eden, TC, IBAN veya dosya no ara',
-        emptyMessage: 'Goruntulenecek nakit yardimi kaydi bulunamadi.',
+        searchPlaceholder: 'Müracaat eden, TC, IBAN veya dosya no ara',
+        emptyMessage: 'Görüntülenecek nakit yardımı kaydı bulunamadı.',
         showSummary: false,
         personnelAssignConfig: {
           endpoint: '/api/assistance/nakit/personnel',

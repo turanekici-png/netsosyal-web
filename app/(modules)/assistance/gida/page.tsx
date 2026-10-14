@@ -11,15 +11,15 @@ export default function GidaYardimiPage({
     <AssistanceListPage
       searchParams={searchParams}
       config={{
-        title: 'Gida Yardimi Alanlar Listesi',
-        newButtonLabel: 'Yeni Gida Yardimi',
+        title: 'Gıda Yardımı Alanlar Listesi',
+        newButtonLabel: 'Yeni Gıda Yardımı',
         routePath: '/assistance/gida',
         tableName: 'yrd_gidabankasi',
         tableId: 'yrd_gidabankasi',
         whereClause: 't.durumu = 2',
         searchColumns: ['t.muracaateden', 't.aciklama', 't.etiket', 'd.dosyano'],
-        searchPlaceholder: 'Muracaat eden, etiket, dosya no veya aciklama ara',
-        emptyMessage: 'Goruntulenecek gida yardimi kaydi bulunamadi.',
+        searchPlaceholder: 'Müracaat eden, etiket, dosya no veya açıklama ara',
+        emptyMessage: 'Görüntülenecek gıda yardımı kaydı bulunamadı.',
         excludedColumns: [
           'dosyaid', 'kullaniciid', 'ilkkullaniciid', 'islemtarihi', 'ilkislemtarihi',
           'donemadi', 'dnm_durumu', 'donemint', 'donemstr',

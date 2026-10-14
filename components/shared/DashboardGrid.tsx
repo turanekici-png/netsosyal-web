@@ -832,8 +832,11 @@ export function DashboardGrid({
                             event.stopPropagation()
                             onOpenFullReport(widget.fullReportTitle || widget.title, widget.fullReportPath as string)
                           }}
-                          title="Tam sayfa olarak yeni sekmede aç"
-                          className="cursor-pointer rounded border border-white/40 bg-black/30 px-1.5 py-0.5 text-[11px] font-black leading-none text-white shadow-sm hover:bg-black/45"
+                          title="Tam raporu yeni sekmede aç"
+                          aria-label="Tam raporu yeni sekmede aç"
+                          // 2026-10-13: 11px soluk simge zor fark ediliyordu - biraz
+                          // buyuk, belirgin kontrastli ve tiklamasi kolay hale getirildi.
+                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-white/60 bg-[#101E2B]/70 text-[15px] font-black leading-none text-white shadow-md transition hover:bg-[#0E7C86]"
                         >
                           ⤢
                         </button>

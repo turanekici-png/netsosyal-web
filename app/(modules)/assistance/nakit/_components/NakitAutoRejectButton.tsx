@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { formatAutoRejectExplanation } from '@/lib/nakitAutoRejectText'
 import { useRouter } from 'next/navigation'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import {
@@ -115,7 +116,7 @@ export function NakitAutoRejectButton() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mode: 'apply',
-            matches: matches.map((match) => ({ id: match.id, reason: (match.reasons || []).join('; ') })),
+            matches: matches.map((match) => ({ id: match.id, reason: formatAutoRejectExplanation(match.reasons || []) })),
           }),
         })
         const applyPayload = await applyResponse.json().catch(() => ({}))

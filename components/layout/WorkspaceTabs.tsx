@@ -89,7 +89,7 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
   const showFileRow = Boolean(documentsTab) && openFiles.files.length > 0
 
   return (
-    <div className="border-b border-[#E2E5DE] bg-[#F1F3EF] print:hidden dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-900">
+    <div className="dy-ws-tabs bg-[#EEF2F4] print:hidden dark:border-slate-800 dark:bg-slate-900">
       {/* 1. SATIR: modul sekmeleri */}
       <div className={`flex items-center gap-1.5 overflow-x-auto px-2 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4 sm:pt-3 ${showFileRow ? 'pb-0' : ''}`}>
         {/* Dashboard / Home Tab - sabit, hep en solda. Kullanici istegi
@@ -99,17 +99,17 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
         {canAccessDashboard && (
           <button
             onClick={() => setActiveTab('dashboard')}
-            className={`group relative flex shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-2 py-1 !text-[12px] font-black transition-all whitespace-nowrap md:gap-2 md:px-3 md:py-2 ${
+            className={`group relative -mb-px flex shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 py-1.5 !text-[12.5px] transition-all whitespace-nowrap md:gap-2 md:px-3.5 md:py-2 md:!text-[14px] ${
               activeTabId === 'dashboard'
-                ? 'border-[#1E2A38] bg-[#1E2A38] text-white shadow-[0_-2px_8px_rgba(30,42,56,0.25)]'
-                : 'border-[#D7DEE3] bg-[#EEF1F3] text-[#1E2A38] hover:bg-[#E2E8EC]'
+                ? 'is-active font-bold border-[#D5DDE2] bg-white text-[#0A5F67] shadow-[inset_0_3px_0_#0E7C86,0_-1px_3px_rgba(16,30,43,0.06)]'
+                : 'font-semibold border-transparent bg-transparent text-[#475569] hover:bg-white/70 hover:text-[#0A5F67]'
             }`}
           >
             <span
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-lg transition-colors md:h-5 md:w-5 ${
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md transition-colors md:h-5 md:w-5 ${
                 activeTabId === 'dashboard'
-                  ? 'bg-white/20 text-white'
-                  : 'bg-white/70 text-[#1E2A38]'
+                  ? 'bg-[#0E7C86]/10 text-[#0A5F67]'
+                  : 'text-current'
               }`}
             >
               <svg className="h-2.5 w-2.5 md:h-3 md:w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -130,20 +130,16 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
           return (
           <div
             key={tab.id}
-            className={`group relative flex shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-2 py-1 !text-[12px] font-black transition-all cursor-pointer whitespace-nowrap md:gap-2 md:px-3 md:py-2 ${
+            className={`group relative -mb-px flex shrink-0 items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 py-1.5 !text-[12.5px] transition-all cursor-pointer whitespace-nowrap md:gap-2 md:px-3.5 md:py-2 md:!text-[14px] ${
               isActive
-                ? isDocs
-                  ? 'border-[#2A3B4D] bg-[#2A3B4D] text-white shadow-[0_-2px_8px_rgba(42,59,77,0.3)]'
-                  : 'border-[#1E2A38] bg-[#1E2A38] text-white shadow-[0_-2px_8px_rgba(30,42,56,0.25)]'
-                : isDocs
-                  ? 'border-[#D7DEE3] bg-[#E4E8EA] text-[#2A3B4D] hover:bg-[#D7DEE3]'
-                  : 'border-[#D7DEE3] bg-[#EEF1F3] text-[#1E2A38] hover:bg-[#E2E8EC]'
+                ? 'is-active font-bold border-[#D5DDE2] bg-white text-[#0A5F67] shadow-[inset_0_3px_0_#0E7C86,0_-1px_3px_rgba(16,30,43,0.06)]'
+                : 'font-semibold border-transparent bg-transparent text-[#475569] hover:bg-white/70 hover:text-[#0A5F67]'
             }`}
             onClick={() => setActiveTab(tab.id)}
           >
             <span
               className={`h-1.5 w-1.5 shrink-0 rounded-full transition-colors ${
-                isActive ? 'bg-white/80' : isDocs ? 'bg-[#2A3B4D]/50' : 'bg-[#1E2A38]/50'
+                isActive ? 'bg-[#0E7C86]' : isDocs ? 'bg-[#64748B]/60' : 'bg-[#94A3B8]/70'
               }`}
             />
             <span className="truncate max-w-[92px] md:max-w-[150px]">{tab.title}</span>
@@ -152,13 +148,7 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
                 e.stopPropagation()
                 removeTab(tab.id)
               }}
-              className={`rounded-full p-0.5 transition-colors ${
-                isActive
-                  ? 'text-white/70 hover:bg-white/15 hover:text-white'
-                  : isDocs
-                    ? 'text-[#2A3B4D]/70 hover:bg-[#2A3B4D]/15 hover:text-[#1E2A38]'
-                    : 'text-[#1E2A38]/60 hover:bg-[#1E2A38]/15 hover:text-[#1E2A38]'
-              }`}
+              className="rounded-full p-0.5 text-[#64748B] transition-colors hover:bg-rose-50 hover:text-rose-600"
             >
               <svg className="h-2.5 w-2.5 md:h-3 md:w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
@@ -171,7 +161,8 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
 
       {/* 2. SATIR: acik dosya sekmeleri (bronz/altin) - hafif icerlek, ayri satir */}
       {showFileRow && documentsTab && (
-        <div className="flex items-center gap-1.5 overflow-x-auto px-2 pb-0 pt-1.5 pl-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4 sm:pl-10">
+        <div className="dy-ws-files flex items-center gap-1.5 overflow-x-auto border-t border-[#D5DDE2] bg-white px-2 py-1.5 pl-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:px-4 sm:pl-10 dark:border-slate-800 dark:bg-slate-950">
+          <span className="mr-1 hidden shrink-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#64748B] sm:inline">Açık Dosyalar</span>
           {openFiles.files.map((file) => {
             const isActiveFile = activeTabId === documentsTab.id && openFiles.activeKey === file.key
             return (
@@ -182,20 +173,20 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
                   openFiles.select(file.key)
                 }}
                 title={`${file.fileNo} - ${file.name}`}
-                className={`group relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 px-2 py-1 !text-[12px] font-bold transition-all whitespace-nowrap md:gap-2 md:px-3 md:py-1.5 ${
+                className={`group relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 !text-[12.5px] transition-all whitespace-nowrap md:gap-2 md:px-2.5 md:!text-[13.5px] ${
                   isActiveFile
-                    ? 'border-[#2A3B4D] bg-[#2A3B4D] text-white shadow-[0_-2px_8px_rgba(42,59,77,0.3)]'
-                    : 'border-[#D7DEE3] bg-[#E4E8EA] text-[#2A3B4D] hover:bg-[#D7DEE3]'
+                    ? 'is-active border-[#0E7C86] bg-[#E6F3F3] font-bold text-[#0A5F67]'
+                    : 'border-[#D5DDE2] bg-white font-semibold text-[#334155] hover:border-[#0E7C86]/50'
                 }`}
               >
-                <span className={`font-mono rounded-md px-1 py-0.5 !text-[12px] font-black leading-none tracking-tight md:px-1.5 ${isActiveFile ? 'bg-white/20 text-white' : 'bg-[#2A3B4D] text-white'}`}>{file.fileNo}</span>
-                <span className={`truncate max-w-[110px] !text-[12px] font-bold md:max-w-[150px] ${isActiveFile ? 'text-white/90' : 'text-[#2A3B4D]'}`}>{file.name || '—'}</span>
+                <span className={`rounded px-1.5 py-0.5 !text-[12px] font-bold leading-none tabular-nums ${isActiveFile ? 'bg-[#0E7C86] text-white' : 'bg-[#E3E9ED] text-[#1E2A38]'}`}>{file.fileNo}</span>
+                <span className="truncate max-w-[120px] md:max-w-[180px]">{file.name || '—'}</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
                     openFiles.close(file.key)
                   }}
-                  className={`rounded-full p-0.5 transition-colors ${isActiveFile ? 'text-white/70 hover:bg-white/15 hover:text-white' : 'text-[#2A3B4D]/70 hover:bg-[#2A3B4D]/15 hover:text-[#1E2A38]'}`}
+                  className="rounded-full p-0.5 text-[#64748B] transition-colors hover:bg-rose-50 hover:text-rose-600"
                 >
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
@@ -206,6 +197,8 @@ export const WorkspaceTabs: React.FC<{ canAccessDashboard?: boolean }> = ({ canA
           })}
         </div>
       )}
+      {/* 2026-10-14: sekmeler ile sayfa icerigi arasindaki bosluk yerine ince kurumsal renk cizgisi */}
+      <div aria-hidden className="h-[3px] w-full bg-gradient-to-r from-[#0b1f3f] via-[#0E7C86] to-[#b8860b]" />
     </div>
   )
 }

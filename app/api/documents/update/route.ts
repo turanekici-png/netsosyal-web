@@ -38,6 +38,7 @@ type UpdateDocumentPayload = {
   fileNo?: string
   status?: number | string
   familyType?: number | string
+  aidPriority?: number | string | null
   address?: string
   phone?: string
   description?: string
@@ -309,7 +310,18 @@ export async function POST(request: NextRequest) {
 
     const requestAddress = clean(payload.address) ?? clean(applicant.address)
     const requestPhone = cleanPhone(payload.phone) ?? cleanPhone(applicant.phone)
-    const familyType = clean(applicant.tc)?.startsWith('9') ? 4 : (cleanNumber(payload.familyType) ?? 1)
+    // 2026-10-14: yabanci uyrukluda (T.C. 9...) yalniz bos/"Normal Aile" ise
+    // Mülteci (4); secilmis ozel bir aile niteligi (orn. tahkikattan gelen
+    // Yetim/Şehit) artik her kayitta zorla 4'e cevrilmez.
+    const istenenAileNiteligi = cleanNumber(payload.familyType)
+    const familyType = clean(applicant.tc)?.startsWith('9') && (istenenAileNiteligi === null || istenenAileNiteligi === 1)
+      ? 4
+      : (istenenAileNiteligi ?? 1)
+    // 2026-10-14: Yardım Önceliği - YALNIZ istekte gonderildiyse yazilir (ucu
+    // cagiran baska yerler, orn. Sosyal Asistan, mevcut degeri silmesin).
+    const oncelikGonderildi = Object.prototype.hasOwnProperty.call(payload, 'aidPriority')
+    const oncelikSayi = cleanNumber(payload.aidPriority)
+    const yardimOnceligi = oncelikSayi !== null && Number.isInteger(oncelikSayi) && oncelikSayi > 0 ? oncelikSayi : null
     const people = [applicant, ...(payload.household ?? [])].filter((person) => (
       clean(person.firstName) || clean(person.lastName) || clean(person.tc) || clean(person.id)
     ))
@@ -323,6 +335,7 @@ export async function POST(request: NextRequest) {
           dosyano = ${clean(payload.fileNo)},
           durumu = ${cleanNumber(payload.status) ?? 0},
           aileniteligi = ${familyType},
+          yaronceliksirasi = CASE WHEN ${oncelikGonderildi} THEN ${yardimOnceligi}::int ELSE yaronceliksirasi END,
           adres = ${requestAddress},
           telefon = ${requestPhone},
           mahalleadi = ${clean(applicant.neighborhood)},

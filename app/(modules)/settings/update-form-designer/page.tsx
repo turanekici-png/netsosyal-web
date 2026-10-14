@@ -151,7 +151,7 @@ export default function UpdateFormDesignerPage() {
   return (
     <div className="min-h-screen bg-slate-100 pb-16">
       <div className="sticky top-0 z-20 border-b border-[#2A3B4D] bg-[#1E2A38] px-4 py-5 text-white shadow-md sm:px-8">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="ns-baslik-yazi mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xl font-black uppercase tracking-wide text-white/70">Sistem Ayarları</p>
             <h1 className="text-2xl font-black uppercase tracking-wide">Güncelleme Formu Tasarımı</h1>

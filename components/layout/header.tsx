@@ -11,9 +11,7 @@ import { InstallAppButton } from '@/components/pwa/InstallAppButton'
 import { useDesignMode } from '@/lib/context/DesignModeContext'
 import { useShellZoom, SHELL_ZOOM_MIN, SHELL_ZOOM_MAX } from '@/lib/context/ShellZoomContext'
 import { useUiScale, UI_SCALE_OPTIONS } from '@/lib/context/UiScaleContext'
-import { STARTUP_PAGE_OPTIONS, DEFAULT_STARTUP_PAGE } from '@/lib/constants/startupPages'
 import type { UserPermissionConfig } from '@/lib/constants/userPermissions'
-import { hasHizliSatisAccess } from '@/lib/constants/pageAccess'
 
 interface CurrentUserInfo {
   id: string
@@ -93,17 +91,26 @@ const getInitials = (name?: string) => {
     .join('') || 'KU'
 }
 
+// Tiklama anindaki zaman damgasi (her acilista sekme yenilensin). Bilesen
+// disinda: React derleyici kurali Date.now()'u render'da cagriliyor saniyordu.
+const acilisDamgasi = () => String(Date.now())
+
 export function Header({
   onMenuClick,
   sidebarAutoHide = false,
   onToggleSidebarAutoHide,
-  permissionConfig = null,
+  headerAutoHide = false,
+  onToggleHeaderAutoHide,
+  // permissionConfig artik kullanilmiyor (Baslangic sayfasi secimi kaldirildi, 2026-10-14)
 }: {
   onMenuClick?: () => void
   // Kullanici istegi (Eylul 2026): sol menuyu otomatik gizle ac/kapa
   // dugmesi sag ust kosede - bkz. AppShell.tsx / SidebarShell.tsx.
   sidebarAutoHide?: boolean
   onToggleSidebarAutoHide?: () => void
+  // 2026-10-14: ust cubugu otomatik gizle (bkz. AppShell.tsx)
+  headerAutoHide?: boolean
+  onToggleHeaderAutoHide?: () => void
   // Kullanici istegi (14 Eylul 2026, 12. tur): "yetkisi kapali olan
   // sayfanin ... butonu ... gorunmesin" - "Başlangıç" acilir listesi
   // (asagida) bu yetkiye gore filtrelenir. AppShell zaten yukledigi icin
@@ -204,54 +211,8 @@ export function Header({
     Math.abs(opt.value - uiScaleCtx.uiScale) < Math.abs(best.value - uiScaleCtx.uiScale) ? opt : best,
     UI_SCALE_OPTIONS[0],
   )
-  // Kullanici istegi (Eylul 2026): "program ilk acildiginda su sayfa acilsin,
-  // isteyen baska bir sayfa secebilsin". Hesaba ozel (sunucuda saklanir);
-  // "/" acilista bu sayfaya yonlenir (bkz. app/page.tsx). Bos = varsayilan
-  // (Dosya Yonetimi).
-  const [startupPage, setStartupPage] = useState('')
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/user-startup-page', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((payload) => { if (!cancelled && payload?.success) setStartupPage(String(payload.data?.path || '')) })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
-  const saveStartupPage = (path: string) => {
-    setStartupPage(path)
-    void fetch('/api/user-startup-page', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path }),
-    }).catch(() => {})
-  }
-  // Kullanici istegi (14 Eylul 2026, 12. tur): "yetkisi kapali olan sayfanin
-  // ... butonu ... gorunmesin" - "Başlangıç sayfası" acilir listesi eskiden
-  // TUM secenekleri (kullanicinin erisimi olmayanlar dahil) gosteriyordu.
-  // AppShell.tsx'teki "hasPageAccess" ile BIREBIR ayni mantik (ayri bir
-  // sorgu yapmadan, AppShell'in zaten yukledigi permissionConfig uzerinden).
-  const canAccessStartupPath = (path: string) => {
-    if (!permissionConfig || permissionConfig.isAdmin) return true
-    if (permissionConfig.isActive === false) return false
-    // Kullanici istegi (2026-10-07): "/communication" icin "HERKESE ACIK"
-    // istisnasi kaldirildi (bkz. lib/constants/pageAccess.ts AYNI tarihli not).
-    if (!permissionConfig.allowedPages?.length) return true
-
-    return permissionConfig.allowedPages.some((allowedPath) => (
-      path === allowedPath ||
-      (path === '/dashboard' && allowedPath === '/') ||
-      path.startsWith(`${allowedPath}/`) ||
-      allowedPath.startsWith(`${path}/`)
-    ))
-  }
-  // "/satis" (Hizli Satis) artik iki ayri yolla erisilebilir (bkz.
-  // lib/constants/pageAccess.ts hasHizliSatisAccess - YENI bagimsiz
-  // "/hizli-satis" yetkisi VEYA ESKI genel "/muhasebe" yetkisi) -
-  // canAccessStartupPath ayri/basit bir reimplementasyon oldugundan bu
-  // ozel durumu burada da elle uygulamak gerekiyor.
-  const visibleStartupPageOptions = STARTUP_PAGE_OPTIONS.filter((opt) => (
-    opt.path === '/satis' ? hasHizliSatisAccess(permissionConfig) : canAccessStartupPath(opt.path)
-  ))
+  // 2026-10-14: "Başlangıç sayfası" secimi menuden KALDIRILDI - kok yonlendirme
+  // herkes icin her zaman Dosya Yonetimi'ne gidiyordu, secim islevsizdi.
 
   const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -713,7 +674,7 @@ export function Header({
     if (notification) {
       await fetch(`/api/communication/${notification.id}/read`, { method: 'PATCH' }).catch(() => null)
     }
-    const query = new URLSearchParams({ communication: 'open', openAt: String(Date.now()) })
+    const query = new URLSearchParams({ communication: 'open', openAt: acilisDamgasi() })
     if (notification?.id) query.set('messageId', notification.id)
     addTab({ title: 'Dosya Ara', path: `/documents?${query.toString()}` })
     setIsNotificationsOpen(false)
@@ -955,31 +916,6 @@ export function Header({
                 ))}
               </select>
             </label>
-            {/* Kullanici istegi (Eylul 2026): program ilk acildiginda hangi
-                sayfanin acilacagini kisi kendi secer - hesaba kaydedilir.
-                14 Eylul 2026, 12. tur: liste artik SADECE erisim yetkisi
-                olan sayfalari gosterir (bkz. visibleStartupPageOptions). */}
-            {visibleStartupPageOptions.length > 0 && (
-              <label
-                className="flex w-full shrink-0 items-center justify-between gap-1.5 rounded-lg border border-[#E2E5DE] bg-white px-2 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800"
-                title="Program ilk açıldığında bu sayfa açılır - hesabınıza kaydedilir"
-              >
-                <span className="shrink-0 text-[10px] font-black uppercase tracking-wide text-[#93A0A6] dark:text-slate-400">Başlangıç</span>
-                <select
-                  value={
-                    visibleStartupPageOptions.some((opt) => opt.path === (startupPage || DEFAULT_STARTUP_PAGE))
-                      ? (startupPage || DEFAULT_STARTUP_PAGE)
-                      : visibleStartupPageOptions[0].path
-                  }
-                  onChange={(event) => saveStartupPage(event.target.value)}
-                  className="min-w-0 cursor-pointer truncate rounded-md border-0 bg-transparent py-0.5 pr-5 text-[12px] font-black text-[#16232B] outline-none focus:ring-1 focus:ring-[#0076b6] dark:text-slate-200"
-                >
-                  {visibleStartupPageOptions.map((opt) => (
-                    <option key={opt.path} value={opt.path}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-            )}
             {/* Kullanici istegi (Eylul 2026): tarayici zoom'u (Ctrl +/-) kaba
                 adimlarla ziplyordu ("%67'den %50'ye"). Bunun yerine uygulama
                 ici, ince adimli (%2) kabuk yakinlastirma. Ayar bu tarayiciya
@@ -1103,6 +1039,30 @@ export function Header({
                   <path strokeLinecap="round" strokeLinejoin="round" d="m17 9-3 3 3 3" />
                 </svg>
               )}
+            </button>
+          )}
+          {onToggleHeaderAutoHide && (
+            <button
+              type="button"
+              onClick={() => onToggleHeaderAutoHide()}
+              aria-pressed={headerAutoHide}
+              title={headerAutoHide
+                ? 'Üst çubuğu sabitle (otomatik gizlemeyi kapat)'
+                : 'Üst çubuğu otomatik gizle — fareyi ekranın üst kenarına getirince açılır'}
+              aria-label={headerAutoHide ? 'Üst çubuğu sabitle' : 'Üst çubuğu otomatik gizle'}
+              className={`hidden h-10 w-10 shrink-0 items-center justify-center rounded-lg border shadow-sm transition lg:flex ${
+                headerAutoHide
+                  ? 'border-[#0E7C86] bg-[#0E7C86] text-white'
+                  : 'border-[#E2E5DE] bg-white text-[#16232B] hover:bg-[#F1F3EF] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
+              }`}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-[18px] w-[18px]" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path strokeLinecap="round" d="M3 9h18" />
+                {headerAutoHide
+                  ? <path strokeLinecap="round" strokeLinejoin="round" d="m9 13 3 3 3-3" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="m9 16 3-3 3 3" />}
+              </svg>
             </button>
           )}
           {/* Kullanici istegi (Ekim 2026): TUM ust menu kontrolleri - her ekran

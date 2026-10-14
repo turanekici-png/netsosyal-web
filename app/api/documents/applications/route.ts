@@ -332,6 +332,8 @@ export async function GET(request: Request) {
       otomatikrediptal: boolean | null
       yardim_kisi_tc: string | null
       yardim_kisi_sayisi: number | null
+      asama_notu: string | null
+      durum_aciklama: string | null
     }[]>`
       SELECT
         t.id::bigint AS record_id,
@@ -355,7 +357,10 @@ export async function GET(request: Request) {
         t.dogumtarihi::date AS dogum_tarihi,
         t.otomatikrediptal,
         t.yardimkisitc::text AS yardim_kisi_tc,
-        t.yardimkisisayisi AS yardim_kisi_sayisi
+        t.yardimkisisayisi AS yardim_kisi_sayisi,
+        -- 2026-10-14: Müracaat Aşamaları > Açıklama ve iptal nedeni
+        NULLIF(t.asamanotu, '')::text AS asama_notu,
+        NULLIF(t.durumuaciklama, '')::text AS durum_aciklama
       FROM yrd_ayninakti t
       LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.muracaateden
       WHERE t.id = ${id} AND t.dosyaid = ${fileId}
@@ -394,6 +399,8 @@ export async function GET(request: Request) {
         otomatikRedIptal: Boolean(row.otomatikrediptal),
         assistPersonTcList: row.yardim_kisi_tc || '',
         assistPersonCount: row.yardim_kisi_sayisi !== null ? String(row.yardim_kisi_sayisi) : '',
+        stageNote: row.asama_notu || '',
+        cancelReason: row.durumu === 1 ? (row.durum_aciklama || '') : '',
       },
     })
   } catch (error) {

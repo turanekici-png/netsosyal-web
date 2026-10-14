@@ -22,8 +22,8 @@ export default function DestekPaketiAlmayanlarPage({
         tableId: 'yrd_destekpaketi_almayanlar',
         whereClause: 't.durumu != 0 AND t.durumu != 2',
         searchColumns: ['t.muracaateden', 't.aciklama', 't.etiket', 'd.dosyano'],
-        searchPlaceholder: 'Muracaat eden, etiket, dosya no veya aciklama ara',
-        emptyMessage: 'Goruntulenecek destek paketi kaydi bulunamadi.',
+        searchPlaceholder: 'Müracaat eden, etiket, dosya no veya açıklama ara',
+        emptyMessage: 'Görüntülenecek destek paketi kaydı bulunamadı.',
         excludedColumns: [
           'dosyaid', 'kullaniciid', 'ilkkullaniciid', 'islemtarihi', 'ilkislemtarihi',
           'donemadi', 'dnm_durumu', 'donemint', 'donemstr',

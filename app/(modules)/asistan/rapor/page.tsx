@@ -221,7 +221,7 @@ function ReportContent() {
           ve renkli olsun sayfa daha profesyonel bir sayfa haline
           getirelim" - duz gri baslik yerine markanin lacivertiyle (#1E2A38)
           uyumlu bir "hero" kart + tablo basliklari da ayni renk tonunda. */}
-      <div className="sticky top-0 z-10 shrink-0 rounded-xl bg-[#1E2A38] px-5 py-4 text-white shadow-[0_8px_20px_rgba(16,30,43,0.25)] sm:px-6 print:static print:rounded-none print:bg-none print:text-slate-900 print:shadow-none">
+      <div className="ns-sayfa-baslik sticky top-0 z-10 shrink-0 rounded-xl bg-[#1E2A38] px-5 py-4 text-white shadow-[0_8px_20px_rgba(16,30,43,0.25)] sm:px-6 print:static print:rounded-none print:bg-none print:text-slate-900 print:shadow-none">
        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -293,7 +293,7 @@ function ReportContent() {
         {table.rows.length === 0 ? (
           <p className="p-4 text-xl font-bold text-slate-500">Sonuç bulunamadı.</p>
         ) : (
-          <table className="min-w-full border-collapse text-base">
+          <table className="ns-tablo-olcu min-w-full border-collapse text-base">
             <thead className="sticky top-0 z-[1]">
               <tr className="bg-[#1E2A38]">
                 {table.columns.map((column) => {

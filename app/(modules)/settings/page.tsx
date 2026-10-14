@@ -6,7 +6,7 @@ import { useTabs } from '@/lib/context/TabContext'
 import { FormDesignRenderer } from '@/components/shared/FormDesignRenderer'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { SosyalAsistanPanel } from './SosyalAsistanPanel'
-import { ApplicationStatusLookupToggle } from '@/app/online/ApplicationStatusLookupToggle'
+import { OnlineFormsTab, normalizeOnlineFormsForSave, validateOnlineForms } from './OnlineFormsTab'
 import {
   DEFAULT_ONLINE_APPLICATION_FORMS,
   isFormCurrentlyPublished,
@@ -42,114 +42,36 @@ import {
 
 export const dynamic = "force-dynamic"
 
-// Kullanici istegi (2026-09-22): "yayına çıkacağı tarih/saat ve yayından
-// kalkacağı tarih/saat belirleyelim" - admin editorunde formun "Simdi"
-// durumunu (yayinda / henuz baslamadi / suresi doldu / manuel kapali) tek
-// bir yerden okunakli sekilde gostermek icin. isFormCurrentlyPublished ile
-// AYNI mantigi kullanir, sadece kullaniciya gosterilecek metin/renk
-// uretir.
-function getPublishScheduleStatus(form: Pick<OnlineApplication, 'active' | 'publishStartAt' | 'publishEndAt'>) {
-  if (!form.active) {
-    return { label: 'Pasif (manuel olarak kapalı)', tone: 'slate' as const };
-  }
-  const now = new Date();
-  if (form.publishStartAt) {
-    const start = new Date(form.publishStartAt);
-    if (!Number.isNaN(start.getTime()) && now < start) {
-      return { label: `Henüz başlamadı — ${start.toLocaleString('tr-TR')} tarihinde yayına girecek`, tone: 'amber' as const };
-    }
-  }
-  if (form.publishEndAt) {
-    const end = new Date(form.publishEndAt);
-    if (!Number.isNaN(end.getTime()) && now > end) {
-      return { label: `Süresi doldu — ${end.toLocaleString('tr-TR')} tarihinde yayından kalktı`, tone: 'rose' as const };
-    }
-  }
-  return { label: 'Şu anda yayında', tone: 'emerald' as const };
-}
-
 type TabType = 'nvi' | 'sms' | 'whatsapp' | 'sosyalAsistan' | 'general' | 'neighborhoods' | 'authorizedPersonnel' | 'online' | 'formDesign' | 'evaluationForm' | 'updateForm' | 'preliminaryReviewForm' | 'predefinedValues' | 'yardimKriterleri' | 'scheduledTasks' | 'databaseBackups' | 'personnelPerformance' | 'userPermissions';
-type OnlineCriterionType = 'minAge' | 'uniqueAddressNo' | 'uniqueIdentity' | 'maxIncome' | 'maxVehicleModelYear' | 'maxAge';
-
-const ONLINE_CRITERION_OPTIONS: Array<{
-  type: OnlineCriterionType;
-  label: string;
-  enabledField: keyof OnlineApplicationCriteria;
-  valueField?: keyof OnlineApplicationCriteria;
-  defaultValue?: number;
-  min?: number;
-  widthClassName?: string;
-  ariaLabel?: string;
-}> = [
-  {
-    type: 'minAge',
-    label: 'Belirlenen yaşın altındakiler başvuramasın',
-    enabledField: 'minAgeEnabled',
-    valueField: 'minAge',
-    defaultValue: 18,
-    min: 1,
-    widthClassName: 'w-24',
-    ariaLabel: 'Minimum yaş',
-  },
-  {
-    type: 'uniqueAddressNo',
-    label: 'Aynı adres no ile aynı forma ikinci başvuruyu engelle',
-    enabledField: 'uniqueAddressNoEnabled',
-  },
-  {
-    type: 'uniqueIdentity',
-    label: 'Aynı TC kimlik no ile aynı forma ikinci başvuruyu engelle',
-    enabledField: 'uniqueIdentityEnabled',
-  },
-  {
-    type: 'maxIncome',
-    label: 'Gelir üst sınırını aşanlar başvuramasın',
-    enabledField: 'maxIncomeEnabled',
-    valueField: 'maxIncome',
-    defaultValue: 10000,
-    min: 1,
-    widthClassName: 'w-28',
-    ariaLabel: 'Gelir üst sınırı',
-  },
-  {
-    type: 'maxVehicleModelYear',
-    label: 'Araç modeli üst sınırını aşanlar başvuramasın',
-    enabledField: 'maxVehicleModelYearEnabled',
-    valueField: 'maxVehicleModelYear',
-    defaultValue: 2005,
-    min: 1900,
-    widthClassName: 'w-24',
-    ariaLabel: 'Araç model üst sınırı',
-  },
-  {
-    type: 'maxAge',
-    label: 'Yaş üst sınırını aşanlar başvuramasın',
-    enabledField: 'maxAgeEnabled',
-    valueField: 'maxAge',
-    defaultValue: 65,
-    min: 1,
-    widthClassName: 'w-24',
-    ariaLabel: 'Yaş üst sınırı',
-  },
-];
-
 const settingsHeaderByTab: Partial<Record<TabType, { eyebrow: string; title: string }>> = {
   online: { eyebrow: 'Vatandaş Başvuru Portalı', title: 'Online Başvuru Formları' },
   userPermissions: { eyebrow: 'Erişim Kontrolü', title: 'Kullanıcı Yetkileri' },
-  nvi: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  sms: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  whatsapp: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  formDesign: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  evaluationForm: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  updateForm: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  preliminaryReviewForm: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  predefinedValues: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  scheduledTasks: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  databaseBackups: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  personnelPerformance: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  general: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  neighborhoods: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
-  authorizedPersonnel: { eyebrow: 'Yönetim', title: 'Sistem Ayarları' },
+  // 2026-10-13: baslik artik secili bolumu gosterir (eskiden hepsi "Sistem Ayarlari"ydi)
+  nvi: { eyebrow: 'Sistem Ayarları', title: 'NVİ Entegrasyonu' },
+  sms: { eyebrow: 'Sistem Ayarları', title: 'SMS Entegrasyonu' },
+  whatsapp: { eyebrow: 'Sistem Ayarları', title: 'WhatsApp Web' },
+  sosyalAsistan: { eyebrow: 'Sistem Ayarları', title: 'Sosyal Asistan API' },
+  formDesign: { eyebrow: 'Sistem Ayarları', title: 'Form ve Etiket Dizaynı' },
+  evaluationForm: { eyebrow: 'Sistem Ayarları', title: 'Tahkikat Formu Tasarımı' },
+  updateForm: { eyebrow: 'Sistem Ayarları', title: 'Güncelleme Formu Tasarımı' },
+  preliminaryReviewForm: { eyebrow: 'Sistem Ayarları', title: 'Ön İnceleme Formu Tasarımı' },
+  predefinedValues: { eyebrow: 'Sistem Ayarları', title: 'Hazır Değerler' },
+  yardimKriterleri: { eyebrow: 'Sistem Ayarları', title: 'Yardım Kriterleri' },
+  scheduledTasks: { eyebrow: 'Sistem Ayarları', title: 'Zamanlanmış Görevler' },
+  databaseBackups: { eyebrow: 'Sistem Ayarları', title: 'Veritabanı İşlemleri' },
+  personnelPerformance: { eyebrow: 'Sistem Ayarları', title: 'Personel Performans' },
+  general: { eyebrow: 'Sistem Ayarları', title: 'Genel Ayarlar' },
+  neighborhoods: { eyebrow: 'Sistem Ayarları', title: 'Mahalle Listesi' },
+  authorizedPersonnel: { eyebrow: 'Sistem Ayarları', title: 'Yetkili Personeller' },
+}
+
+// 2026-10-13: bu sekmeler yalnizca "yeni sekmede ac" karti iceriyordu - sekmeye
+// tiklaninca tasarim araci dogrudan yeni sekmede acilir (kart yine gorunur).
+const SETTINGS_TOOL_TABS: Record<string, { title: string; path: string }> = {
+  formDesign: { title: 'Form Tasarımcısı', path: '/settings/form-designer' },
+  evaluationForm: { title: 'Tahkikat Formu Tasarımı', path: '/settings/evaluation-form-designer' },
+  updateForm: { title: 'Güncelleme Formu Tasarımı', path: '/settings/update-form-designer' },
+  preliminaryReviewForm: { title: 'Ön İnceleme Formu Tasarımı', path: '/settings/preliminary-review-form-designer' },
 }
 
 interface NviCredentials {
@@ -1310,8 +1232,9 @@ function SystemSettingsPageInner() {
   // Online Başvuru Durumları
   const [onlineForms, setOnlineForms] = useState<OnlineApplication[]>(DEFAULT_ONLINE_APPLICATION_FORMS);
   const [selectedOnlineFormId, setSelectedOnlineFormId] = useState<string | null>('app_1');
-  const [newFieldName, setNewFieldName] = useState('');
-  const [newFieldType, setNewFieldType] = useState<OnlineFormField['type']>('text');
+  // Son kaydedilen/yuklenen hal - "kaydedilmemis degisiklik" uyarisi icin
+  // (null = henuz sunucudan yuklenmedi).
+  const [onlineFormsSavedSnapshot, setOnlineFormsSavedSnapshot] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [onlineFormStatus, setOnlineFormStatus] = useState('');
   const [isSavingOnlineForms, setIsSavingOnlineForms] = useState(false);
@@ -1412,9 +1335,6 @@ function SystemSettingsPageInner() {
   };
 
   const selectedOnlineForm = onlineForms.find(f => f.id === selectedOnlineFormId) ?? null;
-  const selectedOnlineCriteria = normalizeOnlineApplicationCriteria(selectedOnlineForm?.criteria);
-  const selectedOnlineCriteriaRows = ONLINE_CRITERION_OPTIONS.filter(option => Boolean(selectedOnlineCriteria[option.enabledField]));
-  const selectedOnlineManualCriteria = selectedOnlineCriteria.manualInfoCriteria;
   const selectedOnlineIntro = normalizeOnlineApplicationIntro(selectedOnlineForm?.intro);
   const selectedPermissionUser = settingsUsers.find(user => user.id === selectedPermissionUserId) ?? null;
   const filteredPermissionUsers = (() => {
@@ -1442,33 +1362,6 @@ function SystemSettingsPageInner() {
       return 'http://localhost:3500';
     }
   })();
-  const selectedOnlineFormUrl = selectedOnlineForm
-    ? `${publicBaseUrl || ''}/online?form=${encodeURIComponent(selectedOnlineForm.id)}`
-    : `${publicBaseUrl || ''}/online`;
-  // Kullanici istegi (14 Eylul 2026, 2. tur): "/onlinebasvuru" artik TEK bir
-  // forma degil, kurumun O AN ACIK OLAN TUM online basvuru turlerinin
-  // listelendigi ortak ana sayfaya isaret ediyor (bkz. app/onlinebasvuru/
-  // page.tsx) - bu yuzden yukaridaki (forma OZEL) linkten AYRI, sabit bir
-  // "ana sayfa" bagalantisi da gosteriliyor.
-  const onlineFormsHubUrl = `${publicBaseUrl || ''}/onlinebasvuru`;
-  const copyOnlineFormsHubUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(onlineFormsHubUrl);
-      setOnlineFormStatus('Tüm formların listelendiği ana sayfa bağlantısı kopyalandı.');
-    } catch {
-      setOnlineFormStatus('Bağlantı kopyalanamadı. Linki elle seçip kopyalayabilirsiniz.');
-    }
-  };
-
-  const copyOnlineFormUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(selectedOnlineFormUrl);
-      setOnlineFormStatus('Online başvuru bağlantısı kopyalandı.');
-    } catch {
-      setOnlineFormStatus('Bağlantı kopyalanamadı. Linki elle seçip kopyalayabilirsiniz.');
-    }
-  };
-
   useEffect(() => {
     let isCancelled = false;
 
@@ -1508,7 +1401,10 @@ function SystemSettingsPageInner() {
     const loadOnlineForms = async () => {
       try {
         const response = await fetch(`/api/settings/${ONLINE_APPLICATION_FORMS_SETTING_KEY}`);
-        if (response.status === 404) return;
+        if (response.status === 404) {
+          if (!isCancelled) setOnlineFormsSavedSnapshot(JSON.stringify(DEFAULT_ONLINE_APPLICATION_FORMS));
+          return;
+        }
 
         const payload = (await response.json()) as SettingResponse<OnlineApplication[]>;
         const value = payload.data?.value;
@@ -1518,11 +1414,13 @@ function SystemSettingsPageInner() {
         }
 
         if (!isCancelled) {
-          setOnlineForms(value.map(form => ({
+          const loadedForms = value.map(form => ({
             ...form,
             criteria: normalizeOnlineApplicationCriteria(form.criteria),
             intro: normalizeOnlineApplicationIntro(form.intro),
-          })));
+          }));
+          setOnlineForms(loadedForms);
+          setOnlineFormsSavedSnapshot(JSON.stringify(loadedForms));
           setSelectedOnlineFormId(value[0]?.id ?? null);
         }
       } catch (loadError) {
@@ -1538,6 +1436,19 @@ function SystemSettingsPageInner() {
       isCancelled = true;
     };
   }, []);
+
+  const isOnlineFormsDirty = onlineFormsSavedSnapshot !== null && JSON.stringify(onlineForms) !== onlineFormsSavedSnapshot;
+  // Kaydedilmemis online form degisikligi varken sekme/sayfa kapatilirsa
+  // tarayicinin "sayfadan ayrilmak istiyor musunuz" uyarisi cikar.
+  useEffect(() => {
+    if (!isOnlineFormsDirty) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isOnlineFormsDirty]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -2145,6 +2056,19 @@ function SystemSettingsPageInner() {
   };
 
   const saveOnlineForms = async () => {
+    // 2026-10-14: hatali form (bos alan adi, seceneksiz secenekli alan,
+    // bitisi baslangictan once olan yayin vb.) vatandasa yayinlanmasin diye
+    // kayit oncesi dogrulama. Uyarilar kaydi engellemez.
+    const blockingIssues = validateOnlineForms(onlineForms, yardimKriterleriDonemOptions.map(option => option.name))
+      .filter(issue => issue.level === 'error');
+    if (blockingIssues.length > 0) {
+      const firstForm = onlineForms.find(form => form.id === blockingIssues[0].formId);
+      setSelectedOnlineFormId(blockingIssues[0].formId);
+      setOnlineFormStatus(`Kaydedilemedi: "${firstForm?.title || 'form'}" içinde ${blockingIssues.length} hata var. ${blockingIssues[0].message}`);
+      return;
+    }
+
+    const formsToSave = normalizeOnlineFormsForSave(onlineForms);
     setIsSavingOnlineForms(true);
     setOnlineFormStatus('');
 
@@ -2154,7 +2078,7 @@ function SystemSettingsPageInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key: ONLINE_APPLICATION_FORMS_SETTING_KEY,
-          value: onlineForms,
+          value: formsToSave,
           type: 'json',
         }),
       });
@@ -2164,6 +2088,8 @@ function SystemSettingsPageInner() {
         throw new Error(payload.error || 'Online başvuru formları kaydedilemedi.');
       }
 
+      setOnlineForms(formsToSave);
+      setOnlineFormsSavedSnapshot(JSON.stringify(formsToSave));
       setOnlineFormStatus('Online başvuru formları kaydedildi.');
     } catch (saveError) {
       setOnlineFormStatus((saveError as Error).message);
@@ -3288,234 +3214,6 @@ function SystemSettingsPageInner() {
     setNewCategoryTitle('');
   };
 
-  const addNewOnlineForm = () => {
-    const newForm: OnlineApplication = {
-      id: 'app_' + Date.now(),
-      title: 'Yeni Başvuru Formu',
-      active: false,
-      criteria: normalizeOnlineApplicationCriteria(),
-      intro: normalizeOnlineApplicationIntro(),
-      fields: [
-        { id: 'f_tc', label: 'T.C. Kimlik No', required: true, type: 'text', isFixed: true },
-        { id: 'f_name', label: 'Ad Soyad', required: true, type: 'text', isFixed: true },
-        { id: 'f_phone', label: 'Telefon', required: true, type: 'text' },
-      ]
-    };
-    setOnlineForms(prev => [newForm, ...prev]);
-    setSelectedOnlineFormId(newForm.id);
-  };
-
-  const updateOnlineForm = <K extends keyof OnlineApplication>(id: string, field: K, value: OnlineApplication[K]) => {
-    setOnlineForms(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f));
-  };
-
-  // Kullanici istegi (2026-09-22, devam): "zamanı ve tarihi ayarladım
-  // yayına girmedi" - kok neden: "Form Yayında" ana anahtari KAPALIYKEN
-  // sadece zamanlama tarihi girmek YETERLI degildi (isFormCurrentlyPublished
-  // once "active"i kontrol ediyor). Kullanicinin beklentisi "tarihi
-  // girince otomatik yayina girsin" oldugundan, artik baslangic/bitis
-  // tarihinden BIRINE (bos olmayan) deger girilince "Form Yayında"
-  // otomatik ACILIR - kullanicinin ayrica hatirlayip checkbox'i isaretlemesi
-  // GEREKMEZ. Tarihi TEMIZLEMEK (bos birakmak) ise "active"i OTOMATIK
-  // KAPATMAZ - sadece manuel checkbox ile kapatilir (surpriz olmasin diye).
-  const updateOnlineFormSchedule = (id: string, field: 'publishStartAt' | 'publishEndAt', value: string | null) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      return { ...f, [field]: value, active: value ? true : f.active };
-    }));
-  };
-
-  const updateOnlineFormCriteria = <K extends keyof OnlineApplicationCriteria>(id: string, field: K, value: OnlineApplicationCriteria[K]) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      return {
-        ...f,
-        criteria: {
-          ...normalizeOnlineApplicationCriteria(f.criteria),
-          [field]: value,
-        },
-      };
-    }));
-  };
-
-  const addOnlineFormCriterion = (id: string) => {
-    const form = onlineForms.find(f => f.id === id);
-    const criteria = normalizeOnlineApplicationCriteria(form?.criteria);
-    const nextOption = ONLINE_CRITERION_OPTIONS.find(option => !criteria[option.enabledField]);
-    if (!nextOption) return;
-
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      const nextCriteria = normalizeOnlineApplicationCriteria(f.criteria);
-      return {
-        ...f,
-        criteria: {
-          ...nextCriteria,
-          [nextOption.enabledField]: true,
-          ...(nextOption.valueField ? { [nextOption.valueField]: nextCriteria[nextOption.valueField] || nextOption.defaultValue || 1 } : {}),
-        },
-      };
-    }));
-  };
-
-  const removeOnlineFormCriterion = (id: string, type: OnlineCriterionType) => {
-    const option = ONLINE_CRITERION_OPTIONS.find(candidate => candidate.type === type);
-    if (!option) return;
-
-    updateOnlineFormCriteria(id, option.enabledField, false as OnlineApplicationCriteria[typeof option.enabledField]);
-  };
-
-  const changeOnlineFormCriterion = (id: string, currentType: OnlineCriterionType, nextType: OnlineCriterionType) => {
-    if (currentType === nextType) return;
-    const currentOption = ONLINE_CRITERION_OPTIONS.find(option => option.type === currentType);
-    const nextOption = ONLINE_CRITERION_OPTIONS.find(option => option.type === nextType);
-    if (!currentOption || !nextOption) return;
-
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      const nextCriteria = normalizeOnlineApplicationCriteria(f.criteria);
-      return {
-        ...f,
-        criteria: {
-          ...nextCriteria,
-          [currentOption.enabledField]: false,
-          [nextOption.enabledField]: true,
-          ...(nextOption.valueField ? { [nextOption.valueField]: nextCriteria[nextOption.valueField] || nextOption.defaultValue || 1 } : {}),
-        },
-      };
-    }));
-  };
-
-  const addOnlineManualCriterion = (id: string) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      const nextCriteria = normalizeOnlineApplicationCriteria(f.criteria);
-      return {
-        ...f,
-        criteria: {
-          ...nextCriteria,
-          manualInfoCriteria: [...nextCriteria.manualInfoCriteria, ''],
-        },
-      };
-    }));
-  };
-
-  const updateOnlineManualCriterion = (id: string, index: number, value: string) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      const nextCriteria = normalizeOnlineApplicationCriteria(f.criteria);
-      return {
-        ...f,
-        criteria: {
-          ...nextCriteria,
-          manualInfoCriteria: nextCriteria.manualInfoCriteria.map((item, itemIndex) => itemIndex === index ? value : item),
-        },
-      };
-    }));
-  };
-
-  const removeOnlineManualCriterion = (id: string, index: number) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      const nextCriteria = normalizeOnlineApplicationCriteria(f.criteria);
-      return {
-        ...f,
-        criteria: {
-          ...nextCriteria,
-          manualInfoCriteria: nextCriteria.manualInfoCriteria.filter((_, itemIndex) => itemIndex !== index),
-        },
-      };
-    }));
-  };
-
-  const updateOnlineFormIntro = <K extends keyof OnlineApplicationIntro>(id: string, field: K, value: OnlineApplicationIntro[K]) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== id) return f;
-      return {
-        ...f,
-        intro: {
-          ...normalizeOnlineApplicationIntro(f.intro),
-          [field]: value,
-        },
-      };
-    }));
-  };
-
-  const handleOnlineIntroImageUpload = (formId: string, file?: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      updateOnlineFormIntro(formId, 'imageUrl', String(reader.result || ''));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeOnlineForm = (id: string) => {
-    setOnlineForms(prev => prev.filter(f => f.id !== id));
-    if (selectedOnlineFormId === id) setSelectedOnlineFormId(null);
-  };
-
-  const addFieldToForm = (formId: string) => {
-    if (!newFieldName.trim()) return;
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== formId) return f;
-      return {
-        ...f,
-        fields: [...f.fields, {
-          id: 'f_' + Date.now(),
-          label: newFieldName,
-          required: false,
-          type: newFieldType,
-          options: newFieldType === 'select' ? ['Var', 'Yok'] : undefined,
-        }]
-      };
-    }));
-    setNewFieldName('');
-  };
-
-  const removeFieldFromForm = (formId: string, fieldId: string) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== formId) return f;
-      return { ...f, fields: f.fields.filter(field => field.id !== fieldId) };
-    }));
-  };
-
-  const updateFieldInForm = <K extends keyof OnlineFormField>(formId: string, fieldId: string, key: K, value: OnlineFormField[K]) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== formId) return f;
-      return {
-        ...f,
-        fields: f.fields.map(field => field.id === fieldId ? { ...field, [key]: value } : field)
-      };
-    }));
-  };
-
-  const updateFieldOptions = (formId: string, fieldId: string, rawValue: string) => {
-    const options = rawValue
-      .split(/[\n,]/)
-      .map(option => option.trim())
-      .filter(Boolean);
-    updateFieldInForm(formId, fieldId, 'options', options);
-  };
-
-  const updateFieldCondition = (formId: string, fieldId: string, fieldKey: 'fieldId' | 'value', value: string) => {
-    setOnlineForms(prev => prev.map(f => {
-      if (f.id !== formId) return f;
-      return {
-        ...f,
-        fields: f.fields.map(field => {
-          if (field.id !== fieldId) return field;
-          const current = field.showWhen || { fieldId: '', value: '' };
-          const next = { ...current, [fieldKey]: value };
-          return {
-            ...field,
-            showWhen: next.fieldId ? next : undefined,
-          };
-        }),
-      };
-    }));
-  };
-
   const handleFormDesignChange = (id: string, field: keyof FormDesign, value: string) => {
     setFormDesigns(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
   };
@@ -3781,7 +3479,7 @@ function SystemSettingsPageInner() {
               </div>
             </div>
             <div className="max-h-[560px] overflow-auto">
-              <table className="w-full min-w-[860px] border-collapse text-left text-xl">
+              <table className="ns-tablo ns-tablo-buyuk w-full min-w-[860px] border-collapse text-left text-xl">
                 <thead className="sticky top-0 bg-[#1E2A38] text-lg font-black uppercase text-white shadow-sm">
                   <tr>
                     <th className="w-16 px-4 py-3">Sıra</th>
@@ -4065,7 +3763,7 @@ function SystemSettingsPageInner() {
               </div>
             </div>
             <div className="max-h-[560px] overflow-auto">
-              <table className="w-full min-w-[700px] border-collapse text-left text-xl">
+              <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] border-collapse text-left text-xl">
                 <thead className="sticky top-0 bg-[#1E2A38] text-lg font-black uppercase text-white shadow-sm">
                   <tr>
                     <th className="w-16 px-4 py-3">Sıra</th>
@@ -4388,7 +4086,7 @@ function SystemSettingsPageInner() {
           temaya kavusturuldu - eskiden parlak mavi-yesil degrade bir
           baslikti. SADECE GORUNUM - "işleyişe dokunmayalım" istegi geregi
           hicbir prop/onClick/mantik DEGISMEDI. */}
-      <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] p-5 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
+      <div className="ns-sayfa-baslik rounded-xl border border-[#2A3B4D] bg-[#1E2A38] p-5 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-[13px] font-semibold uppercase tracking-wide text-white/80">{activeHeader.eyebrow}</p>
@@ -4419,7 +4117,7 @@ function SystemSettingsPageInner() {
         <aside className="w-full md:w-[26rem] shrink-0 space-y-0">
           {[
             { id: 'nvi', label: 'NVİ Entegrasyonu', icon: '🆔' },
-            { id: 'sms', label: 'SMS Entegrasyonu', icon: 'SMS' },
+            { id: 'sms', label: 'SMS Entegrasyonu', icon: '✉️' },
             { id: 'whatsapp', label: 'WhatsApp Web', icon: '💬' },
             { id: 'sosyalAsistan', label: 'Sosyal Asistan API', icon: '🤖' },
             { id: 'formDesign', label: 'Form ve Etiket Dizaynı', icon: '🎨' },
@@ -4429,15 +4127,19 @@ function SystemSettingsPageInner() {
             { id: 'predefinedValues', label: 'Hazır Değerler', icon: '📝' },
             { id: 'yardimKriterleri', label: 'Yardım Kriterleri', icon: '🎯' },
             { id: 'scheduledTasks', label: 'Zamanlanmış Görevler', icon: '⏰' },
-            { id: 'databaseBackups', label: 'Veritabanı İşlemleri', icon: 'DB' },
-            { id: 'personnelPerformance', label: 'Personel Performans', icon: 'PP' },
+            { id: 'databaseBackups', label: 'Veritabanı İşlemleri', icon: '🗄️' },
+            { id: 'personnelPerformance', label: 'Personel Performans', icon: '📊' },
             { id: 'general', label: 'Genel Ayarlar', icon: '⚙️' },
-            { id: 'neighborhoods', label: 'Mahalle Listesi', icon: 'ML' },
-            { id: 'authorizedPersonnel', label: 'Yetkili Personeller', icon: 'YP' },
+            { id: 'neighborhoods', label: 'Mahalle Listesi', icon: '🏘️' },
+            { id: 'authorizedPersonnel', label: 'Yetkili Personeller', icon: '👥' },
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as TabType)}
+              onClick={() => {
+                setActiveTab(tab.id as TabType)
+                const arac = SETTINGS_TOOL_TABS[tab.id]
+                if (arac) addTab(arac)
+              }}
               className={`flex w-full items-center gap-3 rounded-lg px-5 py-2.5 text-2xl font-bold leading-snug transition-all ${
                 activeTab === tab.id
                 ? 'bg-[#1E2A38] text-white shadow-md'
@@ -4836,9 +4538,10 @@ function SystemSettingsPageInner() {
                 <div className="text-6xl mb-6">🧮</div>
                 <h2 className="text-2xl font-extrabold text-slate-800">Tahkikat Formu Tasarımı</h2>
                 <p className="text-slate-500 font-medium">
-                  Dosya tahkikat formundaki soruları, her soru için verilebilecek cevapları ve bu cevaplara
-                  karşılık gelen puanları burada tanımlayabilirsiniz. Geniş bir çalışma alanına ihtiyaç
-                  duyduğu için tasarım aracını yeni bir sekmede açabilirsiniz.
+                  &ldquo;Hane Ziyareti ve Sosyal İnceleme Formu&rdquo;nun bölümlerini ve sorularını (metin, seçim,
+                  tablo vb.) burada ekleyip çıkarabilir, formun başlık ve notlarını düzenleyebilir, sahaya
+                  götürmek için boş formu yazdırabilirsiniz. Geniş bir çalışma alanına ihtiyaç duyduğu için
+                  tasarım aracını yeni bir sekmede açabilirsiniz.
                 </p>
                 <div className="pt-6">
                   <button
@@ -4988,764 +4691,25 @@ function SystemSettingsPageInner() {
           )}
 
           {activeTab === 'online' && (
-            <div className="space-y-6">
-              {/* Kullanici istegi (2026-09-22, 3. tur): "Başvuru Sorgulamayı
-                  aç kapa butonunu Online Başvurular sayfasına değilde sol
-                  sidebardaki Ayarlar içinde olan Online Başvuru Formları
-                  sayfasına alalım" - bu bilesen daha once app/online/page.tsx
-                  (Online Başvurular yonetim listesi) uzerindeydi, artik
-                  burada. */}
-              <ApplicationStatusLookupToggle />
-
-              <div className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-[0_18px_45px_rgba(2,132,199,0.10)]">
-                <div className="flex flex-col gap-4 border-b border-sky-100 bg-sky-50 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-xs font-black uppercase tracking-wide text-[#0076b6]">Vatandaş Başvuru Portalı</p>
-                    <h2 className="mt-1 text-2xl font-black text-slate-900">Online Başvuru Formları</h2>
-                    <p className="mt-1 text-sm font-semibold text-slate-500">Formu düzenleyin, canlı görünümünü kontrol edin ve bağlantısını paylaşın.</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => setIsPreviewOpen(true)}
-                      disabled={!selectedOnlineForm}
-                      className="rounded-lg border border-[#0076b6] bg-white px-4 py-2 text-xs font-black text-[#0076b6] shadow-sm hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Ekran Önizlemesi
-                    </button>
-                    <a
-                      href={selectedOnlineFormUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`rounded-lg bg-[#0076b6] px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-[#005c8f] ${!selectedOnlineForm ? 'pointer-events-none opacity-50' : ''}`}
-                    >
-                      İnternet Sayfasını Aç
-                    </a>
-                    <button
-                      onClick={addNewOnlineForm}
-                      className="rounded-lg bg-[#6fb744] px-4 py-2 text-xs font-black text-white shadow-sm transition-colors hover:bg-[#5aa333]"
-                    >
-                      + Yeni Form Oluştur
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid gap-6 p-5 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-                  <div className="space-y-3">
-                    <p className="text-xs font-black uppercase text-slate-500">Mevcut Formlar</p>
-                    <div className="space-y-2">
-                      {onlineForms.map(form => (
-                        <button
-                          type="button"
-                          key={form.id}
-                          onClick={() => setSelectedOnlineFormId(form.id)}
-                          className={`w-full rounded-xl border p-3 text-left transition-all ${selectedOnlineFormId === form.id ? 'border-[#0076b6] bg-sky-50 shadow-sm' : 'border-slate-200 bg-white hover:border-sky-200 hover:bg-slate-50'}`}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <span className="text-sm font-black leading-tight text-slate-800">{form.title}</span>
-                            {/* Kullanici istegi (2026-09-22): zamanlanmis
-                                yayin eklendigi icin bu nokta/etiket artik
-                                ham "active" DEGIL, isFormCurrentlyPublished
-                                (zamanlama dahil) GERCEK durumu gosterir. */}
-                            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${isFormCurrentlyPublished(form) ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                          </div>
-                          <div className="mt-2 flex items-center justify-between text-xs font-bold text-slate-400">
-                            <span>{form.fields.length} alan</span>
-                            <span>{isFormCurrentlyPublished(form) ? 'Yayında' : (form.active ? 'Zamanlanmış' : 'Pasif')}</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-5">
-                    {selectedOnlineForm ? (
-                      <>
-                        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                            <label className="flex flex-1 flex-col gap-1.5">
-                              <span className="text-xs font-black uppercase text-slate-500">Form Başlığı</span>
-                              {/* Kullanici istegi (2026-09-22): "form başlığının
-                                  Ayarlar > Sistem Ayarları > Hazır Değerler
-                                  içindeki dönem bilgisindeki dönemler listelensin
-                                  ve buradan hangisi seçilir ise o şekilde
-                                  başvuru almaya devam edelim" - eskiden serbest
-                                  metin girisiydi, artik "Dönem Bilgisi" hazir
-                                  deger listesinden secim yapiliyor (ayni liste
-                                  Yardım Kriterleri sekmesinde de kullanilan
-                                  yardimKriterleriDonemOptions). Formun MEVCUT
-                                  basligi listede birebir yoksa (ör. daha once
-                                  serbest yazilmis eski bir baslik) sessizce
-                                  KAYBOLMASIN diye secenek listesine EKLENIR. */}
-                              <select
-                                value={selectedOnlineForm.title}
-                                onChange={e => updateOnlineForm(selectedOnlineForm.id, 'title', e.target.value)}
-                                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-base font-black text-slate-900 outline-none focus:border-[#0076b6] focus:bg-white"
-                              >
-                                {!yardimKriterleriDonemOptions.some(option => option.name === selectedOnlineForm.title) && (
-                                  <option value={selectedOnlineForm.title}>{selectedOnlineForm.title}</option>
-                                )}
-                                {yardimKriterleriDonemOptions.map(option => (
-                                  <option key={option.id} value={option.name}>{option.name}</option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedOnlineForm.active}
-                                onChange={e => updateOnlineForm(selectedOnlineForm.id, 'active', e.target.checked)}
-                                className="h-4 w-4"
-                              />
-                              <span className="text-xs font-black uppercase text-slate-600">Form Yayında</span>
-                            </label>
-                          </div>
-                        </div>
-
-                        {/* Kullanici istegi (2026-09-22): "yayına çıkacağı
-                            tarihi ve saati ve yayından kalkacağı tarih ve
-                            saati belirleyelim, o tarih ve saat geldiğinde
-                            yayına girsin ve zamanı dolunca yayından çıksın,
-                            bunu her yardım türü için yapabilelim" -> devam:
-                            "zamanı ve tarihi ayarladım yayına girmedi" - bu
-                            alanlardan BIRINE deger girildiginde "Form
-                            Yayında" artik OTOMATIK aciliyor (bkz.
-                            updateOnlineFormSchedule) - kullanicinin AYRICA
-                            checkbox'i hatirlayip isaretlemesi gerekmiyor. */}
-                        <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 shadow-sm">
-                          <div className="mb-3">
-                            <p className="text-xs font-black uppercase text-indigo-700">Yayın Zamanlaması (opsiyonel)</p>
-                            <p className="mt-1 text-xs font-semibold text-indigo-900/70">Bir tarih/saat girdiğinizde "Form Yayında" otomatik açılır; belirtilen saatte yayına girer, bitiş saatinde otomatik yayından kalkar. Boş bırakılan alan sınır oluşturmaz.</p>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <label className="flex flex-col gap-1.5">
-                              <span className="text-xs font-black uppercase text-slate-500">Yayın Başlangıcı</span>
-                              <div className="flex gap-2">
-                                <input
-                                  type="datetime-local"
-                                  value={selectedOnlineForm.publishStartAt || ''}
-                                  onChange={e => updateOnlineFormSchedule(selectedOnlineForm.id, 'publishStartAt', e.target.value || null)}
-                                  className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-bold text-slate-900 outline-none focus:border-[#0076b6]"
-                                />
-                                {selectedOnlineForm.publishStartAt && (
-                                  <button
-                                    type="button"
-                                    onClick={() => updateOnlineForm(selectedOnlineForm.id, 'publishStartAt', null)}
-                                    className="rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-black text-slate-500 hover:bg-slate-50"
-                                    aria-label="Başlangıcı temizle"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </div>
-                            </label>
-                            <label className="flex flex-col gap-1.5">
-                              <span className="text-xs font-black uppercase text-slate-500">Yayın Bitişi</span>
-                              <div className="flex gap-2">
-                                <input
-                                  type="datetime-local"
-                                  value={selectedOnlineForm.publishEndAt || ''}
-                                  onChange={e => updateOnlineFormSchedule(selectedOnlineForm.id, 'publishEndAt', e.target.value || null)}
-                                  className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm font-bold text-slate-900 outline-none focus:border-[#0076b6]"
-                                />
-                                {selectedOnlineForm.publishEndAt && (
-                                  <button
-                                    type="button"
-                                    onClick={() => updateOnlineForm(selectedOnlineForm.id, 'publishEndAt', null)}
-                                    className="rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-black text-slate-500 hover:bg-slate-50"
-                                    aria-label="Bitişi temizle"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </div>
-                            </label>
-                          </div>
-                          {(() => {
-                            const status = getPublishScheduleStatus(selectedOnlineForm);
-                            const toneClass = {
-                              slate: 'border-slate-200 bg-slate-100 text-slate-600',
-                              amber: 'border-amber-200 bg-amber-100 text-amber-800',
-                              rose: 'border-rose-200 bg-rose-100 text-rose-700',
-                              emerald: 'border-emerald-200 bg-emerald-100 text-emerald-700',
-                            }[status.tone];
-                            return (
-                              <p className={`mt-3 rounded-lg border px-3 py-2 text-xs font-black ${toneClass}`}>
-                                Şu an: {status.label}
-                              </p>
-                            );
-                          })()}
-                        </div>
-
-                        <div className="rounded-2xl border border-sky-200 bg-white shadow-sm">
-                          <div className="rounded-t-2xl border-b border-sky-100 bg-gradient-to-r from-sky-500 to-[#0076b6] px-4 py-3">
-                            <p className="text-xs font-black uppercase tracking-wide text-white/80">Vatandaşın İlk Göreceği Ekran</p>
-                            <h4 className="text-base font-black text-white">Popup Bilgileri</h4>
-                            <p className="mt-0.5 text-xs font-semibold text-white/85">Başvuru sayfası ilk açıldığında vatandaşın göreceği bilgilendirme ekranını buradan düzenleyin.</p>
-                          </div>
-                          {/* Kullanici istegi (2026-09-22, 4. tur): "logo ve
-                              görsel bilgisi alanın sol başında, diğer
-                              açıklama bilgileri ise logonun sağında ve daha
-                              geniş olsun" - eskiden gorsel EN ALTTA, TAM
-                              GENISLIK bir satirda; baslik/aciklama ise
-                              onun USTUNDE ayri ayri tam genislik
-                              satirlardaydi. Artik gorsel SOL sabit
-                              sutunda, baslik+aciklama SAGDA (kalan/daha
-                              genis alanda) yan yana. */}
-                          <div className="grid gap-5 p-4 md:grid-cols-[200px_minmax(0,1fr)] md:items-start">
-                            <div className="space-y-3">
-                              <div className="mx-auto flex h-36 w-36 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm md:mx-0 md:h-44 md:w-full">
-                                <img
-                                  src={selectedOnlineIntro.imageUrl || generalSettings.logoDataUrl || '/sivas-belediyesi-logo.png'}
-                                  alt="Popup görseli"
-                                  className="h-full w-full object-contain"
-                                />
-                              </div>
-                              <label className="flex flex-col gap-1.5">
-                                <span className="text-xs font-black uppercase text-slate-500">Popup Görseli URL</span>
-                                <input
-                                  type="text"
-                                  value={selectedOnlineIntro.imageUrl}
-                                  onChange={e => updateOnlineFormIntro(selectedOnlineForm.id, 'imageUrl', e.target.value)}
-                                  placeholder="Boş bırakılırsa kurum logosu kullanılır"
-                                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs font-bold text-slate-900 outline-none focus:border-[#0076b6] focus:bg-white"
-                                />
-                              </label>
-                              <div className="flex flex-col gap-2">
-                                <label className="cursor-pointer rounded-lg bg-[#0076b6] px-3 py-2 text-center text-xs font-black text-white hover:bg-[#005c8f]">
-                                  Resim Yükle
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={e => handleOnlineIntroImageUpload(selectedOnlineForm.id, e.target.files?.[0])}
-                                    className="hidden"
-                                  />
-                                </label>
-                                <button
-                                  type="button"
-                                  onClick={() => updateOnlineFormIntro(selectedOnlineForm.id, 'imageUrl', '')}
-                                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:bg-slate-50"
-                                >
-                                  Görseli Temizle
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="grid gap-4">
-                              <label className="flex flex-col gap-1.5">
-                                <span className="text-xs font-black uppercase text-slate-500">Popup Başlığı</span>
-                                <input
-                                  type="text"
-                                  value={selectedOnlineIntro.title}
-                                  onChange={e => updateOnlineFormIntro(selectedOnlineForm.id, 'title', e.target.value)}
-                                  placeholder={selectedOnlineForm.title}
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-base font-black text-slate-900 outline-none focus:border-[#0076b6]"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1.5">
-                                <span className="text-xs font-black uppercase text-slate-500">Popup Açıklaması</span>
-                                <textarea
-                                  rows={10}
-                                  value={selectedOnlineIntro.description}
-                                  onChange={e => updateOnlineFormIntro(selectedOnlineForm.id, 'description', e.target.value)}
-                                  placeholder="Başvuruya devam etmeden önce vatandaşın okumasını istediğiniz bilgilendirme metnini yazın."
-                                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold leading-relaxed text-slate-900 outline-none focus:border-[#0076b6]"
-                                />
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-                          <div className="mb-3">
-                            <p className="text-xs font-black uppercase text-amber-700">Başvuru Kriterleri</p>
-                            <p className="mt-1 text-xs font-semibold text-amber-800/80">Sadece işaretli kriterler başvuru sırasında uygulanır.</p>
-                          </div>
-                          <div className="grid gap-3">
-                            {selectedOnlineCriteriaRows.map(option => {
-                              const selectedTypes = selectedOnlineCriteriaRows.map(row => row.type);
-                              const selectableOptions = ONLINE_CRITERION_OPTIONS.filter(candidate => candidate.type === option.type || !selectedTypes.includes(candidate.type));
-                              return (
-                                <div key={option.type} className="grid gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_32px] sm:items-center">
-                                  <select
-                                    value={option.type}
-                                    onChange={e => changeOnlineFormCriterion(selectedOnlineForm.id, option.type, e.target.value as OnlineCriterionType)}
-                                    className="min-w-0 rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-bold text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-                                  >
-                                    {selectableOptions.map(candidate => (
-                                      <option key={candidate.type} value={candidate.type}>{candidate.label}</option>
-                                    ))}
-                                  </select>
-                                  {option.valueField ? (
-                                    <input
-                                      type="number"
-                                      min={option.min || 1}
-                                      value={Number(selectedOnlineCriteria[option.valueField]) || option.defaultValue || 1}
-                                      onChange={e => updateOnlineFormCriteria(
-                                        selectedOnlineForm.id,
-                                        option.valueField!,
-                                        Math.max(option.min || 1, Number(e.target.value) || option.defaultValue || 1) as OnlineApplicationCriteria[typeof option.valueField],
-                                      )}
-                                      className={`${option.widthClassName || 'w-24'} rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-black text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white`}
-                                      aria-label={option.ariaLabel || option.label}
-                                    />
-                                  ) : (
-                                    <span className="hidden sm:block" />
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => removeOnlineFormCriterion(selectedOnlineForm.id, option.type)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-black text-rose-500 hover:bg-rose-50"
-                                    aria-label="Kriteri kaldir"
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              );
-                            })}
-                            {selectedOnlineManualCriteria.map((criterion, index) => (
-                              <div key={`manual-info-${index}`} className="grid gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_32px] sm:items-center">
-                                <input
-                                  type="text"
-                                  value={criterion}
-                                  onChange={e => updateOnlineManualCriterion(selectedOnlineForm.id, index, e.target.value)}
-                                  placeholder="Bilgilendirme kriteri yazin. Orn: Sahsin vergi mukellefi olmamasi gerekir."
-                                  className="min-w-0 rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-bold text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => removeOnlineManualCriterion(selectedOnlineForm.id, index)}
-                                  className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-black text-rose-500 hover:bg-rose-50"
-                                  aria-label="Bilgilendirme kriterini kaldir"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => addOnlineFormCriterion(selectedOnlineForm.id)}
-                              disabled={selectedOnlineCriteriaRows.length >= ONLINE_CRITERION_OPTIONS.length}
-                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-amber-300 bg-white text-lg font-black text-amber-700 hover:bg-amber-100 disabled:pointer-events-none disabled:opacity-50"
-                              aria-label="Kriter ekle"
-                            >
-                              +
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => addOnlineManualCriterion(selectedOnlineForm.id)}
-                              className="w-fit rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-100"
-                            >
-                              + Bilgilendirme kriteri
-                            </button>
-                          </div>
-                          <div className="hidden">
-                            <label className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-                              <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedOnlineCriteria.minAgeEnabled}
-                                  onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'minAgeEnabled', e.target.checked)}
-                                  className="h-4 w-4"
-                                />
-                                Belirlenen yaşın altındakiler başvuramasın
-                              </span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={selectedOnlineCriteria.minAge}
-                                onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'minAge', Math.max(1, Number(e.target.value) || 18))}
-                                className="w-24 rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-black text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-                                aria-label="Minimum yaş"
-                              />
-                            </label>
-                            <label className="hidden">
-                              <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedOnlineCriteria.maxIncomeEnabled}
-                                  onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'maxIncomeEnabled', e.target.checked)}
-                                  className="h-4 w-4"
-                                />
-                                Geliri ust siniri asanlari otomatik uygun degil yap
-                              </span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={selectedOnlineCriteria.maxIncome}
-                                onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'maxIncome', Math.max(1, Number(e.target.value) || 10000))}
-                                className="w-28 rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-black text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-                                aria-label="Gelir ust siniri"
-                              />
-                            </label>
-                            <label className="hidden">
-                              <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedOnlineCriteria.maxVehicleModelYearEnabled}
-                                  onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'maxVehicleModelYearEnabled', e.target.checked)}
-                                  className="h-4 w-4"
-                                />
-                                Arac modeli ust siniri asanlari otomatik uygun degil yap
-                              </span>
-                              <input
-                                type="number"
-                                min={1900}
-                                value={selectedOnlineCriteria.maxVehicleModelYear}
-                                onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'maxVehicleModelYear', Math.max(1900, Number(e.target.value) || 2005))}
-                                className="w-24 rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-black text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-                                aria-label="Arac model ust siniri"
-                              />
-                            </label>
-                            <label className="hidden">
-                              <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedOnlineCriteria.maxAgeEnabled}
-                                  onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'maxAgeEnabled', e.target.checked)}
-                                  className="h-4 w-4"
-                                />
-                                Yas ust siniri asanlari otomatik uygun degil yap
-                              </span>
-                              <input
-                                type="number"
-                                min={1}
-                                value={selectedOnlineCriteria.maxAge}
-                                onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'maxAge', Math.max(1, Number(e.target.value) || 65))}
-                                className="w-24 rounded border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm font-black text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-                                aria-label="Yas ust siniri"
-                              />
-                            </label>
-                            <label className="flex items-center gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700">
-                              <input
-                                type="checkbox"
-                                checked={selectedOnlineCriteria.uniqueAddressNoEnabled}
-                                onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'uniqueAddressNoEnabled', e.target.checked)}
-                                className="h-4 w-4"
-                              />
-                              Aynı adres no ile aynı forma ikinci başvuruyu engelle
-                            </label>
-                            <label className="hidden">
-                              <input
-                                type="checkbox"
-                                checked={selectedOnlineCriteria.uniqueIdentityEnabled}
-                                onChange={e => updateOnlineFormCriteria(selectedOnlineForm.id, 'uniqueIdentityEnabled', e.target.checked)}
-                                className="h-4 w-4"
-                              />
-                              Aynı TC kimlik no ile aynı forma ikinci başvuruyu engelle
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                          <div className="mb-3 flex items-center justify-between gap-3">
-                            <p className="text-xs font-black uppercase text-slate-500">Form Alanları</p>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-500">{selectedOnlineForm.fields.length} alan</span>
-                          </div>
-                          <div className="space-y-3">
-                            {selectedOnlineForm.fields.map(field => (
-                              <div key={field.id} className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_150px_96px_32px] md:items-center">
-                                <input
-                                  type="text"
-                                  value={field.label}
-                                  disabled={field.isFixed}
-                                  onChange={e => updateFieldInForm(selectedOnlineForm.id, field.id, 'label', e.target.value)}
-                                  className="rounded border border-slate-300 bg-white px-2.5 py-2 text-sm font-bold outline-none disabled:bg-slate-100 disabled:text-slate-500"
-                                />
-                                <select
-                                  value={field.type}
-                                  disabled={field.isFixed}
-                                  onChange={e => updateFieldInForm(selectedOnlineForm.id, field.id, 'type', e.target.value as OnlineFormField['type'])}
-                                  className="rounded border border-slate-300 bg-white px-2.5 py-2 text-sm font-bold outline-none disabled:bg-slate-100"
-                                >
-                                  <option value="text">Kısa Metin</option>
-                                  <option value="number">Sayı</option>
-                                  <option value="select">Seçenekli</option>
-                                  <option value="textarea">Uzun Metin</option>
-                                  <option value="file">Dosya Yükleme</option>
-                                </select>
-                                <label className="flex items-center gap-2 text-xs font-black uppercase text-slate-500">
-                                  <input
-                                    type="checkbox"
-                                    checked={field.required}
-                                    onChange={e => updateFieldInForm(selectedOnlineForm.id, field.id, 'required', e.target.checked)}
-                                  />
-                                  Zorunlu
-                                </label>
-                                {!field.isFixed ? (
-                                  <button
-                                    onClick={() => removeFieldFromForm(selectedOnlineForm.id, field.id)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md text-rose-500 hover:bg-rose-50"
-                                    title="Alanı sil"
-                                  >
-                                    ×
-                                  </button>
-                                ) : (
-                                  <span className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-[10px] font-black text-slate-400">S</span>
-                                )}
-                                {field.type === 'select' && (
-                                  <label className="flex flex-col gap-1 md:col-span-4">
-                                    <span className="text-xs font-black uppercase text-slate-500">Seçenekler</span>
-                                    <textarea
-                                      rows={2}
-                                      value={(field.options ?? []).join('\n')}
-                                      onChange={e => updateFieldOptions(selectedOnlineForm.id, field.id, e.target.value)}
-                                      placeholder="Her satıra bir seçenek yazın. Örn: Var / Yok"
-                                      className="rounded border border-slate-300 bg-white px-2.5 py-2 text-sm font-bold outline-none focus:border-[#0076b6]"
-                                    />
-                                  </label>
-                                )}
-                                {!field.isFixed && (
-                                  <div className="grid gap-2 rounded-lg border border-dashed border-slate-300 bg-white p-3 md:col-span-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                                    <label className="flex flex-col gap-1">
-                                      <span className="text-xs font-black uppercase text-slate-500">Bu alan ne zaman görünsün?</span>
-                                      <select
-                                        value={field.showWhen?.fieldId || ''}
-                                        onChange={e => updateFieldCondition(selectedOnlineForm.id, field.id, 'fieldId', e.target.value)}
-                                        className="rounded border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm font-bold outline-none focus:border-[#0076b6] focus:bg-white"
-                                      >
-                                        <option value="">Her zaman görünsün</option>
-                                        {selectedOnlineForm.fields
-                                          .filter(candidate => candidate.id !== field.id && candidate.type === 'select')
-                                          .map(candidate => (
-                                            <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
-                                          ))}
-                                      </select>
-                                    </label>
-                                    <label className="flex flex-col gap-1">
-                                      <span className="text-xs font-black uppercase text-slate-500">Seçilen değer</span>
-                                      {selectedOnlineForm.fields.find(candidate => candidate.id === field.showWhen?.fieldId)?.options?.length ? (
-                                        <select
-                                          value={field.showWhen?.value || ''}
-                                          onChange={e => updateFieldCondition(selectedOnlineForm.id, field.id, 'value', e.target.value)}
-                                          disabled={!field.showWhen?.fieldId}
-                                          className="rounded border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm font-bold outline-none disabled:opacity-50 focus:border-[#0076b6] focus:bg-white"
-                                        >
-                                          <option value="">Değer seçin</option>
-                                          {(selectedOnlineForm.fields.find(candidate => candidate.id === field.showWhen?.fieldId)?.options ?? []).map(option => (
-                                            <option key={option} value={option}>{option}</option>
-                                          ))}
-                                        </select>
-                                      ) : (
-                                        <input
-                                          type="text"
-                                          value={field.showWhen?.value || ''}
-                                          onChange={e => updateFieldCondition(selectedOnlineForm.id, field.id, 'value', e.target.value)}
-                                          disabled={!field.showWhen?.fieldId}
-                                          placeholder="Örn: Var"
-                                          className="rounded border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm font-bold outline-none disabled:opacity-50 focus:border-[#0076b6] focus:bg-white"
-                                        />
-                                      )}
-                                    </label>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="mt-4 grid gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_150px_auto]">
-                            <input
-                              type="text"
-                              placeholder="Yeni alan adı..."
-                              value={newFieldName}
-                              onChange={e => setNewFieldName(e.target.value)}
-                              className="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-[#0076b6]"
-                            />
-                            <select
-                              value={newFieldType}
-                              onChange={e => setNewFieldType(e.target.value as OnlineFormField['type'])}
-                              className="rounded border border-slate-300 bg-white px-2.5 py-2 text-sm font-bold outline-none"
-                            >
-                              <option value="text">Kısa Metin</option>
-                              <option value="number">Sayı</option>
-                              <option value="select">Seçenekli</option>
-                              <option value="textarea">Uzun Metin</option>
-                              <option value="file">Dosya Yükleme</option>
-                            </select>
-                            <button
-                              onClick={() => addFieldToForm(selectedOnlineForm.id)}
-                              className="rounded bg-[#0076b6] px-4 py-2 text-xs font-black text-white hover:bg-[#005c8f]"
-                            >
-                              Alan Ekle
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50 px-4 py-3">
-                          <span className="text-xs font-bold text-rose-700">Bu formu ve alanlarını tamamen kaldırır.</span>
-                          <button
-                            onClick={() => removeOnlineForm(selectedOnlineForm.id)}
-                            className="rounded border border-rose-200 bg-white px-3 py-1.5 text-xs font-black text-rose-600 hover:bg-rose-100"
-                          >
-                            Formu Sil
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-20 text-center text-sm font-bold text-slate-400">
-                        Lütfen düzenlemek için bir form seçin.
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-[#0076b6]/20 bg-[#f2fbff] p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase text-[#0076b6]">Yayın ve Yönlendirme</p>
-                      <h3 className="mt-1 text-lg font-black text-slate-900">Başvuru Linki</h3>
-                      <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
-                        Bu bağlantıyı web sitesindeki butonlara, QR kodlara veya duyuru metinlerine ekleyebilirsiniz.
-                      </p>
-                      <div className="mt-3 rounded-lg border border-sky-200 bg-white p-2">
-                        <input
-                          readOnly
-                          value={selectedOnlineFormUrl}
-                          className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
-                        />
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void copyOnlineFormUrl()}
-                          disabled={!selectedOnlineForm}
-                          className="rounded-lg bg-[#0076b6] px-3 py-2 text-xs font-black text-white hover:bg-[#005c8f] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Linki Kopyala
-                        </button>
-                        <a
-                          href={selectedOnlineFormUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={`rounded-lg border border-[#0076b6] bg-white px-3 py-2 text-center text-xs font-black text-[#0076b6] hover:bg-sky-50 ${!selectedOnlineForm ? 'pointer-events-none opacity-50' : ''}`}
-                        >
-                          Yeni Sekmede Aç
-                        </a>
-                      </div>
-                      {onlineFormStatus && (
-                        <div className="mt-3 rounded border border-sky-200 bg-white px-3 py-2 text-xs font-bold text-[#005f95]">
-                          {onlineFormStatus}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="rounded-xl border border-[#6fb744]/25 bg-[#f5fbf0] p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase text-[#4c8f2b]">Tüm Formlar</p>
-                      <h3 className="mt-1 text-lg font-black text-slate-900">Başvuru Ana Sayfası</h3>
-                      <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
-                        Bu sabit bağlantı, o an aktif olan TÜM online başvuru türlerini listeler; vatandaş buradan hangisine
-                        başvuracağını seçer. Tek bir başvuru türü aktifse doğrudan o forma yönlendirir. Genel duyurularda
-                        (afiş, SMS, web sitesi ana menüsü) bu linki kullanın.
-                      </p>
-                      <div className="mt-3 rounded-lg border border-emerald-200 bg-white p-2">
-                        <input
-                          readOnly
-                          value={onlineFormsHubUrl}
-                          className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none"
-                        />
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void copyOnlineFormsHubUrl()}
-                          className="rounded-lg bg-[#6fb744] px-3 py-2 text-xs font-black text-white hover:bg-[#5aa333]"
-                        >
-                          Linki Kopyala
-                        </button>
-                        <a
-                          href={onlineFormsHubUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-lg border border-[#6fb744] bg-white px-3 py-2 text-center text-xs font-black text-[#4c8f2b] hover:bg-emerald-50"
-                        >
-                          Yeni Sekmede Aç
-                        </a>
-                      </div>
-                    </div>
-
-                    <div
-                      role="button"
-                      tabIndex={selectedOnlineForm ? 0 : -1}
-                      onClick={() => selectedOnlineForm && window.open(selectedOnlineFormUrl, '_blank', 'noopener,noreferrer')}
-                      onKeyDown={event => {
-                        if (!selectedOnlineForm) return;
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          window.open(selectedOnlineFormUrl, '_blank', 'noopener,noreferrer');
-                        }
-                      }}
-                      title="İnternet sayfasını yeni sekmede aç"
-                      className={`group block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-[#0076b6]/40 hover:shadow-lg ${!selectedOnlineForm ? 'pointer-events-none opacity-60' : 'cursor-pointer'}`}
-                    >
-                      <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs font-black uppercase text-slate-500">Canlı Sayfa Önizlemesi</p>
-                          <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-black uppercase text-[#0076b6] group-hover:bg-[#0076b6] group-hover:text-white">
-                            Yeni sekmede aç
-                          </span>
-                        </div>
-                      </div>
-                      <div className="bg-slate-100 p-3">
-                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                          <div className="bg-[#003f82] px-4 py-5 text-white">
-                            <div className="flex items-center gap-3">
-                              <img src={generalSettings.logoDataUrl || '/sivas-belediyesi-logo.png'} alt={generalSettings.institutionName || 'Kurum logosu'} className="h-11 w-11 object-contain" />
-                              <div>
-                                <p className="text-[10px] font-black uppercase text-white/70">{generalSettings.institutionName || 'Sivas Belediyesi'}</p>
-                                <h4 className="text-sm font-black leading-tight">{generalSettings.departmentName || 'Sosyal Hizmetler Müdürlüğü'}</h4>
-                              </div>
-                            </div>
-                            {generalContactItems.length > 0 && (
-                              <div className="mt-3 grid gap-1.5 rounded-lg border border-white/10 bg-white/10 px-2 py-2">
-                                {generalContactItems.slice(0, 3).map((item, index) => (
-                                  <div key={`${item.label}-${index}`} className="min-w-0">
-                                    <span className="block text-[8px] font-black uppercase tracking-wide text-white/50">{item.label}</span>
-                                    {item.href ? (
-                                      <button
-                                        type="button"
-                                        onClick={event => {
-                                          event.stopPropagation();
-                                          window.open(item.href, '_blank', 'noopener,noreferrer');
-                                        }}
-                                        className="block max-w-full truncate text-left text-[10px] font-black text-white underline-offset-2 hover:underline"
-                                      >
-                                        {item.value}
-                                      </button>
-                                    ) : (
-                                      <p className="truncate text-[10px] font-semibold text-white/85">{item.value}</p>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-3 p-4">
-                            <h4 className="text-lg font-black leading-tight text-slate-900">{selectedOnlineForm?.title || 'Başvuru Formu'}</h4>
-                            <div className="grid grid-cols-2 gap-2 rounded-lg border border-sky-100 bg-sky-50 p-2">
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-500">T.C. Kimlik No *</label>
-                                <div className="h-9 rounded-lg border border-slate-200 bg-white" />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-500">Doğum Tarihi *</label>
-                                <div className="h-9 rounded-lg border border-slate-200 bg-white" />
-                              </div>
-                            </div>
-                            {(selectedOnlineForm?.fields ?? []).filter(field => {
-                              const label = field.label.toLocaleLowerCase('tr-TR')
-                              return !label.includes('tc') && !label.includes('kimlik') && !label.includes('doğum')
-                            }).slice(0, 4).map(field => (
-                              <div key={field.id} className="space-y-1">
-                                <label className="text-[10px] font-black uppercase text-slate-500">{field.label} {field.required && <span className="text-rose-500">*</span>}</label>
-                                <div className="h-9 rounded-lg border border-slate-200 bg-slate-50" />
-                              </div>
-                            ))}
-                            <div className="rounded-lg bg-[#6fb744] py-2 text-center text-xs font-black text-white">Başvuruyu Gönder</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <OnlineFormsTab
+              forms={onlineForms}
+              setForms={setOnlineForms}
+              selectedFormId={selectedOnlineFormId}
+              setSelectedFormId={setSelectedOnlineFormId}
+              donemOptions={yardimKriterleriDonemOptions}
+              publicBaseUrl={publicBaseUrl}
+              branding={{
+                logoUrl: generalSettings.logoDataUrl || '/sivas-belediyesi-logo.png',
+                institutionName: generalSettings.institutionName || 'Sivas Belediyesi',
+                departmentName: generalSettings.departmentName || 'Sosyal Hizmetler Müdürlüğü',
+              }}
+              isDirty={isOnlineFormsDirty}
+              isSaving={isSavingOnlineForms}
+              status={onlineFormStatus}
+              setStatus={setOnlineFormStatus}
+              onSave={() => void saveOnlineForms()}
+              onOpenPreview={() => setIsPreviewOpen(true)}
+            />
           )}
 
           {activeTab === 'userPermissions' && (
@@ -6474,8 +5438,8 @@ function SystemSettingsPageInner() {
                               })}
                               className="rounded-md border border-slate-300 px-3 py-2 text-xl outline-none focus:border-[#1E2A38]"
                             >
-                              <option value="daily">Gunluk</option>
-                              <option value="weekly">Haftalik</option>
+                              <option value="daily">Günlük</option>
+                              <option value="weekly">Haftalık</option>
                             </select>
                           </label>
                           <label className="flex flex-col gap-1.5">
@@ -6563,7 +5527,7 @@ function SystemSettingsPageInner() {
                   </div>
 
                   <div className="overflow-x-auto overflow-hidden rounded-lg border border-slate-300">
-                    <table className="w-full min-w-[900px] text-left text-xl">
+                    <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] text-left text-xl">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
                           <th className="px-3 py-2.5 font-black uppercase">Dosya</th>
@@ -6697,7 +5661,7 @@ function SystemSettingsPageInner() {
                   <div>
                     <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Personel Analiz Merkezi</p>
                     <h2 className="mt-1 text-3xl font-black text-slate-900">Personel Performans</h2>
-                    <p className="mt-1.5 text-xl font-semibold text-slate-500">Gunluk, haftalik ve aylik islem yogunlugu tek ekranda izlenir.</p>
+                    <p className="mt-1.5 text-xl font-semibold text-slate-500">Günlük, haftalık ve aylık işlem yoğunluğu tek ekranda izlenir.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -6782,7 +5746,7 @@ function SystemSettingsPageInner() {
                   ) : (
                     <>
                       <div className="overflow-x-auto overflow-hidden rounded-lg border border-slate-300">
-                        <table className="w-full min-w-[700px] text-left text-xl">
+                        <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] text-left text-xl">
                           <thead className="bg-slate-50 text-lg font-black uppercase text-slate-500">
                             <tr>
                               <th className="px-4 py-3">Kullanıcı</th>
@@ -6800,7 +5764,7 @@ function SystemSettingsPageInner() {
                                   <a
                                     href={`/settings/personnel-performance-report?user=${encodeURIComponent(user.userName)}&period=daily`}
                                     className="inline-flex min-w-16 justify-center rounded-full bg-emerald-50 px-3 py-1.5 font-black text-emerald-700 hover:bg-emerald-100 hover:text-emerald-900"
-                                    title="Gunluk islem raporunu ac"
+                                    title="Günlük işlem raporunu aç"
                                   >
                                     {user.daily.toLocaleString('tr-TR')}
                                   </a>
@@ -6867,7 +5831,7 @@ function SystemSettingsPageInner() {
                         <span className="text-lg font-black uppercase text-slate-500">{personnelPerformance.recent.length} kayıt</span>
                       </div>
                       <div className="max-h-[360px] overflow-y-auto overflow-x-auto">
-                        <table className="w-full min-w-[700px] text-left text-lg">
+                        <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] text-left text-lg">
                           <thead className="sticky top-0 bg-white font-black uppercase text-slate-500 shadow-sm">
                             <tr>
                               <th className="px-4 py-3">Tarih</th>

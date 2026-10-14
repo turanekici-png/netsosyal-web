@@ -496,7 +496,7 @@ export default function ApprovalQueuePage() {
   return (
     <div className="space-y-5 text-slate-950">
       <div className="rounded-lg border border-slate-300 shadow-sm ring-1 ring-slate-200 overflow-hidden">
-        <div className="flex flex-col gap-4 bg-[#1E2A38] px-6 py-5 text-white md:flex-row md:items-center md:justify-between">
+        <div className="ns-sayfa-baslik flex flex-col gap-4 bg-[#1E2A38] px-6 py-5 text-white md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/30">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-6 w-6">
@@ -688,7 +688,7 @@ export default function ApprovalQueuePage() {
               </div>
 
               <div className="hidden max-h-[640px] overflow-auto md:block">
-                <table className="w-full min-w-[1000px] border-collapse text-left text-lg">
+                <table className="ns-tablo ns-tablo-buyuk w-full min-w-[1000px] border-collapse text-left text-lg">
                   <thead className="sticky top-0 bg-[#1E2A38] text-base font-black uppercase text-white shadow-sm">
                     <tr>
                       {SORTABLE_COLUMNS.map((column) => (

@@ -763,7 +763,7 @@ export default function SqlMonitorPage() {
 
   return (
     <div className="space-y-5 text-slate-950">
-      <div className="relative overflow-hidden rounded-lg border border-[#2A3B4D] bg-[#1E2A38] p-6 text-white shadow-sm">
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-[#2A3B4D] bg-[#1E2A38] p-6 text-white shadow-sm">
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -953,7 +953,7 @@ export default function SqlMonitorPage() {
                 // aksi halde cok sutunlu bir sorgu sonucu yatayda kullanilamaz
                 // hale gelirdi.
                 <div className="max-h-72 overflow-auto">
-                  <table className="w-full min-w-[720px] border-collapse text-left text-[14px] font-semibold">
+                  <table className="ns-tablo w-full min-w-[720px] border-collapse text-left text-[14px] font-semibold">
                     <thead className="sticky top-0 bg-[#eaf7fd] text-[#005f95] shadow-sm">
                       <tr>
                         {sqlResultColumns.map((column) => (
@@ -1159,7 +1159,7 @@ export default function SqlMonitorPage() {
               bir artis yapildi (13/14px -> 15/16px) - tam 20px, cok sutunlu
               tablolarda (ör. dosyalar) yatay kullanilabilirligi bozardi. */}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] border-collapse text-left text-[16px] font-semibold">
+            <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] border-collapse text-left text-[16px] font-semibold">
               <thead className="bg-[#eaf7fd] text-[15px] font-extrabold uppercase text-[#005f95]">
                 <tr>
                   {columns.length > 0 ? (

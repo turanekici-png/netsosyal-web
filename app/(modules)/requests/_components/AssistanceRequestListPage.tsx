@@ -8,7 +8,8 @@ import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
 import { buildFilterCondition, buildTextSearchClause } from '@/lib/utils'
 import { buildMultiColumnOrderBy, parseSortParam } from '@/lib/sortSpec'
 import { AssistanceModeTabs } from '../../assistance/_components/AssistanceModeTabs'
-import { ASSISTANCE_MODE_TABS_CONFIG, getAssistanceModeTabsBasePath } from '../../assistance/_components/assistanceModeTabsConfig'
+import { ASSISTANCE_MODE_TABS_CONFIG, getAssistanceKicker, getAssistanceModeTabsBasePath } from '../../assistance/_components/assistanceModeTabsConfig'
+import { AssistanceStatStrip, type AssistanceStatItem } from '../../assistance/_components/AssistanceStatStrip'
 import { NakitApplicationsSyncButton } from '../../assistance/nakit/_components/NakitApplicationsSyncButton'
 import { NakitAutoRejectButton } from '../../assistance/nakit/_components/NakitAutoRejectButton'
 import { NakitPhoneSyncButton } from '../../assistance/nakit/_components/NakitPhoneSyncButton'
@@ -138,18 +139,26 @@ function applyPredefinedCashLabelOptions(
   currentOptions: Record<string, ColumnValueOption[]>,
   predefinedOptions: ColumnValueOption[],
 ) {
+  // bkz. assistance/_components/AssistanceListPage.tsx'teki AYNI notu
+  // (2026-10-13) - gercek veri degerleri artik Hazir Degerler listesiyle
+  // DEGISTIRILMIYOR, BIRLESTIRILIYOR.
+  const dataOptions = currentOptions.etiket ?? []
   if (predefinedOptions.length === 0) return currentOptions
 
-  const existingCounts = new Map(
-    (currentOptions.etiket ?? []).map((option) => [option.label || option.value, option.count])
-  )
+  const birlesik = new Map<string, ColumnValueOption>()
+  for (const option of dataOptions) {
+    birlesik.set(option.label || option.value, option)
+  }
+  for (const option of predefinedOptions) {
+    const anahtar = option.label || option.value
+    if (!birlesik.has(anahtar)) birlesik.set(anahtar, option)
+  }
 
   return {
     ...currentOptions,
-    etiket: predefinedOptions.map((option) => ({
-      ...option,
-      count: existingCounts.get(option.label) ?? existingCounts.get(option.value) ?? 0,
-    })),
+    etiket: Array.from(birlesik.values()).sort(
+      (a, b) => b.count - a.count || a.label.localeCompare(b.label, 'tr')
+    ),
   }
 }
 
@@ -267,6 +276,7 @@ export async function AssistanceRequestListPage({
   // Kullanici istegi: "yardım kişi sayısı, miktar gibi bazı alanların
   // toplamlarını altta gösterelim" - bkz. AdvancedTable.tsx <tfoot>.
   const columnTotals: Record<string, number> = {}
+  let statHasCardColumn = false
   let errorMessage: string | null = null
 
   let statusMap: Record<string, string> = {}
@@ -280,6 +290,7 @@ export async function AssistanceRequestListPage({
     statusMap = loadedStatusMap
     const columnNames = new Set(tableColumns.map((column) => column.column_name))
     const hasCardColumn = columnNames.has('kartno')
+    statHasCardColumn = hasCardColumn
 
     const filterCondition = buildFilterCondition(params, 't')
     // Türkçe-duyarsız serbest metin araması (büyük/küçük harf + aksan yok sayılır)
@@ -521,28 +532,41 @@ export async function AssistanceRequestListPage({
 
   const nakitSummaryRows: Array<{ donem: string; asama: string; durumu: string; total: number }> = []
 
+  // Kurumsal ozet seridi (2026-10-14) - degerler mevcut countQuery'den.
+  const statItems: AssistanceStatItem[] = [
+    { label: 'Bekleyen Müracaat', value: waitingCount },
+    { label: 'Farklı Dosya', value: distinctFileCount },
+    ...(columnTotals.miktar !== undefined ? [{ label: 'Toplam Miktar', value: columnTotals.miktar, format: 'decimal' as const }] : []),
+    ...(columnTotals.yardimkisisayisi !== undefined ? [{ label: 'Yardım Kişi Sayısı', value: columnTotals.yardimkisisayisi }] : []),
+    ...(statHasCardColumn ? [{ label: 'Kart No Eksik', value: missingCardCount, tone: 'warn' as const }] : []),
+  ]
+
   return (
     <div className="space-y-6">
       {errorMessage && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-600">
-          Veritabanı Hatası: {errorMessage}
-          <p className="mt-2 text-[11px] font-medium text-rose-500">
-            Not: <span>{config.tableName}</span> tablosu veya <span>durumu</span> sütunu veritabanında mevcut olmayabilir.
-          </p>
+        <div role="alert" className="flex gap-3 rounded-xl border border-rose-200 border-l-4 border-l-rose-600 bg-white p-4 shadow-sm">
+          <span aria-hidden className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-ns-body font-black text-rose-700">!</span>
+          <div className="min-w-0">
+            <p className="text-ns-body font-bold text-slate-900">Liste yüklenirken bir sorun oluştu.</p>
+            <p className="mt-1 break-words text-ns-help font-medium text-slate-600">{errorMessage}</p>
+            <p className="mt-1 text-ns-help font-medium text-slate-500">
+              Sayfayı yenileyin; sorun sürerse sistem yöneticisine bildirin (tablo: {config.tableName}).
+            </p>
+          </div>
         </div>
       )}
 
       {false && (config.tableName === 'yrd_ayninakti' ? (
         <div className="grid gap-3 md:grid-cols-5 print:hidden">
           <div className="rounded-xl border border-sky-100 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-wide text-sky-700">Toplam Müracaat</p>
+            <p className="text-ns-help font-black uppercase tracking-wide text-sky-700">Toplam Müracaat</p>
             <p className="mt-2 text-2xl font-black text-slate-950">{totalCount}</p>
           </div>
           <div className="rounded-xl border border-indigo-100 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-wide text-indigo-700">Dönem ve Sayıları</p>
+            <p className="text-ns-help font-black uppercase tracking-wide text-indigo-700">Dönem ve Sayıları</p>
             <div className="mt-2 max-h-28 space-y-1 overflow-y-auto pr-1">
               {nakitPeriodSummaryRows.map((row) => (
-                <div key={`total-${row.donem}`} className="flex items-center justify-between gap-2 text-[15px] font-black text-slate-700">
+                <div key={`total-${row.donem}`} className="flex items-center justify-between gap-2 text-ns-section-title font-black text-slate-700">
                   <span className="min-w-0 truncate">{row.donem}</span>
                   <span className="shrink-0 text-slate-950">{row.total}</span>
                 </div>
@@ -550,10 +574,10 @@ export async function AssistanceRequestListPage({
             </div>
           </div>
           <div className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-700">Dönem / İncelenecek</p>
+            <p className="text-ns-help font-black uppercase tracking-wide text-emerald-700">Dönem / İncelenecek</p>
             <div className="mt-2 max-h-28 space-y-1 overflow-y-auto pr-1">
               {nakitPeriodSummaryRows.map((row) => (
-                <div key={`incelenecek-${row.donem}`} className="flex items-center justify-between gap-2 text-[15px] font-black text-slate-700">
+                <div key={`incelenecek-${row.donem}`} className="flex items-center justify-between gap-2 text-ns-section-title font-black text-slate-700">
                   <span className="min-w-0 truncate">{row.donem}</span>
                   <span className="shrink-0 text-slate-950">{row.incelenecek}</span>
                 </div>
@@ -561,10 +585,10 @@ export async function AssistanceRequestListPage({
             </div>
           </div>
           <div className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-wide text-blue-700">Dönem / Uygun</p>
+            <p className="text-ns-help font-black uppercase tracking-wide text-blue-700">Dönem / Uygun</p>
             <div className="mt-2 max-h-28 space-y-1 overflow-y-auto pr-1">
               {nakitPeriodSummaryRows.map((row) => (
-                <div key={`uygun-${row.donem}`} className="flex items-center justify-between gap-2 text-[15px] font-black text-slate-700">
+                <div key={`uygun-${row.donem}`} className="flex items-center justify-between gap-2 text-ns-section-title font-black text-slate-700">
                   <span className="min-w-0 truncate">{row.donem}</span>
                   <span className="shrink-0 text-slate-950">{row.uygun}</span>
                 </div>
@@ -572,10 +596,10 @@ export async function AssistanceRequestListPage({
             </div>
           </div>
           <div className="rounded-xl border border-amber-100 bg-white p-4 shadow-sm">
-            <p className="text-[11px] font-black uppercase tracking-wide text-amber-700">Dönem / Uygun Olmayan</p>
+            <p className="text-ns-help font-black uppercase tracking-wide text-amber-700">Dönem / Uygun Olmayan</p>
             <div className="mt-2 max-h-28 space-y-1 overflow-y-auto pr-1">
               {nakitPeriodSummaryRows.map((row) => (
-                <div key={`uygun-olmayan-${row.donem}`} className="flex items-center justify-between gap-2 text-[15px] font-black text-slate-700">
+                <div key={`uygun-olmayan-${row.donem}`} className="flex items-center justify-between gap-2 text-ns-section-title font-black text-slate-700">
                   <span className="min-w-0 truncate">{row.donem}</span>
                   <span className="shrink-0 text-slate-950">{row.uygunOlmayan}</span>
                 </div>
@@ -586,19 +610,19 @@ export async function AssistanceRequestListPage({
       ) : (
       <div className="grid gap-3 md:grid-cols-4 print:hidden">
         <div className="rounded-xl border border-sky-100 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-wide text-sky-700">Listelenen Kayıt</p>
+          <p className="text-ns-help font-black uppercase tracking-wide text-sky-700">Listelenen Kayıt</p>
           <p className="mt-2 text-2xl font-black text-slate-950">{totalCount}</p>
         </div>
         <div className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-wide text-emerald-700">Bekleyen Müracaat</p>
+          <p className="text-ns-help font-black uppercase tracking-wide text-emerald-700">Bekleyen Müracaat</p>
           <p className="mt-2 text-2xl font-black text-slate-950">{waitingCount}</p>
         </div>
         <div className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-wide text-blue-700">Dosya Sayısı</p>
+          <p className="text-ns-help font-black uppercase tracking-wide text-blue-700">Dosya Sayısı</p>
           <p className="mt-2 text-2xl font-black text-slate-950">{distinctFileCount}</p>
         </div>
         <div className="rounded-xl border border-amber-100 bg-white p-4 shadow-sm">
-          <p className="text-[11px] font-black uppercase tracking-wide text-amber-700">Kart No Eksik</p>
+          <p className="text-ns-help font-black uppercase tracking-wide text-amber-700">Kart No Eksik</p>
           <p className="mt-2 text-2xl font-black text-slate-950">{missingCardCount}</p>
         </div>
       </div>
@@ -608,22 +632,22 @@ export async function AssistanceRequestListPage({
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm print:hidden">
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-wide text-indigo-700">Nakit Müracaat Özeti</p>
+              <p className="text-ns-help font-black uppercase tracking-wide text-indigo-700">Nakit Müracaat Özeti</p>
               <h2 className="mt-1 text-lg font-black text-slate-950">Dönem ve Aşama Durumu</h2>
             </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[15px] font-black text-slate-600">
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-ns-section-title font-black text-slate-600">
               Toplam Müracaat: {totalCount}
             </div>
           </div>
 
           {nakitSummaryRows.length === 0 ? (
-            <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-5 text-center text-sm font-bold text-slate-500">
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-5 text-center text-ns-body font-bold text-slate-500">
               Özet rapor için kayıt bulunamadı.
             </div>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="w-full border-collapse text-left text-[13px] font-semibold">
-                <thead className="bg-indigo-50 text-[11px] font-black uppercase text-indigo-700">
+              <table className="w-full border-collapse text-left text-ns-label font-semibold">
+                <thead className="bg-indigo-50 text-ns-help font-black uppercase text-indigo-700">
                   <tr>
                     <th className="border-b border-indigo-100 px-3 py-2">Dönem</th>
                     <th className="border-b border-indigo-100 px-3 py-2">Aşama</th>
@@ -721,9 +745,13 @@ export async function AssistanceRequestListPage({
             ? { endpoint: '/api/assistance/bulk-whatsapp-recipients', tableName: config.tableName, whereClause: 't.durumu = 0' }
             : undefined
         }
-        afterHeader={modeTabsConfig ? (
-          <AssistanceModeTabs basePath={modeTabsBasePath} {...modeTabsConfig} />
-        ) : undefined}
+        corporateHeader={{ kicker: getAssistanceKicker(config.routePath) }}
+        afterHeader={(
+          <div className="space-y-3">
+            {modeTabsConfig && <AssistanceModeTabs basePath={modeTabsBasePath} {...modeTabsConfig} />}
+            {!errorMessage && <AssistanceStatStrip items={statItems} />}
+          </div>
+        )}
         extraToolbarButtons={config.tableName === 'yrd_ayninakti' ? (
           <>
             <NakitApplicationsSyncButton />

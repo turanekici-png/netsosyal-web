@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import {
   DEFAULT_ONLINE_APPLICATION_FORMS,
   ONLINE_APPLICATION_FORMS_SETTING_KEY,
@@ -7,12 +8,23 @@ import {
 } from '@/lib/constants/onlineApplicationForms'
 import { settingService } from '@/lib/services'
 import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
-import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
 import { ManagedReportTablePage } from '@/components/shared/ManagedReportTablePage'
 import { OnlineApplicationClient } from './OnlineApplicationClient'
 import { getSessionUser } from '@/lib/apiAuth'
 import { USER_PERMISSIONS_SETTING_KEY, isActionScheduleActive, type UserPermissionsById } from '@/lib/constants/userPermissions'
 import { OTOMATIK_RED_STAGE } from '@/lib/services/cashAutoReject.service'
+import {
+  amountSql,
+  buildOnlineApplicationsWhere,
+  fullNameSql,
+  ibanSql,
+  incomeSql,
+  neighborhoodSql,
+  periodSql,
+  phoneSql,
+  vehicleModelYearSql,
+  vehicleStatusSql,
+} from '@/lib/onlineApplications/listQuery'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,45 +82,9 @@ type FilterValueRow = { field: string; value: string; label: string; count: numb
 
 const PAGE_SIZE = 100
 
-const fullNameSql = `
-  COALESCE(
-    NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(t.ad, ''), NULLIF(t.soyad, ''))), ''),
-    NULLIF(t.answers->>'fullName', ''),
-    NULLIF(t.answers->>'f_name', '')
-  )
-`
-
-const phoneSql = `COALESCE(NULLIF(t.answers->>'phone', ''), NULLIF(t.answers->>'f_phone', ''), NULLIF(t.answers->>'telefon', ''))`
-const incomeSql = `COALESCE(NULLIF(t.answers->>'income', ''), NULLIF(t.answers->>'f_income', ''))`
-const vehicleStatusSql = `COALESCE(NULLIF(t.answers->>'vehicleStatus', ''), NULLIF(t.answers->>'f_1783585922150', ''))`
-const vehicleModelYearSql = `COALESCE(NULLIF(t.answers->>'vehicleModelYear', ''), NULLIF(t.answers->>'f_1783665438908', ''))`
-const ibanSql = `COALESCE(NULLIF(t.answers->>'iban', ''), NULLIF(t.answers->>'f_1783668607481', ''))`
-const periodSql = `COALESCE(NULLIF(t.donem, ''), NULLIF(t.answers->>'period', ''), NULLIF(t.answers->>'donem', ''))`
-const amountSql = `COALESCE(NULLIF(t.answers->>'amount', ''), NULLIF(t.answers->>'miktar', ''), NULLIF(t.answers->>'assistanceAmount', ''), NULLIF(t.answers->>'yardimMiktari', ''), NULLIF(t.answers->>'yardim_miktari', ''), NULLIF(t.answers->>'f_amount', ''))`
-
-const FILTER_COLUMN_MAP: Record<string, string> = {
-  id: 't.id',
-  basvuru_tarihi: 't.created_at',
-  tc: 't.tckimlikno',
-  ad_soyad: fullNameSql,
-  dogum_tarihi: 't.dogumtarihi',
-  telefon: phoneSql,
-  aylik_gelir: incomeSql,
-  arac_durumu: vehicleStatusSql,
-  arac_modeli: vehicleModelYearSql,
-  iban: ibanSql,
-  miktar: amountSql,
-  yardim_turu: 't.yardim_turu',
-  mahalle: 't.mahalleadi',
-  adres: 't.adres',
-  durum: 't.status',
-  donem: periodSql,
-  etiket: 't.etiket',
-  asama: 't.asama',
-  aciklama: 't.aciklama',
-  basvuru_yili: 't.basvuru_yili',
-  donem_grubu: 't.donem_grubu',
-}
+// Sorgu ifadeleri (ad soyad, telefon, İBAN, mahalle ...) ve filtre/arama
+// koşulu lib/onlineApplications/listQuery.ts'de - toplu güncelleme ve nakite
+// aktarma ile ORTAK (ekranda görünenle işlemin uygulandığı kayıtlar aynı olsun).
 
 const COLUMN_LABELS: Record<string, string> = {
   id: 'Kayıt ID',
@@ -132,6 +108,7 @@ const COLUMN_LABELS: Record<string, string> = {
   aciklama: 'Açıklama',
   basvuru_yili: 'Başvuru Yılı',
   donem_grubu: 'Dönem Grubu',
+  ek_cevaplar: 'Ek Cevaplar',
 }
 
 const PREFERRED_COLUMNS = [
@@ -148,7 +125,31 @@ const PREFERRED_COLUMNS = [
   'donem',
   'etiket',
   'asama',
+  'mahalle',
+  'ek_cevaplar',
 ]
+
+// Formda sorulan ama tabloda kendi sütunu OLMAYAN sorular (yönetici Ayarlar >
+// Online Başvuru Formları'ndan yeni alan eklediğinde) eskiden hiçbir yerde
+// görünmüyordu. Bu anahtarlar zaten kendi sütunlarında/sistem alanı olarak
+// gösteriliyor; geri kalan cevaplar "Ek Cevaplar" sütununda, form alanının
+// ETİKETİYLE gösterilir.
+const STANDARD_ANSWER_KEYS = new Set([
+  'tc', 'fullName', 'birthDate', 'address', 'addressNo', 'adresNo', 'adresno', 'formId', 'formTitle',
+  'autoEvaluation', 'phone', 'telefon', 'iban', 'income', 'vehicleStatus', 'vehicleModelYear',
+  'amount', 'miktar', 'assistanceAmount', 'yardimMiktari', 'yardim_miktari', 'period', 'donem',
+  'label', 'etiket', 'stage', 'asama', 'propertyInfo', 'property', 'mulkiyet', 'mulkiyetBilgisi',
+  'f_tc', 'f_name', 'f_phone', 'f_income', 'f_address', 'f_addressNo', 'f_adresNo', 'f_birthDate', 'f_amount',
+  'f_1783585922150', 'f_1783665438908', 'f_1783668607481',
+])
+
+function buildExtraAnswersText(answers: unknown, fieldLabels: Map<string, string>): string {
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return ''
+  return Object.entries(answers as Record<string, unknown>)
+    .filter(([key, value]) => !STANDARD_ANSWER_KEYS.has(key) && typeof value === 'string' && value.trim() !== '')
+    .map(([key, value]) => `${fieldLabels.get(key) || key}: ${String(value).trim()}`)
+    .join(' · ')
+}
 
 async function getOnlineForms() {
   try {
@@ -184,6 +185,14 @@ function mapFilterValueOptions(rows: FilterValueRow[]) {
 
     return acc
   }, {} as Record<string, ColumnValueOption[]>)
+}
+
+// Türkiye saatine göre YYYY-MM-DD (sunucu saat dilimi Türkiye).
+function localDateString(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 // Vatandasa acik basvuru formu icin ("?form=...") sekme/pencere basligini
@@ -247,45 +256,61 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
   let totalCount = 0
   let filterValueOptions: Record<string, ColumnValueOption[]> = {}
   let errorMessage: string | null = null
-  // Kullanici istegi (2026-09-22): "dönem bilgisi seçtiğimizde o döneme ait
-  // toplam başvuru sayısı, incelenecek başvuru sayısı ve otomatik red
-  // sayısı görünsün" - SADECE dönem filtresi (f_donem) secili iken
-  // hesaplanir/gosterilir. "İncelenecek" = Otomatik Red DISINDAKI tum
-  // kayitlar (toplam - otomatik red) - Otomatik Red disinda her kayit
-  // (henuz islenmemis/personel tarafindan incelenmis olsun) "otomatik
-  // olarak elenmemis" anlaminda "incelenecek/incelenmis" kumesine dahildir.
-  let donemStats: { toplam: number; otomatikRed: number; incelenecek: number } | null = null
+  // Kullanici istegi (2026-09-22): dönem seçilince toplam / incelenecek /
+  // otomatik red sayıları. 2026-10-14: özet artık HER ZAMAN görünür (dönem
+  // seçilmeden de) ve "bugün gelen" sayısını da içerir; sayılar listenin o
+  // anki filtre/aramasına göredir. "İncelenecek" = Otomatik Red dışındaki
+  // tüm kayıtlar.
+  let summary = { toplam: 0, otomatikRed: 0, incelenecek: 0, bugun: 0 }
+  let hasExtraAnswers = false
+
+  // Hızlı tarih filtreleri - mevcut sütun filtresi parametrelerini
+  // (f_basvuru_tarihi + _op=gte) kullanır; sütun başlığındaki tarih filtresi
+  // ile aynı mekanizma.
+  const todayValue = localDateString(now)
+  const daysAgo = (days: number) => localDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - days))
+  const dateRanges = [
+    { key: 'all', label: 'Tümü', value: '' },
+    { key: 'today', label: 'Bugün', value: todayValue },
+    { key: '7', label: 'Son 7 gün', value: daysAgo(6) },
+    { key: '30', label: 'Son 30 gün', value: daysAgo(29) },
+  ]
+  const activeDateValue = params.f_basvuru_tarihi_op === 'gte' ? params.f_basvuru_tarihi || '' : (params.f_basvuru_tarihi ? '__other' : '')
+  const buildDateHref = (value: string) => {
+    const next = new URLSearchParams()
+    Object.entries(params).forEach(([key, val]) => {
+      if (!val || key === 'page' || key === 'f_basvuru_tarihi' || key === 'f_basvuru_tarihi_op' || key === 'f_basvuru_tarihi_v2') return
+      next.set(key, String(val))
+    })
+    if (value) {
+      next.set('f_basvuru_tarihi', value)
+      next.set('f_basvuru_tarihi_op', 'gte')
+    }
+    const query = next.toString()
+    return query ? `/online?${query}` : '/online'
+  }
 
   try {
-    const filterCondition = buildMappedFilterCondition(params, FILTER_COLUMN_MAP)
-    // Türkçe-duyarsız serbest metin araması (büyük/küçük harf + aksan yok sayılır)
-    const searchCondition = buildTextSearchClause(
-      [
-        't.tckimlikno', fullNameSql, phoneSql, incomeSql, vehicleStatusSql, vehicleModelYearSql,
-        ibanSql, amountSql, 't.yardim_turu', 't.mahalleadi', 't.adres', 't.status', 't.aciklama', 't.answers',
-      ],
-      searchTerm,
-    )
-    const whereClause = `1=1 ${filterCondition} ${searchCondition}`
+    const whereClause = buildOnlineApplicationsWhere(params)
 
     const countResult = await sqlMonitorService.executeQuery(`
-      SELECT COUNT(*)::int AS total
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE t.asama = '${OTOMATIK_RED_STAGE}')::int AS otomatik_red,
+        COUNT(*) FILTER (
+          WHERE ((t.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Istanbul')::date
+            = (NOW() AT TIME ZONE 'Europe/Istanbul')::date
+        )::int AS bugun
       FROM online_basvurular t
       WHERE ${whereClause}
     `)
     totalCount = Number(countResult.rows[0]?.total || 0)
-
-    if (params.f_donem) {
-      const statsResult = await sqlMonitorService.executeQuery(`
-        SELECT
-          COUNT(*)::int AS toplam,
-          COUNT(*) FILTER (WHERE t.asama = '${OTOMATIK_RED_STAGE}')::int AS otomatik_red
-        FROM online_basvurular t
-        WHERE ${whereClause}
-      `)
-      const toplam = Number(statsResult.rows[0]?.toplam || 0)
-      const otomatikRed = Number(statsResult.rows[0]?.otomatik_red || 0)
-      donemStats = { toplam, otomatikRed, incelenecek: toplam - otomatikRed }
+    const otomatikRed = Number(countResult.rows[0]?.otomatik_red || 0)
+    summary = {
+      toplam: totalCount,
+      otomatikRed,
+      incelenecek: totalCount - otomatikRed,
+      bugun: Number(countResult.rows[0]?.bugun || 0),
     }
 
     const dataResult = await sqlMonitorService.executeQuery(`
@@ -302,7 +327,7 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
         ${vehicleModelYearSql} AS arac_modeli,
         ${amountSql} AS miktar,
         t.yardim_turu,
-        t.mahalleadi AS mahalle,
+        ${neighborhoodSql} AS mahalle,
         t.adres,
         t.status AS durum,
         ${periodSql} AS donem,
@@ -310,13 +335,25 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
         t.asama,
         t.aciklama,
         t.basvuru_yili,
-        t.donem_grubu
+        t.donem_grubu,
+        t.answers AS _answers
       FROM online_basvurular t
       WHERE ${whereClause}
       ORDER BY t.created_at DESC NULLS LAST, t.id DESC
       LIMIT ${PAGE_SIZE} OFFSET ${offset}
     `)
-    records = dataResult.rows
+
+    const forms = await getOnlineForms()
+    const fieldLabels = new Map<string, string>()
+    forms.forEach((form) => form.fields.forEach((field) => {
+      if (!fieldLabels.has(field.id)) fieldLabels.set(field.id, field.label)
+    }))
+    records = dataResult.rows.map((row: Record<string, unknown>) => {
+      const { _answers, ...rest } = row
+      const ekCevaplar = buildExtraAnswersText(_answers, fieldLabels)
+      if (ekCevaplar) hasExtraAnswers = true
+      return { ...rest, ek_cevaplar: ekCevaplar }
+    })
 
     const filterValuesResult = await sqlMonitorService.executeQuery(`
       SELECT field, value, label, COUNT(*)::int AS count
@@ -330,6 +367,8 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
         SELECT 'asama', NULLIF(t.asama, '')::text, NULLIF(t.asama, '')::text FROM online_basvurular t WHERE ${whereClause}
         UNION ALL
         SELECT 'arac_durumu', ${vehicleStatusSql}::text, ${vehicleStatusSql}::text FROM online_basvurular t WHERE ${whereClause}
+        UNION ALL
+        SELECT 'mahalle', ${neighborhoodSql}::text, ${neighborhoodSql}::text FROM online_basvurular t WHERE ${whereClause}
       ) options
       WHERE value IS NOT NULL AND value <> ''
       GROUP BY field, value, label
@@ -340,43 +379,63 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
     errorMessage = error instanceof Error ? error.message : String(error)
   }
 
+  const summaryTiles = [
+    { label: 'Toplam Başvuru', value: summary.toplam, accent: 'bg-[#1E2A38]', valueClass: 'text-[#1E2A38]' },
+    { label: 'İncelenecek', value: summary.incelenecek, accent: 'bg-emerald-500', valueClass: 'text-emerald-700' },
+    { label: 'Otomatik Red', value: summary.otomatikRed, accent: 'bg-rose-500', valueClass: 'text-rose-700' },
+    { label: 'Bugün Gelen', value: summary.bugun, accent: 'bg-[#0E7C86]', valueClass: 'text-[#0A5F67]' },
+  ]
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {errorMessage && (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-600">
           Veritabanı Hatası: {errorMessage}
         </div>
       )}
 
-      {/* Kullanici istegi (2026-09-22): "buradaki yardım kriterleri
-          alanını kaldıralım bunun yerine ... aynı dönem bilgisine ait
-          yardım kriterlerini uygula" - bu panel (global/tek online-basvuru
-          kriteri) kaldirildi. Otomatik red kontrolu artik her basvurunun
-          KENDI donemine ozel, Ayarlar > Yardım Kriterleri'nde tanimlanan
-          sinirlari kullanir (bkz. app/api/online-applications/route.ts -
-          getDonemCriteriaLimits). */}
-
-      {donemStats && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-[13px] font-black uppercase tracking-wide text-slate-500">
-            {params.f_donem} — Dönem Özeti
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[12px] font-black uppercase text-slate-500">Toplam Başvuru</p>
-              <p className="mt-1 text-2xl font-black text-slate-900">{donemStats.toplam}</p>
-            </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-[12px] font-black uppercase text-amber-700">İncelenecek</p>
-              <p className="mt-1 text-2xl font-black text-amber-700">{donemStats.incelenecek}</p>
-            </div>
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
-              <p className="text-[12px] font-black uppercase text-rose-700">Otomatik Red</p>
-              <p className="mt-1 text-2xl font-black text-rose-700">{donemStats.otomatikRed}</p>
-            </div>
+      {/* 2026-10-14: kurumsal özet paneli (Ayarlar > Online Başvuru Formları
+          ile aynı dil: altın sol çizgi, lacivert/teal vurgular). */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-4 border-l-4 border-[#b8860b] px-5 py-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold uppercase tracking-[0.12em] text-[#0E7C86]">Başvuru Özeti</p>
+            <h2 className="mt-0.5 text-[20px] font-bold text-[#1E2A38]">{params.f_donem || 'Tüm Dönemler'}</h2>
+            <p className="mt-0.5 text-[14px] font-medium text-slate-500">Sayılar, listede uygulanan filtre ve aramaya göre hesaplanır.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {summaryTiles.map((tile) => (
+              <div key={tile.label} className="min-w-[150px] rounded-lg border border-slate-200 bg-[#f6f8fb] px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${tile.accent}`} />
+                  <p className="text-[13px] font-bold uppercase tracking-wide text-slate-500">{tile.label}</p>
+                </div>
+                <p className={`mt-1 text-[28px] font-bold leading-tight ${tile.valueClass}`}>{tile.value.toLocaleString('tr-TR')}</p>
+              </div>
+            ))}
           </div>
         </div>
-      )}
+        <div className="flex flex-col gap-3 border-t border-slate-200 bg-[#f6f8fb] px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[14px] font-bold text-[#1E2A38]">Başvuru tarihi:</span>
+            {dateRanges.map((range) => {
+              const isActive = range.value === activeDateValue
+              return (
+                <Link
+                  key={range.key}
+                  href={buildDateHref(range.value)}
+                  className={`rounded-full border px-3.5 py-1.5 text-[14px] font-bold transition ${isActive ? 'border-[#0E7C86] bg-[#0E7C86] text-white' : 'border-slate-300 bg-white text-[#1E2A38] hover:border-[#0E7C86] hover:text-[#0A5F67]'}`}
+                >
+                  {range.label}
+                </Link>
+              )
+            })}
+          </div>
+          <p className="text-[13px] font-medium text-slate-500">
+            Nakit müracaata aktarılan başvurular bu listeden kalkar; <span className="font-bold text-slate-600">Nakit Yardımı › Müracaatlar</span> ekranında görünür.
+          </p>
+        </div>
+      </section>
 
       <ManagedReportTablePage
         eyebrow="Online Başvurular"
@@ -388,10 +447,10 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
         currentPage={currentPage}
         pageSize={PAGE_SIZE}
         searchTerm={searchTerm}
-        searchPlaceholder="TC, ad soyad, telefon, yardım türü, mahalle veya açıklama ara"
+        searchPlaceholder="TC, ad soyad, telefon, İBAN, mahalle, adres veya açıklama ara"
         emptyMessage="Listelenecek online başvuru bulunamadı."
         organizedToolbar
-        excludedColumns={['id', 'mahalle', 'durum', 'basvuru_yili', 'donem_grubu']}
+        excludedColumns={hasExtraAnswers ? ['id', 'durum', 'basvuru_yili', 'donem_grubu'] : ['id', 'durum', 'basvuru_yili', 'donem_grubu', 'ek_cevaplar']}
         requiredVisibleColumns={['basvuru_tarihi', 'tc', 'ad_soyad', 'iban', 'aylik_gelir', 'arac_durumu', 'arac_modeli', 'miktar']}
         preferredColumnOrder={PREFERRED_COLUMNS}
         columnLabels={COLUMN_LABELS}
@@ -399,17 +458,17 @@ export default async function OnlineApplicationPage({ searchParams }: OnlinePage
         quickFilterConfig={{ fieldKey: 'donem', label: 'Yardım Dönemi', placeholder: 'Tüm Dönemler' }}
         recordUpdateConfig={canManage ? {
           endpoint: '/api/online-applications/bulk-update',
-          label: 'Donem, etiket, asama ve miktar bilgilerini guncelle',
+          label: 'Dönem, etiket, aşama ve miktar bilgilerini güncelle',
           fields: ['donem', 'etiket', 'asama', 'miktar'],
         } : undefined}
         transferConfig={canManage ? {
           endpoint: '/api/online-applications/transfer-to-cash',
-          label: 'Nakit Muracaata Aktar',
-          filteredLabel: 'Filtrelenenleri Nakit Muracaata Aktar',
+          label: 'Nakit Müracaata Aktar',
+          filteredLabel: 'Filtrelenenleri Nakit Müracaata Aktar',
         } : undefined}
         onlineApplicationEditConfig={canManage ? {
           endpoint: '/api/online-applications/detail',
-          label: 'Basvuruyu Duzenle',
+          label: 'Başvuruyu Düzenle',
         } : undefined}
         deleteConfig={canManage ? {
           endpoint: '/api/online-applications/delete',

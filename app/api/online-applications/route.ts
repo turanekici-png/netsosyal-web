@@ -12,6 +12,8 @@ import { checkRateLimit, getRequestClientKey } from '@/lib/security/rateLimit'
 import { predefinedValuesService } from '@/lib/services/predefinedValues.service'
 import { extractVehicleYear, findYardimKriteriValue, parseFreeFormAmount } from '@/lib/nakitCriteria'
 import { OTOMATIK_RED_STAGE, INCELENECEK_STAGE } from '@/lib/services/cashAutoReject.service'
+import { extractNeighborhoodFromAddress } from '@/lib/onlineApplications/listQuery'
+import { formatAutoRejectExplanation, formatTurkishLira } from '@/lib/nakitAutoRejectText'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,8 +62,11 @@ function normalizeLabel(value: string) {
 function fieldKey(field: { id: string; label: string }) {
   const label = normalizeLabel(field.label)
   if (label.includes('tc') || label.includes('kimlik')) return 'tc'
-  if (label.includes('doÄŸum')) return 'birthDate'
-  if (label.includes('ad soyad') || label.includes('adÄ± soyadÄ±')) return 'fullName'
+  // 2026-10-14: bu iki satirda bozuk kodlanmis ("doÄŸum", "adÄ± soyadÄ±")
+  // metin vardi ve hic eslesmiyordu - istemci (OnlineApplicationClient.tsx)
+  // ve apply-criteria/route.ts ile ayni hale getirildi.
+  if (label.includes('doğum') || label.includes('dogum')) return 'birthDate'
+  if (label.includes('ad soyad') || label.includes('adı soyadı')) return 'fullName'
   if (label.includes('adres no') || label.includes('adresno')) return 'addressNo'
   if (label.includes('adres')) return 'address'
   if (label.includes('telefon') || label.includes('cep')) return 'phone'
@@ -586,19 +591,19 @@ export async function POST(request: Request) {
     // Kullanici istegi (2026-09-22): dönem'e (assistanceType) ozel
     // kriterler - bkz. getDonemCriteriaLimits yukarisindaki aciklama.
     if (donemCriteriaLimits.yasAltLimit !== null && applicantAge !== null && applicantAge < donemCriteriaLimits.yasAltLimit) {
-      autoRejectReasons.push(`Yas ${donemCriteriaLimits.yasAltLimit} altinda.`)
+      autoRejectReasons.push(`Başvuru sahibinin yaşı (${applicantAge}) dönem için belirlenen ${donemCriteriaLimits.yasAltLimit} yaş alt sınırının altındadır`)
     }
 
     if (donemCriteriaLimits.gelirLimit !== null && income !== null && income > donemCriteriaLimits.gelirLimit) {
-      autoRejectReasons.push(`Aylik hane geliri ${donemCriteriaLimits.gelirLimit} uzerinde.`)
+      autoRejectReasons.push(`Beyan edilen aylık hane geliri ${formatTurkishLira(income)} olup dönem için belirlenen ${formatTurkishLira(donemCriteriaLimits.gelirLimit)} üst sınırını aşmaktadır`)
     }
 
     if (donemCriteriaLimits.aracYearLimit !== null && vehicleModelYear !== null && vehicleModelYear > donemCriteriaLimits.aracYearLimit) {
-      autoRejectReasons.push(`Arac model yili ${donemCriteriaLimits.aracYearLimit} uzerinde.`)
+      autoRejectReasons.push(`Beyan edilen araç ${vehicleModelYear} model olup dönem için belirlenen araç model yılı üst sınırı ${donemCriteriaLimits.aracYearLimit} olarak tanımlıdır`)
     }
 
     if (donemCriteriaLimits.yasUstLimit !== null && applicantAge !== null && applicantAge > donemCriteriaLimits.yasUstLimit) {
-      autoRejectReasons.push(`Yas ${donemCriteriaLimits.yasUstLimit} uzerinde.`)
+      autoRejectReasons.push(`Başvuru sahibinin yaşı (${applicantAge}) dönem için belirlenen ${donemCriteriaLimits.yasUstLimit} yaş üst sınırının üzerindedir`)
     }
 
     // Kullanici istegi (2026-09-22, devam): yabanci uyruklu (Yabancı
@@ -610,7 +615,7 @@ export async function POST(request: Request) {
     // DEĞİL" durumuna dusurulur (bkz. getDonemCriteriaLimits) - tanimli
     // degilse bu kural hic calismaz.
     if (donemCriteriaLimits.yabanciUyrukluRuleActive && tc.startsWith('99')) {
-      autoRejectReasons.push('Yabanci uyruklu basvuru sahibi (TC/YKN 99 ile basliyor) - bu donem icin kriterlerde tanimli.')
+      autoRejectReasons.push('Başvuru sahibi yabancı uyruklu olup (kimlik numarası 99 ile başlamaktadır) bu dönem için yabancı uyruklulara yardım yapılmamaktadır')
     }
 
     // Kullanici istegi (2026-09-22): "kriter uygulanan başvuruların aşama
@@ -631,9 +636,14 @@ export async function POST(request: Request) {
     // gibi cashAutoReject.service.ts'deki AYNI sabit (Hazir Degerler > NAKIT
     // ASAMA listesindeki "İncelenecek" secenegiyle BIREBIR ayni yazilmali).
     const applicationStage = isAutoRejected ? OTOMATIK_RED_STAGE : INCELENECEK_STAGE
-    const applicationNote = isAutoRejected ? `Otomatik kriter elemesi: ${autoRejectReasons.join(' ')}` : null
+    // 2026-10-14: kurumsal, anlaşılır açıklama (bkz. lib/nakitAutoRejectText.ts)
+    const applicationNote = isAutoRejected ? formatAutoRejectExplanation(autoRejectReasons) : null
 
     const { ad, soyad } = splitFullName(fullName)
+    // 2026-10-14: mahalle eskiden hiç yazılmıyordu (listede sütun gizli,
+    // mahalleye göre filtre/rapor yapılamıyordu) - NVİ adresinden
+    // ("FATİH MAH. ...") çıkarılır; çıkarılamazsa boş kalır.
+    const mahalleAdi = extractNeighborhoodFromAddress(address)
     const answersJson = JSON.stringify({
       ...values,
       tc,
@@ -665,6 +675,7 @@ export async function POST(request: Request) {
         yardim_turu,
         adres,
         adresno,
+        mahalleadi,
         answers,
         status,
         asama,
@@ -681,6 +692,7 @@ export async function POST(request: Request) {
         ${assistanceType},
         ${address || null},
         ${addressNo || null},
+        ${mahalleAdi},
         ${answersJson}::jsonb,
         ${applicationStatus},
         ${applicationStage},

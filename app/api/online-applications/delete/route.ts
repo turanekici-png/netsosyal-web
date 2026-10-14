@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireApiAccess } from '@/lib/apiAuth'
 import { getSqlMonitorPool } from '@/lib/services/sqlMonitor.service'
+import { getAuditMetaFromRequest, withAuditedPoolWrite } from '@/lib/db/auditContext'
+import { ensureOnlineApplicationsAuditTrigger } from '@/lib/onlineApplications/listQuery'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,10 +33,15 @@ export async function DELETE(request: Request) {
     }
 
     const pool = getSqlMonitorPool()
-    const result = await pool.query(
+    // 2026-10-14: silme eskiden iz bırakmıyordu ve geri alınamıyordu. Artık
+    // tablo audit tetikleyicisi silinen kaydın TAM halini, silen kullanıcı
+    // adıyla sistem_hareket_log'a (eski_deger) yazar - yanlışlıkla silinen
+    // başvuru oradan geri getirilebilir.
+    await ensureOnlineApplicationsAuditTrigger(pool)
+    const result = await withAuditedPoolWrite(pool, (client) => client.query(
       'DELETE FROM public.online_basvurular WHERE id = ANY($1::bigint[]);',
       [ids],
-    )
+    ), getAuditMetaFromRequest(request))
 
     return NextResponse.json({
       success: true,

@@ -2,6 +2,9 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useTabs } from '@/lib/context/TabContext'
+import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
+import { useHoldWorkflowRecord, useWorkflowLocks, workflowLockConfirmText, type WorkflowLock } from '@/lib/hooks/useWorkflowPresence'
+import { WORKFLOW_LOCKED_ROW_CLASS, WorkflowLockNotice } from '@/components/workflow/WorkflowLockNotice'
 import {
   PRELIMINARY_REVIEW_FORM_TEMPLATE_SETTING_KEY,
   normalizePreliminaryReviewFieldType,
@@ -129,14 +132,15 @@ function getTodayInputDate() {
 // Duz liste ve mahalleye-gore-gruplu liste AYNI satir gorunumunu
 // kullansin diye ayri bir bilesene cikarildi (kullanici istegi
 // 13 Eylul 2026: mahalleye gore gruplama + telefon/mahalle/adres).
-function OnIncelemeTableRow({ row, index, onOpenFile, onOpenReport }: {
+function OnIncelemeTableRow({ row, index, onOpenFile, onOpenReport, lock }: {
   row: InvestigationFile
   index: number
+  lock?: WorkflowLock
   onOpenFile: (row: InvestigationFile) => void
   onOpenReport: (row: InvestigationFile) => void
 }) {
   return (
-    <tr className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} transition hover:bg-sky-50`}>
+    <tr className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} transition hover:bg-sky-50 ${lock ? WORKFLOW_LOCKED_ROW_CLASS : ''}`}>
       <td className="border-b border-slate-100 px-4 py-3">
         <button
           type="button"
@@ -148,6 +152,7 @@ function OnIncelemeTableRow({ row, index, onOpenFile, onOpenReport }: {
       </td>
       <td className="border-b border-slate-100 px-4 py-3 font-extrabold text-slate-900">
         <span className="line-clamp-2 block max-w-[220px]">{row.applicantName}</span>
+        {lock && <WorkflowLockNotice lock={lock} genis />}
       </td>
       <td className="border-b border-slate-100 px-4 py-3 font-bold text-slate-700">
         <span className="line-clamp-2 block max-w-[150px]">{row.phone}</span>
@@ -181,13 +186,15 @@ function OnIncelemeTableRow({ row, index, onOpenFile, onOpenReport }: {
   )
 }
 
-function OnIncelemeMobileCard({ row, onOpenFile, onOpenReport }: {
+function OnIncelemeMobileCard({ row, onOpenFile, onOpenReport, lock }: {
   row: InvestigationFile
+  lock?: WorkflowLock
   onOpenFile: (row: InvestigationFile) => void
   onOpenReport: (row: InvestigationFile) => void
 }) {
   return (
-    <div className="rounded-lg border border-orange-100 bg-white p-3 shadow-sm">
+    <div className={`rounded-lg border p-3 shadow-sm ${lock ? 'border-rose-300 bg-rose-100 shadow-[inset_5px_0_0_#e11d48]' : 'border-orange-100 bg-white'}`}>
+      {lock && <WorkflowLockNotice lock={lock} className="mb-2 mt-0" />}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <button
@@ -247,6 +254,9 @@ export default function OnIncelemeWorkflowPage() {
   // SADECE o mahalledeki dosyalara daralir.
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<string>('all')
   const [reportTarget, setReportTarget] = useState<InvestigationFile | null>(null)
+  // 2026-10-14: baska kullanicida acik kayitlar (kirmizi) + benim actigim kaydi tut
+  const kilitler = useWorkflowLocks('on-inceleme')
+  useHoldWorkflowRecord('on-inceleme', reportTarget?.fileId)
   const [reportDate, setReportDate] = useState(getTodayInputDate())
   const [reportAnswers, setReportAnswers] = useState<Record<string, string>>({})
   const [reportDescription, setReportDescription] = useState('')
@@ -427,7 +437,9 @@ export default function OnIncelemeWorkflowPage() {
     })
   }
 
-  const openReportModal = (row: InvestigationFile) => {
+  const openReportModal = async (row: InvestigationFile) => {
+    const kilit = kilitler.get(row.fileId)
+    if (kilit && !(await confirmDialog(workflowLockConfirmText(kilit), 'Yine de Aç', 'Vazgeç'))) return
     setReportTarget(row)
     setReportDate(getTodayInputDate())
     setReportAnswers({})
@@ -519,7 +531,7 @@ export default function OnIncelemeWorkflowPage() {
 
   return (
     <div className="space-y-5 text-slate-950">
-      <div className="relative overflow-hidden rounded-lg border border-orange-200 bg-white px-5 py-4 shadow-sm">
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-orange-200 bg-white px-5 py-4 shadow-sm">
         <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-orange-500 to-[#0076b6]" />
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -602,18 +614,18 @@ export default function OnIncelemeWorkflowPage() {
                   {group.neighborhood} — {group.files.length} dosya
                 </div>
                 {group.files.map((row) => (
-                  <OnIncelemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openReportModal} />
+                  <OnIncelemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openReportModal} lock={kilitler.get(row.fileId)} />
                 ))}
               </div>
             ))
           ) : (
             displayedRows.map((row) => (
-              <OnIncelemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openReportModal} />
+              <OnIncelemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openReportModal} lock={kilitler.get(row.fileId)} />
             ))
           )}
         </div>
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1520px] border-collapse text-left text-sm">
+          <table className="ns-tablo w-full min-w-[1520px] border-collapse text-left text-sm">
             <thead className="bg-orange-50 text-[12px] font-black uppercase text-orange-900">
               <tr>
                 <th className="border-b border-orange-100 px-4 py-3">Dosya No</th>
@@ -650,13 +662,13 @@ export default function OnIncelemeWorkflowPage() {
                       </td>
                     </tr>
                     {group.files.map((row, index) => (
-                      <OnIncelemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openReportModal} />
+                      <OnIncelemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openReportModal} lock={kilitler.get(row.fileId)} />
                     ))}
                   </Fragment>
                 ))
               ) : (
                 displayedRows.map((row, index) => (
-                  <OnIncelemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openReportModal} />
+                  <OnIncelemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openReportModal} lock={kilitler.get(row.fileId)} />
                 ))
               )}
             </tbody>

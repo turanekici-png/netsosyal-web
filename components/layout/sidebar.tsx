@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { MODULES_CONFIG } from '../../lib/constants/modules'
 import {
   USER_PERMISSIONS_SETTING_KEY,
@@ -10,6 +10,8 @@ import {
   type UserPermissionsById,
 } from '../../lib/constants/userPermissions'
 import { hasHizliSatisAccess } from '../../lib/constants/pageAccess'
+import { useWorkflowCounts } from '../../lib/hooks/useWorkflowCounts'
+import { WORKFLOW_TONE, WorkflowCountBadge } from './WorkflowCountBadge'
 import { AUTHORIZED_PERSONNEL_SETTING_KEY, type AuthorizedPersonnelEntry } from '../../lib/constants/authorizedPersonnel'
 import { useTabs } from '../../lib/context/TabContext'
 
@@ -172,6 +174,44 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   // "Kurum İçi Mesaj" butonu - okunmamış mesaj/duyuru sayısını rozet
   // olarak gösterir (bkz. header.tsx'teki eski karşılığı, aynı uç nokta).
   const [communicationUnreadCount, setCommunicationUnreadCount] = useState(0)
+  // 2026-10-14: "Menüde ara" - DOM uzerinden suzme (menu ogeleri yetkiye
+  // gore kosullu ve dagitik render edildigi icin tek bir veri listesi yok).
+  const [navSearch, setNavSearch] = useState('')
+  const navRef = useRef<HTMLElement>(null)
+  const savedDetailsOpenRef = useRef<Map<HTMLDetailsElement, boolean> | null>(null)
+  useEffect(() => {
+    const nav = navRef.current
+    if (!nav) return
+    const fold = (v: string) => v.toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i')
+    const q = fold(navSearch.trim())
+    const labels = Array.from(nav.querySelectorAll<HTMLElement>('.dy-nav-label'))
+    const detailsList = Array.from(nav.querySelectorAll<HTMLDetailsElement>('details'))
+    const leaves = Array.from(nav.querySelectorAll<HTMLElement>('a, button')).filter((el) => !el.closest('.dy-nav-search'))
+    if (!q) {
+      labels.forEach((el) => { el.style.display = '' })
+      leaves.forEach((el) => { el.style.display = '' })
+      detailsList.forEach((d) => { d.style.display = '' })
+      if (savedDetailsOpenRef.current) {
+        savedDetailsOpenRef.current.forEach((wasOpen, d) => { d.open = wasOpen })
+        savedDetailsOpenRef.current = null
+      }
+      return
+    }
+    if (!savedDetailsOpenRef.current) savedDetailsOpenRef.current = new Map(detailsList.map((d) => [d, d.open]))
+    labels.forEach((el) => { el.style.display = 'none' })
+    leaves.forEach((el) => { el.style.display = fold(el.textContent || '').includes(q) ? '' : 'none' })
+    // icten disa: bir details, basligi eslesirse tum alt ogeleriyle, ya da
+    // altinda eslesen bir oge varsa gorunur ve acik olur.
+    detailsList.slice().reverse().forEach((d) => {
+      const summary = d.querySelector(':scope > summary')
+      const headerMatch = fold(summary?.textContent || '').includes(q)
+      if (headerMatch) d.querySelectorAll<HTMLElement>('a, button, details').forEach((el) => { el.style.display = '' })
+      const childVisible = Array.from(d.querySelectorAll<HTMLElement>(':scope > div a, :scope > div button, :scope > div details')).some((el) => el.style.display !== 'none')
+      const visible = headerMatch || childVisible
+      d.style.display = visible ? '' : 'none'
+      if (visible) d.open = true
+    })
+  }, [navSearch])
   const [openMenus, setOpenMenus] = useState({
     yardimlar: pathname.startsWith('/assistance') && !isReportSectionPath(pathname),
     digerYardimlar: pathname.startsWith('/assistance/aceze'),
@@ -195,6 +235,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       logs: pathname.startsWith('/logs'),
     })
   }, [pathname])
+
+  // Kullanici istegi (2026-10-14): Is Akisi listelerinde (Ön İnceleme /
+  // Tahkikat / Sonuç Bekleyen) bekleyen dosya varsa menu ogesinin uzerinde
+  // sayi bildirimi + dosya durumu rengi (sari / turuncu / mavi). Sayilar
+  // listelerle AYNI kuraldan gelir (bkz. /api/workflow/counts). Sayfa
+  // degisince ve 90 sn'de bir (sekme gorunurken) yenilenir.
+  const workflowCounts = useWorkflowCounts(pathname)
 
   useEffect(() => {
     let isCancelled = false
@@ -441,9 +488,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           kutusu. Alttaki nav govdesi (okunurluk/kontrast riski dusuk
           tutmak icin) acik zeminde kaliyor, sadece vurgu renkleri
           (asagidaki [&_...] override'lari) teal/bronz'a cevrildi. */}
-      <div className="relative overflow-hidden border-b border-[#1B2E3F] bg-[#101E2B] px-4 py-4">
+      <div className="relative overflow-hidden border-b-2 border-[#b8860b] bg-gradient-to-br from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-4 py-4">
         <div className="relative flex items-center gap-3">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white p-2 shadow-md">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white p-1.5 shadow-md ring-2 ring-[#b8860b]/60">
             <img
               src={generalSettings.logoDataUrl || defaultGeneralSettings.logoDataUrl}
               alt={`${generalSettings.institutionName || defaultGeneralSettings.institutionName} logosu`}
@@ -451,14 +498,28 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             />
           </div>
           <div className="min-w-0 text-left">
-            <h1 className="dy-id-name truncate text-[16px] font-semibold leading-tight text-white">{generalSettings.institutionName || defaultGeneralSettings.institutionName}</h1>
-            <p className="mt-1 truncate text-[12px] font-medium leading-tight text-[#8FA0AA]">{generalSettings.departmentName || defaultGeneralSettings.departmentName}</p>
+            <h1 className="dy-id-name truncate text-[16.5px] font-bold leading-tight tracking-[0.01em] text-white">{generalSettings.institutionName || defaultGeneralSettings.institutionName}</h1>
+            <p className="mt-1 line-clamp-2 text-[12px] font-medium uppercase leading-snug tracking-[0.04em] text-[#C9D6E8]">{generalSettings.departmentName || defaultGeneralSettings.departmentName}</p>
           </div>
         </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto bg-white px-3 py-3 [scrollbar-color:#B98A34_transparent] [scrollbar-width:thin] [&_.bg-sky-50]:!border-[#E2E5DE] [&_.bg-sky-50]:!bg-[#F1F3EF] [&_.bg-sky-50]:!bg-none [&_.bg-sky-50]:shadow-none [&_.bg-sky-600]:!bg-[#0E7C86] [&_.from-sky-500]:!from-[#0E7C86] [&_.to-blue-700]:!to-[#0A5F67] [&_.border-sky-600]:!border-[#0A5F67] [&_a]:!py-0.5 [&_a:hover]:bg-[#F1F3EF] [&_button]:!py-0.5 [&_button:hover]:bg-[#F1F3EF] [&_summary]:!py-0.5 [&_summary:hover]:bg-[#F1F3EF] [&_details>div]:!mt-0 [&_details>div]:!pb-0 dark:[&_.bg-sky-50]:!border-sky-800 dark:[&_.bg-sky-50]:!from-sky-950 dark:[&_.bg-sky-50]:!via-slate-900 dark:[&_.bg-sky-50]:!to-emerald-950 dark:[&_.text-slate-600]:!text-slate-300 dark:[&_.text-slate-500]:!text-slate-400 dark:[&_.text-slate-700]:!text-slate-200 dark:[&_a]:!border-slate-700/60 dark:[&_button]:!border-slate-700/60 dark:[&_summary]:!border-slate-700/60 dark:[&_.bg-white]:!bg-slate-900 dark:[&_.bg-slate-50]:!bg-slate-800/70">
-        <p className="mb-2 rounded-lg bg-[#101E2B] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-sm">Genel</p>
+      <nav ref={navRef} className="dy-nav flex-1 overflow-y-auto bg-white px-3 py-3 [scrollbar-color:#C9D3DA_transparent] [scrollbar-width:thin]">
+        {/* 2026-10-14: menude arama - yazdikca ogeler suzulur (bkz. useEffect navSearch) */}
+        <div className="dy-nav-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path strokeLinecap="round" d="m20 20-3.5-3.5" /></svg>
+          <input
+            value={navSearch}
+            onChange={(event) => setNavSearch(event.target.value)}
+            onKeyDown={(event) => { if (event.key === 'Escape') setNavSearch('') }}
+            placeholder="Menüde ara…"
+            aria-label="Menüde ara"
+          />
+          {navSearch && (
+            <button type="button" onClick={() => setNavSearch('')} aria-label="Aramayı temizle" className="dy-nav-search-clear">×</button>
+          )}
+        </div>
+        <p className="dy-nav-label">Genel</p>
         
         {canViewPath('/') && (() => {
           // Kullanici istegi (Eylul 2026): "/" artik Dosya Yonetimi'ne
@@ -644,7 +705,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         </button>
         )}
 
-        <p className="mb-2 mt-5 rounded-lg bg-[#0A5F67] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-sm">Modüller</p>
+        <p className="dy-nav-label">Yardım İşlemleri</p>
         <div className="space-y-0.5">
 
           {/* Dosyalar Sabit Butonu */}
@@ -746,9 +807,13 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               {/* Yardımlar Alt Menüsü */}
               <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-1.5 pb-1">
                   {yardimlarModules.map((moduleItem) => {
+                    // Nakit Yardimi ogesinin yolu alt sayfa (/assistance/nakit/muracaatlar);
+                    // Nakit'in diger sayfalari (iptal edilenler, kriter/otomatik red
+                    // sonuclari vb.) acikken de bu oge vurgulu kalsin (2026-10-13).
                     const isActive = moduleItem.path === '/reports'
                       ? pathname === moduleItem.path
                       : pathname === moduleItem.path || pathname.startsWith(`${moduleItem.path}/`)
+                        || (moduleItem.path.startsWith('/assistance/nakit/') && (pathname === '/assistance/nakit' || pathname.startsWith('/assistance/nakit/')))
 
                     return (
                       <button
@@ -859,82 +924,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                     </div>
                   )
                 })}
-              </div>
-            </details>
-          )}
-
-          {/* Raporlar Ana Başlığı (Açılır/Kapanır) */}
-          {raporlarModules.length > 0 && (
-            <details
-              className="group"
-              open={openMenus.raporlar}
-              onToggle={(e) => {
-                const isOpen = e.currentTarget.open
-                setOpenMenus((prev) => ({ ...prev, raporlar: isOpen }))
-              }}
-            >
-              <summary
-                className={`list-none outline-none cursor-pointer [&::-webkit-details-marker]:hidden relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
-                  isReportSectionPath(pathname)
-                    ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {isReportSectionPath(pathname) && (
-                  <span className="absolute left-0 h-6 w-1 rounded-r-full bg-sky-600" />
-                )}
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 ${
-                    isReportSectionPath(pathname) ? 'bg-gradient-to-br from-violet-500 to-purple-700 text-white border-violet-600' : 'bg-gradient-to-br from-violet-500 to-purple-600 text-white border-violet-500'
-                  }`}
-                >
-                  <ModuleIcon icon="bar-chart" className="h-4 w-4" />
-                </span>
-                <span className="text-[15px] font-extrabold flex-1 text-left">Raporlar</span>
-                <svg
-                  className="w-4 h-4 transition-transform duration-200 group-open:rotate-180"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </summary>
-
-              {/* Raporlar Alt Menüsü */}
-              <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-1.5 pb-1">
-                  {raporlarModules.map((moduleItem) => {
-                    const isActive = pathname === moduleItem.path || pathname.startsWith(`${moduleItem.path}/`)
-
-                    return (
-                      <button
-                        key={moduleItem.path}
-                        onClick={() => addTab({ title: moduleItem.label, path: moduleItem.path })}
-                        className={`group relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
-                          isActive
-                            ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
-                            : 'text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        {isActive && (
-                          <span className="absolute -left-[10px] h-6 w-1 rounded-r-full bg-sky-600" />
-                        )}
-                        <span
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 text-[10px] ${
-                            isActive ? 'bg-gradient-to-br from-sky-500 to-blue-700 text-white border-sky-600' : moduleItem.colorClass
-                          }`}
-                        >
-                          {moduleItem.iconLabel || 'MD'}
-                        </span>
-                        <span title={moduleItem.label} className="truncate text-[14px] font-extrabold">{moduleItem.label}</span>
-                        <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
-                          isActive
-                            ? 'bg-[#B98A34] opacity-100'
-                            : 'bg-slate-300 opacity-0 group-hover:opacity-100'
-                        }`} />
-                      </button>
-                    )
-                  })}
               </div>
             </details>
           )}
@@ -1091,6 +1080,84 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           </Link>
           )}
 
+          {raporlarModules.length > 0 && <p className="dy-nav-label">Raporlar</p>}
+          {/* Raporlar Ana Başlığı (Açılır/Kapanır) */}
+          {raporlarModules.length > 0 && (
+            <details
+              className="group"
+              open={openMenus.raporlar}
+              onToggle={(e) => {
+                const isOpen = e.currentTarget.open
+                setOpenMenus((prev) => ({ ...prev, raporlar: isOpen }))
+              }}
+            >
+              <summary
+                className={`list-none outline-none cursor-pointer [&::-webkit-details-marker]:hidden relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
+                  isReportSectionPath(pathname)
+                    ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {isReportSectionPath(pathname) && (
+                  <span className="absolute left-0 h-6 w-1 rounded-r-full bg-sky-600" />
+                )}
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 ${
+                    isReportSectionPath(pathname) ? 'bg-gradient-to-br from-violet-500 to-purple-700 text-white border-violet-600' : 'bg-gradient-to-br from-violet-500 to-purple-600 text-white border-violet-500'
+                  }`}
+                >
+                  <ModuleIcon icon="bar-chart" className="h-4 w-4" />
+                </span>
+                <span className="text-[15px] font-extrabold flex-1 text-left">Raporlar</span>
+                <svg
+                  className="w-4 h-4 transition-transform duration-200 group-open:rotate-180"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+
+              {/* Raporlar Alt Menüsü */}
+              <div className="ml-3 mt-1 space-y-0.5 border-l-2 border-slate-100 pl-1.5 pb-1">
+                  {raporlarModules.map((moduleItem) => {
+                    const isActive = pathname === moduleItem.path || pathname.startsWith(`${moduleItem.path}/`)
+
+                    return (
+                      <button
+                        key={moduleItem.path}
+                        onClick={() => addTab({ title: moduleItem.label, path: moduleItem.path })}
+                        className={`group relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
+                          isActive
+                            ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
+                            : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {isActive && (
+                          <span className="absolute -left-[10px] h-6 w-1 rounded-r-full bg-sky-600" />
+                        )}
+                        <span
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 text-[10px] ${
+                            isActive ? 'bg-gradient-to-br from-sky-500 to-blue-700 text-white border-sky-600' : moduleItem.colorClass
+                          }`}
+                        >
+                          {moduleItem.iconLabel || 'MD'}
+                        </span>
+                        <span title={moduleItem.label} className="truncate text-[14px] font-extrabold">{moduleItem.label}</span>
+                        <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
+                          isActive
+                            ? 'bg-[#B98A34] opacity-100'
+                            : 'bg-slate-300 opacity-0 group-hover:opacity-100'
+                        }`} />
+                      </button>
+                    )
+                  })}
+              </div>
+            </details>
+          )}
+
+          {(canViewAnyPath(['/workflow/on-inceleme', '/workflow/tahkikat', '/workflow/guncelleme', '/workflow/sonuc', '/workflow/mahalle-gruplari']) || hasHizliSatisAccess(permissionConfig) || canViewPath('/dernek') || otherModules.length > 0 || canViewAnyPath(['/settings', '/users', '/logs/history', '/logs/trash', '/sql-monitor', '/scheduled-tasks', '/asistan'])) && <p className="dy-nav-label">Yönetim</p>}
           {/* İş Akışı Ana Başlığı (Açılır/Kapanır) */}
           {canViewAnyPath(['/workflow/on-inceleme', '/workflow/tahkikat', '/workflow/guncelleme', '/workflow/sonuc', '/workflow/mahalle-gruplari']) && (
           <details
@@ -1119,6 +1186,14 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 <ModuleIcon icon="workflow" className="h-4 w-4" />
               </span>
               <span className="text-[15px] font-extrabold flex-1 text-left">İş Akışı</span>
+              {/* Menu kapaliyken de bekleyenler gorunsun (2026-10-14) */}
+              {!openMenus.workflow && workflowCounts && (
+                <span className="flex items-center gap-1">
+                  {workflowCounts.onInceleme > 0 && <span title={`Ön İnceleme: ${workflowCounts.onInceleme}`} className={`rounded-full px-1.5 text-[11px] font-black tabular-nums ring-1 ${WORKFLOW_TONE.sari.badge}`}>{workflowCounts.onInceleme}</span>}
+                  {workflowCounts.tahkikat > 0 && <span title={`Tahkikat: ${workflowCounts.tahkikat}`} className={`rounded-full px-1.5 text-[11px] font-black tabular-nums ring-1 ${WORKFLOW_TONE.turuncu.badge}`}>{workflowCounts.tahkikat}</span>}
+                  {workflowCounts.sonucBekleyen > 0 && <span title={`Sonuç Bekleyen: ${workflowCounts.sonucBekleyen}`} className={`rounded-full px-1.5 text-[11px] font-black tabular-nums ring-1 ${WORKFLOW_TONE.mavi.badge}`}>{workflowCounts.sonucBekleyen}</span>}
+                </span>
+              )}
               <svg
                 className="w-4 h-4 transition-transform duration-200 group-open:rotate-180"
                 fill="none"
@@ -1137,7 +1212,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
                   pathname === '/workflow/on-inceleme' || pathname.startsWith('/workflow/on-inceleme/')
                     ? 'bg-yellow-100 text-yellow-950 shadow-sm'
-                    : 'text-slate-600 hover:bg-yellow-50 hover:text-yellow-900'
+                    : (workflowCounts?.onInceleme ?? 0) > 0
+                      ? WORKFLOW_TONE.sari.item
+                      : 'text-slate-600 hover:bg-yellow-50 hover:text-yellow-900'
                 }`}
               >
                 {(pathname === '/workflow/on-inceleme' || pathname.startsWith('/workflow/on-inceleme/')) && (
@@ -1145,19 +1222,23 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 )}
                 <span
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[10px] transition-transform group-hover:scale-110 ${
-                    pathname === '/workflow/on-inceleme' || pathname.startsWith('/workflow/on-inceleme/')
-                      ? 'border-yellow-400 bg-yellow-400 text-yellow-950'
+                    pathname === '/workflow/on-inceleme' || pathname.startsWith('/workflow/on-inceleme/') || (workflowCounts?.onInceleme ?? 0) > 0
+                      ? WORKFLOW_TONE.sari.icon
                       : 'border-yellow-200 bg-yellow-100 text-yellow-800'
                   }`}
                 >
                   Öİ
                 </span>
                 <span title="Ön İnceleme" className="truncate text-[14px] font-extrabold">Ön İnceleme</span>
+                {(workflowCounts?.onInceleme ?? 0) > 0 ? (
+                  <WorkflowCountBadge count={workflowCounts!.onInceleme} tone="sari" label="Ön İnceleme" />
+                ) : (
                 <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
                   pathname === '/workflow/on-inceleme' || pathname.startsWith('/workflow/on-inceleme/')
                     ? 'bg-[#B98A34] opacity-100'
                     : 'bg-slate-300 opacity-0 group-hover:opacity-100'
                 }`} />
+                )}
               </Link>
               )}
 
@@ -1166,7 +1247,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
                   pathname === '/workflow/tahkikat' || pathname.startsWith('/workflow/tahkikat/')
                     ? 'bg-orange-100 text-orange-900 shadow-sm'
-                    : 'text-slate-600 hover:bg-orange-50 hover:text-orange-800'
+                    : (workflowCounts?.tahkikat ?? 0) > 0
+                      ? WORKFLOW_TONE.turuncu.item
+                      : 'text-slate-600 hover:bg-orange-50 hover:text-orange-800'
                 }`}
               >
                 {(pathname === '/workflow/tahkikat' || pathname.startsWith('/workflow/tahkikat/')) && (
@@ -1174,17 +1257,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 )}
                 <span
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 text-[10px] ${
-                    pathname === '/workflow/tahkikat' || pathname.startsWith('/workflow/tahkikat/') ? 'bg-gradient-to-br from-orange-500 to-amber-600 text-white border-orange-600' : 'bg-orange-50 text-orange-600 border-orange-200'
+                    pathname === '/workflow/tahkikat' || pathname.startsWith('/workflow/tahkikat/') || (workflowCounts?.tahkikat ?? 0) > 0 ? WORKFLOW_TONE.turuncu.icon : 'bg-orange-50 text-orange-600 border-orange-200'
                   }`}
                 >
                   TH
                 </span>
                 <span title="Tahkikat" className="truncate text-[14px] font-extrabold">Tahkikat</span>
+                {(workflowCounts?.tahkikat ?? 0) > 0 ? (
+                  <WorkflowCountBadge count={workflowCounts!.tahkikat} tone="turuncu" label="Tahkikat" />
+                ) : (
                 <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
                   pathname === '/workflow/tahkikat' || pathname.startsWith('/workflow/tahkikat/')
                     ? 'bg-[#B98A34] opacity-100'
                     : 'bg-slate-300 opacity-0 group-hover:opacity-100'
                 }`} />
+                )}
               </Link>
 
               <Link
@@ -1192,7 +1279,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
                   pathname === '/workflow/guncelleme' || pathname.startsWith('/workflow/guncelleme/')
                     ? 'bg-blue-100 text-blue-900 shadow-sm'
-                    : 'text-slate-600 hover:bg-blue-50 hover:text-blue-800'
+                    : (workflowCounts?.sonucBekleyen ?? 0) > 0
+                      ? WORKFLOW_TONE.mavi.item
+                      : 'text-slate-600 hover:bg-blue-50 hover:text-blue-800'
                 }`}
               >
                 {(pathname === '/workflow/guncelleme' || pathname.startsWith('/workflow/guncelleme/')) && (
@@ -1200,17 +1289,21 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 )}
                 <span
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 text-[10px] ${
-                    pathname === '/workflow/guncelleme' || pathname.startsWith('/workflow/guncelleme/') ? 'border-blue-600 bg-blue-600 text-white' : 'border-blue-200 bg-blue-50 text-blue-700'
+                    pathname === '/workflow/guncelleme' || pathname.startsWith('/workflow/guncelleme/') || (workflowCounts?.sonucBekleyen ?? 0) > 0 ? WORKFLOW_TONE.mavi.icon : 'border-blue-200 bg-blue-50 text-blue-700'
                   }`}
                 >
                   GN
                 </span>
                 <span title="Sonuç Bekleyen" className="truncate text-[14px] font-extrabold">Sonuç Bekleyen</span>
+                {(workflowCounts?.sonucBekleyen ?? 0) > 0 ? (
+                  <WorkflowCountBadge count={workflowCounts!.sonucBekleyen} tone="mavi" label="Sonuç Bekleyen" />
+                ) : (
                 <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
                   pathname === '/workflow/guncelleme' || pathname.startsWith('/workflow/guncelleme/')
                     ? 'bg-[#B98A34] opacity-100'
                     : 'bg-slate-300 opacity-0 group-hover:opacity-100'
                 }`} />
+                )}
               </Link>
 
               <Link
@@ -1281,8 +1374,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               bu basligi gorunur kilar (bkz. lib/constants/pageAccess.ts
               hasHizliSatisAccess) - yoksa SADECE Hizli Satis'a yetkili
               (genel "/muhasebe" yetkisi OLMAYAN) bir kullanici "Muhasebe"
-              basligini hic goremezdi. */}
-          {hasHizliSatisAccess(permissionConfig) && (
+              basligini hic goremezdi. Ayni sebeple (2026-10-11): "Dernek
+              İşlemleri" bu basligin ALT MENUSUNE tasindigi icin, SADECE
+              Dernek yetkisi olan (Hizli Satis yetkisi OLMAYAN) bir kullanici
+              da bu basligi gorebilsin diye canViewPath('/dernek') de eklendi. */}
+          {(hasHizliSatisAccess(permissionConfig) || canViewPath('/dernek')) && (
           <details
             className="group"
             open={openMenus.muhasebe}
@@ -1335,47 +1431,65 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 <span className="ml-auto h-1.5 w-1.5 rounded-full bg-slate-300 opacity-0 transition-all group-hover:opacity-100" />
               </a>
               )}
+              {/* Dernek İşlemleri - Kullanici istegi (2026-10-11): artik
+                  bagimsiz bir sidebar butonu DEGIL, Muhasebe'nin alt menusu
+                  icinde Satış ile ayni hizada. "/dernek" DOGRUDAN proxy'nin
+                  kendisi (bkz. app/dernek/[[...path]]/route.ts). Duz <a>
+                  (Link DEGIL) kullanilir - MODULES_CONFIG'e kayitli "/dernek"
+                  yolu, TabContext'in bu pencerede fazladan bir sekme
+                  acmasina yol acabilirdi, duz <a> bu etkilesimi tamamen
+                  devre disi birakir. */}
+              {canViewPath('/dernek') && (
+              <a
+                href="/dernek"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-600 transition-all duration-200 hover:bg-teal-50 hover:text-teal-800"
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-teal-200 bg-teal-50 text-[10px] text-teal-700 transition-transform group-hover:scale-110">
+                  DR
+                </span>
+                <span title="Dernek İşlemleri" className="truncate text-[14px] font-extrabold">Dernek İşlemleri</span>
+                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-slate-300 opacity-0 transition-all group-hover:opacity-100" />
+              </a>
+              )}
             </div>
           </details>
           )}
 
-          {/* Dernek İşlemleri Sabit Butonu - duz <a> (Link DEGIL) kullanilir:
-              "/dernek" artik DOGRUDAN proxy'nin kendisi (bkz. app/dernek/
-              [[...path]]/route.ts - eskiden ayri bir "/dernek-app" + bir
-              "/dernek" yonlendirme sayfasi vardi, kullanici istegiyle
-              birlestirildi). Yine de Next.js'in Link bileseni yerine duz <a>
-              tercih edilir - MODULES_CONFIG'e kayitli "/dernek" yolu,
-              TabContext'in bu pencerede fazladan bir sekme acmasina yol
-              acabilirdi, duz <a> bu etkilesimi tamamen devre disi birakir. */}
-          {canViewPath('/dernek') && (
-          <a
-            href="/dernek"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
-              pathname.startsWith('/dernek')
-                ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
-                : 'text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {pathname.startsWith('/dernek') && (
-              <span className="absolute left-0 h-6 w-1 rounded-r-full bg-sky-600" />
-            )}
-            <span
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 ${
-                pathname.startsWith('/dernek') ? 'bg-gradient-to-br from-teal-500 to-emerald-700 text-white border-teal-600' : 'bg-gradient-to-br from-teal-500 to-emerald-600 text-white border-teal-500'
-              }`}
-            >
-              <ModuleIcon icon="badge-check" className="h-4 w-4" />
-            </span>
-            <span className="text-[15px] font-extrabold flex-1 text-left">Dernek İşlemleri</span>
-            <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
-              pathname.startsWith('/dernek')
-                ? 'bg-[#B98A34] opacity-100'
-                : 'bg-slate-300 opacity-0 group-hover:opacity-100'
-            }`} />
-          </a>
-          )}
+          {/* Diğer Modüller */}
+          {otherModules.map((moduleItem) => {
+            const isActive = pathname === moduleItem.path || pathname.startsWith(`${moduleItem.path}/`)
+
+            return (
+              <Link
+                key={moduleItem.path}
+                href={moduleItem.path}
+                className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
+                  isActive
+                    ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {isActive && (
+                  <span className="absolute left-0 h-6 w-1 rounded-r-full bg-sky-600" />
+                )}
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 ${
+                    isActive ? 'bg-gradient-to-br from-sky-500 to-blue-700 text-white border-sky-600' : moduleItem.colorClass
+                  }`}
+                >
+                  <ModuleIcon icon={moduleItem.icon} className="h-4 w-4" />
+                </span>
+                <span title={moduleItem.label} className="truncate text-[15px] font-extrabold">{moduleItem.label}</span>
+                <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
+                  isActive
+                    ? 'bg-[#B98A34] opacity-100'
+                    : 'bg-slate-300 opacity-0 group-hover:opacity-100'
+                }`} />
+              </Link>
+            )
+          })}
 
           {/* Ayarlar Ana Başlığı (Açılır/Kapanır) */}
           {/* Kullanici istegi (Agustos 2026): SADECE "Ayarlar" butonu, sidebarin
@@ -1584,7 +1698,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                         <span className="absolute -left-[10px] h-5 w-1 rounded-r-full bg-indigo-600" />
                       )}
                       <span className={`h-1.5 w-1.5 rounded-full ${isUserPermissionPage ? 'bg-indigo-600' : 'bg-slate-300'}`} />
-                      <span className="truncate">Kullanıcı Yetki</span>
+                      <span className="truncate">Kullanıcı Yetkileri</span>
                     </Link>
                   )}
                 </div>
@@ -1722,39 +1836,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           </details>
           )}
 
-          {/* Diğer Modüller */}
-          {otherModules.map((moduleItem) => {
-            const isActive = pathname === moduleItem.path || pathname.startsWith(`${moduleItem.path}/`)
-
-            return (
-              <Link
-                key={moduleItem.path}
-                href={moduleItem.path}
-                className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
-                  isActive
-                    ? 'bg-sky-50 text-[#0A5F67] shadow-sm'
-                    : 'text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {isActive && (
-                  <span className="absolute left-0 h-6 w-1 rounded-r-full bg-sky-600" />
-                )}
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 ${
-                    isActive ? 'bg-gradient-to-br from-sky-500 to-blue-700 text-white border-sky-600' : moduleItem.colorClass
-                  }`}
-                >
-                  <ModuleIcon icon={moduleItem.icon} className="h-4 w-4" />
-                </span>
-                <span title={moduleItem.label} className="truncate text-[15px] font-extrabold">{moduleItem.label}</span>
-                <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
-                  isActive
-                    ? 'bg-[#B98A34] opacity-100'
-                    : 'bg-slate-300 opacity-0 group-hover:opacity-100'
-                }`} />
-              </Link>
-            )
-          })}
         </div>
       </nav>
 
@@ -1770,7 +1851,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           sidebar'in EN ALTINA tasindi. Tiklayinca header.tsx'teki Profilim
           modalini 'netsosyal:open-profile' olayiyla acar. */}
       {currentUser && (
-        <div className="flex w-full shrink-0 items-center gap-1.5 border-t border-[#E2E5DE] bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
+        <div className="dy-user-card flex w-full shrink-0 items-center gap-2 border-t border-[#E2E5DE] bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent('netsosyal:open-profile'))}
@@ -1782,17 +1863,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
               <img
                 src={`/api/users/${encodeURIComponent(currentUser.id)}/photo`}
                 alt={currentUser.name}
-                className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 object-cover shadow-sm dark:border-slate-600"
+                className="h-10 w-10 shrink-0 rounded-full border border-slate-200 object-cover shadow-sm ring-2 ring-white dark:border-slate-600 dark:ring-slate-800"
                 onError={() => setAvatarFailed(true)}
               />
             ) : (
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0E7C86] text-sm font-black text-white shadow-sm">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#12305f] to-[#1a4580] text-[13px] font-bold text-white shadow-sm ring-2 ring-[#b8860b]/50">
                 {(currentUser.name || 'KU').trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toLocaleUpperCase('tr-TR') ?? '').join('') || 'KU'}
               </span>
             )}
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-black text-[#16232B] dark:text-sky-300">{currentUser.name}</span>
-              <span className="block truncate text-[11px] font-bold text-[#5B6B74] dark:text-slate-400">{currentUser.department}</span>
+              <span className="dy-user-name block truncate text-[13px] font-black text-[#16232B] dark:text-sky-300">{currentUser.name}</span>
+              <span className="dy-user-dept block truncate text-[11px] font-bold text-[#5B6B74] dark:text-slate-400">{currentUser.department}</span>
             </span>
           </button>
           <button
@@ -1800,7 +1881,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             onClick={handleLogout}
             disabled={isLoggingOut}
             title={isLoggingOut ? 'Çıkılıyor...' : 'Çıkış Yap'}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 disabled:cursor-wait disabled:opacity-50 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400 dark:hover:bg-rose-900/40"
+            className="dy-logout flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100 disabled:cursor-wait disabled:opacity-50 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400 dark:hover:bg-rose-900/40"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="h-4 w-4" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M18 12H9m9 0l-3-3m3 3l-3 3" />

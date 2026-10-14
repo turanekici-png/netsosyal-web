@@ -6,6 +6,12 @@ type ReportPageHeaderProps = {
   description?: string
   actions?: ReactNode
   className?: string
+  // Kullanici istegi (2026-10-14, Yardımlar kurumsal tur): SADECE verildiginde
+  // gosterilir - basligin ustunde kucuk altin "Yardım Yönetimi › ..." yol
+  // satiri ve altinda bilgi satiri. Diger rapor sayfalari bunlari gecmedigi
+  // icin gorunumleri DEGISMEZ.
+  kicker?: string
+  subtitle?: ReactNode
 }
 
 // Kullanici istegi (2026-09-30): Dosya Yönetimi sayfasinda "Raporlar ve
@@ -22,6 +28,8 @@ export function ReportPageHeader({
   description: _description,
   actions,
   className = '',
+  kicker,
+  subtitle,
 }: ReportPageHeaderProps) {
   return (
     <div
@@ -29,9 +37,19 @@ export function ReportPageHeader({
     >
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
         <div className="min-w-0">
+          {kicker && (
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.14em] text-[#D4B26A] md:text-[12px]">
+              {kicker}
+            </p>
+          )}
           <h1 className="text-[18px] font-semibold uppercase tracking-wide leading-tight text-white md:text-[26px]">
             {title}
           </h1>
+          {subtitle && (
+            <div className="mt-1 text-[12px] font-medium text-slate-300 md:text-[13.5px]">
+              {subtitle}
+            </div>
+          )}
         </div>
 
         {actions && (

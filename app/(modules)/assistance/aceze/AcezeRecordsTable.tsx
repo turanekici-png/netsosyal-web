@@ -9,6 +9,7 @@ import { printFormDesignHtml } from '@/lib/printFormDesign'
 import { usePersonPredefinedOptions } from '@/lib/hooks/usePersonPredefinedOptions'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { REQUIRED_PRINT_AGENT_VERSION } from '@/lib/printAgentClient'
+import { AssistanceStatStrip } from '../_components/AssistanceStatStrip'
 
 type Props = { rows: Record<string, unknown>[]; totalCount: number; currentPage: number; pageSize: number; searchTerm: string }
 type FormState = {
@@ -161,21 +162,22 @@ export function AcezeRecordsTable({ rows, totalCount, currentPage, pageSize, sea
   }
 
   return <div className="dy-yardim-rapor-17 space-y-5">
-    <div className="relative overflow-hidden rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-[#064e5f] via-[#087f8c] to-[#22a76f] p-5 text-white shadow-[0_24px_60px_-34px_rgba(5,150,105,0.8)] sm:p-7">
-      <div className="absolute -right-12 -top-16 h-44 w-44 rounded-full border-[26px] border-white/10" />
-      <div className="absolute -bottom-14 right-1/3 h-28 w-28 rounded-full bg-sky-300/20 blur-2xl" />
-      <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div><p className="text-[11px] font-black uppercase tracking-[0.22em] text-emerald-100">Aceze Yardımı</p><h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">Kayıtlı Başvurular</h1><p className="mt-2 max-w-xl text-sm font-semibold text-white/80">Başvuruları görüntüleyin, düzenleyin ve form tasarımıyla yazdırın.</p></div>
-        <div className="grid grid-cols-2 gap-2 sm:flex"><div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 backdrop-blur"><span className="block text-[10px] font-black uppercase tracking-wider text-emerald-100">Toplam Kayıt</span><strong className="mt-0.5 block text-2xl font-black">{totalCount}</strong></div><div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 backdrop-blur"><span className="block text-[10px] font-black uppercase tracking-wider text-emerald-100">Sayfa</span><strong className="mt-0.5 block text-2xl font-black">{currentPage}/{totalPages}</strong></div></div>
-      </div>
-    </div>
-    <form onSubmit={(event) => { event.preventDefault(); navigate(1, search) }} className="flex min-w-0 flex-col gap-3 rounded-2xl border border-sky-200/80 bg-gradient-to-r from-white via-sky-50/60 to-emerald-50/60 p-4 shadow-[0_14px_35px_-26px_rgba(2,132,199,0.9)] sm:flex-row sm:p-5">
-      <div className="relative min-w-0 flex-1"><svg className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-sky-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path strokeLinecap="round" d="m20 20-4-4"/></svg><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ad soyad, TC, dosya no, mahalle, adres, neden veya hastalık ara" className={`${inputClass} h-12 pl-11 shadow-sm`} /></div>
-      <button className="min-h-12 rounded-xl bg-gradient-to-r from-[#006ba6] to-[#0095cf] px-8 text-sm font-black text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 hover:shadow-xl">Kayıtlarda Ara</button>
-      <button type="button" onClick={clearFilters} className="min-h-12 rounded-xl border border-rose-200 bg-white px-6 text-sm font-black text-rose-600 shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-50 hover:shadow-md">Filtreleri Temizle</button>
+    {/* Kurumsal tur (2026-10-14): eski yesil degrade "Kayıtlı Başvurular"
+        basligi kaldirildi (sayfa basligi artik page.tsx'te) - sayilar
+        diger yardim listeleriyle AYNI ince ozet seridinde. */}
+    <AssistanceStatStrip
+      items={[
+        { label: 'Toplam Kayıt', value: totalCount },
+        { label: 'Sayfa', value: `${currentPage} / ${totalPages}` },
+      ]}
+    />
+    <form onSubmit={(event) => { event.preventDefault(); navigate(1, search) }} className="flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 border-t-[3px] border-t-[#1E2A38] bg-white p-4 shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)] sm:flex-row sm:p-5">
+      <div className="relative min-w-0 flex-1"><svg className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"/><path strokeLinecap="round" d="m20 20-4-4"/></svg><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Ad soyad, TC, dosya no, mahalle, adres, neden veya hastalık ara" className={`${inputClass} h-12 pl-11 shadow-sm`} /></div>
+      <button className="min-h-12 rounded-xl bg-[#1E2A38] px-8 text-sm font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#2A3B4D]">Kayıtlarda Ara</button>
+      <button type="button" onClick={clearFilters} className="min-h-12 rounded-xl border border-slate-300 bg-white px-6 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">Filtreleri Temizle</button>
     </form>
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_45px_-32px_rgba(15,23,42,0.55)]">
-      <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-r from-sky-50 to-emerald-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)]">
+      <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
           <h2 className="text-base font-black text-slate-900">Aceze Yardımları Listesi</h2>
           <p className="mt-0.5 text-xs font-bold text-slate-500">Yazdırmak için kaydı bir kez seçin; bilgilerini açmak için çift tıklayın.</p>
@@ -190,7 +192,7 @@ export function AcezeRecordsTable({ rows, totalCount, currentPage, pageSize, sea
             type="button"
             onClick={() => selectedRow && void print(rowToForm(selectedRow))}
             disabled={!selectedRow || !!busy}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-5 text-[15px] font-black uppercase text-white shadow-lg shadow-emerald-200 transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#1E2A38] px-5 text-[15px] font-bold uppercase text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <span aria-hidden="true">⎙</span>
             {busy === 'print' ? 'Yazdırılıyor...' : 'Yazdır'}
@@ -205,8 +207,8 @@ export function AcezeRecordsTable({ rows, totalCount, currentPage, pageSize, sea
     </div>
     {form && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-2 sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setForm(null) }}>
       <form onSubmit={save} className="flex max-h-[96vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl">
-        <div className="relative flex items-center justify-between overflow-hidden bg-gradient-to-r from-[#005f95] via-[#0085a9] to-[#35a96f] px-5 py-5 text-white sm:px-7"><div className="absolute -right-8 -top-12 h-32 w-32 rounded-full border-[20px] border-white/10"/><div className="relative"><p className="text-[11px] font-black uppercase tracking-[0.18em] text-sky-100">Aceze Kaydı #{form.id}</p><h2 className="mt-1 text-2xl font-black">Kayıt Bilgileri</h2></div><button type="button" onClick={() => setForm(null)} disabled={!!busy} className="relative rounded-xl border border-white/20 bg-white/15 px-4 py-2 font-black backdrop-blur transition hover:bg-white/25">Kapat</button></div>
-        <div className="grid min-w-0 flex-1 gap-4 overflow-y-auto bg-gradient-to-b from-slate-50/80 to-white p-4 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
+        <div className="relative flex items-center justify-between overflow-hidden border-b-[3px] border-b-[#D4B26A] bg-[#1E2A38] px-5 py-4 text-white sm:px-7"><div className="relative"><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">Aceze Kaydı #{form.id}</p><h2 className="mt-1 text-xl font-semibold uppercase tracking-wide">Kayıt Bilgileri</h2></div><button type="button" onClick={() => setForm(null)} disabled={!!busy} className="relative rounded-xl border border-white/20 bg-white/15 px-4 py-2 font-black backdrop-blur transition hover:bg-white/25">Kapat</button></div>
+        <div className="grid min-w-0 flex-1 gap-4 overflow-y-auto bg-white p-4 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
           <Field label="T.C. Kimlik No"><input inputMode="numeric" maxLength={11} value={form.identityNumber} onChange={(e) => update('identityNumber', e.target.value.replace(/\D/g,''))} className={inputClass}/></Field>
           <Field label="Doğum Tarihi"><input type="date" value={form.birthDate} onChange={(e) => update('birthDate', e.target.value)} className={inputClass}/></Field>
           <Field label="Uyruğu"><input value={form.nationality} onChange={(e) => update('nationality', e.target.value)} className={inputClass}/></Field>
@@ -227,7 +229,7 @@ export function AcezeRecordsTable({ rows, totalCount, currentPage, pageSize, sea
           <div className="sm:col-span-2 lg:col-span-3"><Field label="Başvuru Nedeni"><textarea required maxLength={500} rows={4} value={form.reason} onChange={(e) => update('reason', e.target.value)} className={`${inputClass} py-3`}/></Field></div>
           {(error || message) && <div className={`sm:col-span-2 lg:col-span-3 rounded-lg border px-4 py-3 text-sm font-bold ${error ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{error || message}</div>}
         </div>
-        <div className="flex flex-col-reverse gap-2 border-t bg-gradient-to-r from-slate-50 via-white to-sky-50 p-4 sm:flex-row sm:justify-between sm:px-7"><button type="button" onClick={() => void remove()} disabled={!!busy} className="min-h-11 rounded-xl bg-gradient-to-r from-rose-600 to-red-500 px-5 text-sm font-black text-white shadow-lg shadow-rose-200 transition hover:-translate-y-0.5 disabled:opacity-50">{busy === 'delete' ? 'Siliniyor...' : 'Kaydı Sil'}</button><div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => void print()} disabled={!!busy} className="min-h-11 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 px-7 text-sm font-black text-white shadow-lg shadow-emerald-200 transition hover:-translate-y-0.5 disabled:opacity-50">{busy === 'print' ? 'Yazdırılıyor...' : 'Yazdır'}</button><button disabled={!!busy} className="min-h-11 rounded-xl bg-gradient-to-r from-[#006ba6] to-[#0095cf] px-7 text-sm font-black text-white shadow-lg shadow-sky-200 transition hover:-translate-y-0.5 disabled:opacity-50">{busy === 'save' ? 'Kaydediliyor...' : 'Güncelle'}</button></div></div>
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:justify-between sm:px-7"><button type="button" onClick={() => void remove()} disabled={!!busy} className="min-h-11 rounded-xl border border-rose-300 bg-white px-5 text-sm font-bold text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:opacity-50">{busy === 'delete' ? 'Siliniyor...' : 'Kaydı Sil'}</button><div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => void print()} disabled={!!busy} className="min-h-11 rounded-xl border border-[#1E2A38] bg-white px-7 text-sm font-bold uppercase tracking-wide text-[#1E2A38] shadow-sm transition hover:bg-slate-100 disabled:opacity-50">{busy === 'print' ? 'Yazdırılıyor...' : 'Yazdır'}</button><button disabled={!!busy} className="min-h-11 rounded-xl bg-[#1E2A38] px-7 text-sm font-bold uppercase tracking-wide text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:opacity-50">{busy === 'save' ? 'Kaydediliyor...' : 'Güncelle'}</button></div></div>
       </form>
     </div>}
   </div>

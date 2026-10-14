@@ -3,14 +3,9 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { useTabs } from '@/lib/context/TabContext'
-import {
-  DEFAULT_PREDEFINED_VALUE_TITLES,
-  DEFAULT_PREDEFINED_VALUES,
-  findPredefinedCategoryByCandidates,
-  type PredefinedValue,
-  type PredefinedValueTitlesMap,
-  type PredefinedValuesMap,
-} from '@/lib/constants/predefinedValues'
+import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
+import { useWorkflowLocks, workflowLockConfirmText, type WorkflowLock } from '@/lib/hooks/useWorkflowPresence'
+import { WORKFLOW_LOCKED_ROW_CLASS, WorkflowLockNotice } from '@/components/workflow/WorkflowLockNotice'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,24 +44,6 @@ type TahkikatPersonnelEntry = {
   unseenCount: number
 }
 
-type PredefinedValuesResponse = {
-  success: boolean
-  data?: {
-    values: PredefinedValuesMap
-    titles: PredefinedValueTitlesMap
-  }
-  error?: string
-}
-
-function findPredefinedOptions(
-  values: PredefinedValuesMap,
-  titles: PredefinedValueTitlesMap,
-  candidates: string[],
-) {
-  const category = findPredefinedCategoryByCandidates(values, titles, candidates)
-  return category ? values[category] ?? [] : []
-}
-
 function formatDateTime(value: string | null) {
   if (!value) return '-'
   const date = new Date(value)
@@ -91,14 +68,6 @@ function formatDate(value: string | null) {
     month: '2-digit',
     year: 'numeric',
   })
-}
-
-function getTodayInputDate() {
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = String(today.getMonth() + 1).padStart(2, '0')
-  const day = String(today.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 // Kullanici istegi: listede goruntulenen "dosya durumu" bilgisi (Aciklama
@@ -128,9 +97,10 @@ function getStatusDescriptionBadgeClass(description: string) {
 // diye ayri bir bilesene cikarildi (kullanici istegi 13 Eylul 2026: ön
 // inceleme sayfasindaki telefon/mahalle/adres + mahalle secici desenin
 // aynisi tahkikat sayfasina da uygulandi).
-function TahkikatTableRow({ row, index, workflowLabel, canAssign, onOpenFile, onOpenReport, onAssign }: {
+function TahkikatTableRow({ row, index, canAssign, onOpenFile, onOpenReport, onAssign, lock }: {
   row: InvestigationFile
   index: number
+  lock?: WorkflowLock
   workflowLabel: string
   canAssign: boolean
   onOpenFile: (row: InvestigationFile) => void
@@ -138,7 +108,7 @@ function TahkikatTableRow({ row, index, workflowLabel, canAssign, onOpenFile, on
   onAssign: (row: InvestigationFile) => void
 }) {
   return (
-    <tr className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} transition hover:bg-sky-50`}>
+    <tr className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} transition hover:bg-sky-50 ${lock ? WORKFLOW_LOCKED_ROW_CLASS : ''}`}>
       <td className="border-b border-slate-100 px-4 py-3">
         <button
           type="button"
@@ -150,6 +120,7 @@ function TahkikatTableRow({ row, index, workflowLabel, canAssign, onOpenFile, on
       </td>
       <td className="border-b border-slate-100 px-4 py-3 font-extrabold text-slate-900">
         <span className="line-clamp-2 block max-w-[220px]">{row.applicantName}</span>
+        {lock && <WorkflowLockNotice lock={lock} genis />}
       </td>
       <td className="border-b border-slate-100 px-4 py-3 font-bold text-slate-700">
         <span className="line-clamp-2 block max-w-[150px]">{row.phone}</span>
@@ -221,8 +192,9 @@ function TahkikatTableRow({ row, index, workflowLabel, canAssign, onOpenFile, on
   )
 }
 
-function TahkikatMobileCard({ row, onOpenFile, onOpenReport }: {
+function TahkikatMobileCard({ row, onOpenFile, onOpenReport, lock }: {
   row: InvestigationFile
+  lock?: WorkflowLock
   workflowLabel: string
   canAssign: boolean
   onOpenFile: (row: InvestigationFile) => void
@@ -239,7 +211,8 @@ function TahkikatMobileCard({ row, onOpenFile, onOpenReport }: {
   // mevcut. canAssign/onAssign prop'lari cagiran taraflarla uyumlu kalmasi
   // icin imzada tutuldu, burada kullanilmiyor.
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+    <div className={`rounded-lg border p-3 shadow-sm ${lock ? 'border-rose-300 bg-rose-100 shadow-[inset_5px_0_0_#e11d48]' : 'border-slate-200 bg-white'}`}>
+      {lock && <WorkflowLockNotice lock={lock} className="mb-2 mt-0" />}
       <div className="min-w-0">
         <button
           type="button"
@@ -292,11 +265,9 @@ export default function TahkikatWorkflowPage() {
   // Kullanici istegi (13 Eylul 2026): ön inceleme sayfasindaki telefon/
   // mahalle/adres + mahalle secici (chip) desenin aynisi burada da.
   const [selectedNeighborhood, setSelectedNeighborhood] = useState<string>('all')
-  const [reportTarget, setReportTarget] = useState<InvestigationFile | null>(null)
-  const [reportForm, setReportForm] = useState({ date: getTodayInputDate(), title: '', content: '' })
-  const [reportStatus, setReportStatus] = useState<'idle' | 'saving'>('idle')
-  const [reportError, setReportError] = useState('')
-  const [investigationSubjectOptions, setInvestigationSubjectOptions] = useState<PredefinedValue[]>([])
+  // 2026-10-14: eski "Rapor Ekle" penceresi (hic acilmiyordu - rapor dugmesi
+  // Dosya Yönetimi'nde Hane Ziyareti formunu acar) ve ona ait state KALDIRILDI.
+  const kilitler = useWorkflowLocks('tahkikat')
   // Kullanici istegi (2026-10-08): "yönetici özel olarak bir dosyayı istediği
   // tahkikat görevlisine direk atayabilsin, atanan özel bir dosya var ise
   // sekme üzerinde bildirim versin" - SADECE Tahkikat'ta (bkz. isPreliminaryReview
@@ -355,6 +326,9 @@ export default function TahkikatWorkflowPage() {
   useEffect(() => {
     let isCancelled = false
 
+    // Veri yukleme efekti: "yukleniyor" durumu burada bilerek ayarlanir
+    // (standart fetch kalibi; iptal bayragiyla yaris korunur).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadRows(() => isCancelled)
 
     return () => {
@@ -366,6 +340,7 @@ export default function TahkikatWorkflowPage() {
   useEffect(() => {
     let isCancelled = false
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- veri yukleme efekti (yukaridaki gibi)
     void loadPersonnel(() => isCancelled)
 
     return () => {
@@ -374,38 +349,6 @@ export default function TahkikatWorkflowPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPreliminaryReview])
 
-  useEffect(() => {
-    let isCancelled = false
-
-    const loadPredefinedValues = async () => {
-      try {
-        const response = await fetch('/api/predefined-values', { cache: 'no-store' })
-        const payload = (await response.json()) as PredefinedValuesResponse
-
-        if (!response.ok || !payload.success || !payload.data) {
-          throw new Error(payload.error || 'Hazir degerler alinamadi.')
-        }
-
-        if (!isCancelled) {
-          setInvestigationSubjectOptions(
-            findPredefinedOptions(payload.data.values, payload.data.titles, ['tahkikat konu', 'tahkikat konusu'])
-          )
-        }
-      } catch {
-        if (!isCancelled) {
-          setInvestigationSubjectOptions(
-            findPredefinedOptions(DEFAULT_PREDEFINED_VALUES, DEFAULT_PREDEFINED_VALUE_TITLES, ['tahkikat konu', 'tahkikat konusu'])
-          )
-        }
-      }
-    }
-
-    void loadPredefinedValues()
-
-    return () => {
-      isCancelled = true
-    }
-  }, [])
 
   const searchFilteredRows = useMemo(() => {
     const term = searchTerm.trim().toLocaleLowerCase('tr-TR')
@@ -506,12 +449,11 @@ export default function TahkikatWorkflowPage() {
 
   // Secilen mahalle artik listede yoksa (arama/filtre degisti vb.) sessizce
   // "Tümü"ne don - bos ekranda takili kalinmasin.
-  useEffect(() => {
-    if (selectedNeighborhood === 'all') return
-    if (!neighborhoodGroups.some((group) => group.neighborhood === selectedNeighborhood)) {
-      setSelectedNeighborhood('all')
-    }
-  }, [neighborhoodGroups, selectedNeighborhood])
+  // 2026-10-14: efekt yerine React'in onerdigi "render sirasinda korumali
+  // ayar" - ayni sonuc, bir ara bos cizim (titreme) olmadan.
+  if (selectedNeighborhood !== 'all' && !neighborhoodGroups.some((group) => group.neighborhood === selectedNeighborhood)) {
+    setSelectedNeighborhood('all')
+  }
 
   const openFile = (row: InvestigationFile) => {
     const query = new URLSearchParams()
@@ -527,7 +469,9 @@ export default function TahkikatWorkflowPage() {
     })
   }
 
-  const openReportModal = (row: InvestigationFile) => {
+  const openReportModal = async (row: InvestigationFile) => {
+    const kilit = kilitler.get(row.fileId)
+    if (kilit && !(await confirmDialog(workflowLockConfirmText(kilit), 'Yine de Aç', 'Vazgeç'))) return
     const query = new URLSearchParams()
     if (row.fileId) {
       query.set('fileId', row.fileId)
@@ -542,49 +486,6 @@ export default function TahkikatWorkflowPage() {
       title: row.fileNo && row.fileNo !== '-' ? `Inceleme ${row.fileNo}` : 'Inceleme Formu',
       path: `/documents?${query.toString()}`,
     })
-  }
-
-  const closeReportModal = () => {
-    if (reportStatus === 'saving') return
-    setReportTarget(null)
-    setReportError('')
-  }
-
-  const saveReport = async () => {
-    if (!reportTarget) return
-
-    if (!reportForm.date || !reportForm.title.trim() || !reportForm.content.trim()) {
-      setReportError('Tarih, konu ve rapor alanlari zorunludur.')
-      return
-    }
-
-    setReportStatus('saving')
-    setReportError('')
-    try {
-      const response = await fetch('/api/workflow/tahkikat/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId: reportTarget.fileId,
-          date: reportForm.date,
-          title: reportForm.title,
-          content: reportForm.content,
-        }),
-      })
-      const payload = await response.json()
-
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Rapor kaydedilemedi.')
-      }
-
-      setReportTarget(null)
-      setReportForm({ date: getTodayInputDate(), title: '', content: '' })
-      await loadRows()
-    } catch (err) {
-      setReportError(err instanceof Error ? err.message : 'Rapor kaydedilirken hata olustu.')
-    } finally {
-      setReportStatus('idle')
-    }
   }
 
   // Kullanici istegi (2026-10-08): bir personel sekmesine tiklaninca liste o
@@ -644,7 +545,7 @@ export default function TahkikatWorkflowPage() {
 
   return (
     <div className="space-y-5 text-slate-950">
-      <div className="relative overflow-hidden rounded-lg border border-orange-200 bg-white px-5 py-4 shadow-sm">
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-orange-200 bg-white px-5 py-4 shadow-sm">
         <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-orange-500 to-[#0076b6]" />
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -811,18 +712,18 @@ export default function TahkikatWorkflowPage() {
                   )}
                 </div>
                 {group.files.map((row) => (
-                  <TahkikatMobileCard key={row.fileId} row={row} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} />
+                  <TahkikatMobileCard key={row.fileId} row={row} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} lock={kilitler.get(row.fileId)} />
                 ))}
               </div>
             ))
           ) : (
             displayedRows.map((row) => (
-              <TahkikatMobileCard key={row.fileId} row={row} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} />
+              <TahkikatMobileCard key={row.fileId} row={row} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} lock={kilitler.get(row.fileId)} />
             ))
           )}
         </div>
         <div className="hidden overflow-x-auto lg:block">
-          <table className="w-full min-w-[1520px] border-collapse text-left text-[17px]">
+          <table className="ns-tablo ns-tablo-buyuk w-full min-w-[1520px] border-collapse text-left text-[17px]">
             <thead className="bg-orange-50 text-[17px] font-black uppercase text-orange-900">
               <tr>
                 <th className="border-b border-orange-100 px-4 py-3">Dosya No</th>
@@ -870,107 +771,19 @@ export default function TahkikatWorkflowPage() {
                       </td>
                     </tr>
                     {group.files.map((row, index) => (
-                      <TahkikatTableRow key={row.fileId} row={row} index={index} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} />
+                      <TahkikatTableRow key={row.fileId} row={row} index={index} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} lock={kilitler.get(row.fileId)} />
                     ))}
                   </Fragment>
                 ))
               ) : (
                 displayedRows.map((row, index) => (
-                  <TahkikatTableRow key={row.fileId} row={row} index={index} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} />
+                  <TahkikatTableRow key={row.fileId} row={row} index={index} workflowLabel={workflowLabel} canAssign={canAssign} onOpenFile={openFile} onOpenReport={openReportModal} onAssign={openAssignModal} lock={kilitler.get(row.fileId)} />
                 ))
               )}
             </tbody>
           </table>
         </div>
       </section>
-
-      {reportTarget && (
-        <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4">
-          <div className="flex max-h-[94vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-orange-200 bg-white shadow-2xl">
-            <div className="flex shrink-0 items-center justify-between border-b border-orange-100 bg-orange-50 px-4 py-3 md:px-5 md:py-4">
-              <div>
-                <h3 className="text-[17px] font-black text-orange-900">Rapor Ekle</h3>
-                <p className="mt-0.5 text-[17px] font-bold uppercase text-orange-700">
-                  {reportTarget.fileNo} - {reportTarget.applicantName}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={closeReportModal}
-                disabled={reportStatus === 'saving'}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500 disabled:cursor-wait disabled:opacity-60"
-              >
-                x
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-5">
-              {reportError && (
-                <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-[17px] font-bold text-rose-700">
-                  {reportError}
-                </div>
-              )}
-
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[17px] font-extrabold uppercase text-slate-600">Tarih</span>
-                <input
-                  type="date"
-                  value={reportForm.date}
-                  onChange={(event) => setReportForm((current) => ({ ...current, date: event.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-[17px] font-bold text-slate-950 outline-none focus:border-[#0076b6]"
-                />
-              </label>
-
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[17px] font-extrabold uppercase text-slate-600">Konu</span>
-                <select
-                  value={reportForm.title}
-                  onChange={(event) => setReportForm((current) => ({ ...current, title: event.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-[17px] font-bold text-slate-950 outline-none focus:border-[#0076b6]"
-                >
-                  <option value="">Seciniz</option>
-                  {reportForm.title && !investigationSubjectOptions.some((option) => option.name === reportForm.title) && (
-                    <option value={reportForm.title}>{reportForm.title}</option>
-                  )}
-                  {investigationSubjectOptions.map((option) => (
-                    <option key={option.id} value={option.name}>{option.name}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[17px] font-extrabold uppercase text-slate-600">Rapor</span>
-                <textarea
-                  value={reportForm.content}
-                  onChange={(event) => setReportForm((current) => ({ ...current, content: event.target.value }))}
-                  rows={8}
-                  className="min-h-[220px] w-full resize-none rounded-lg border border-slate-200 px-3 py-1.5 text-[17px] font-bold text-slate-950 outline-none focus:border-[#0076b6] md:min-h-0"
-                  placeholder="Ev ziyareti raporu..."
-                />
-              </label>
-            </div>
-
-            <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3 md:px-5 md:py-4">
-              <button
-                type="button"
-                onClick={closeReportModal}
-                disabled={reportStatus === 'saving'}
-                className="rounded border border-slate-200 bg-white px-4 py-1.5 text-[17px] font-extrabold text-slate-600 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
-              >
-                Vazgec
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveReport()}
-                disabled={reportStatus === 'saving'}
-                className="rounded border border-orange-600 bg-orange-600 px-5 py-1.5 text-[17px] font-extrabold text-white shadow-sm hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60"
-              >
-                {reportStatus === 'saving' ? 'Kaydediliyor...' : 'Kaydet'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {assignTarget && (
         <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4">

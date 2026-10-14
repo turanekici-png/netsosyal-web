@@ -439,7 +439,7 @@ function FormsReportContent() {
 
   return (
     <div className="space-y-6 p-4 text-slate-950 sm:p-6">
-      <div className="rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
+      <div className="ns-sayfa-baslik rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-wide text-white/80">Dosya İşlemleri</p>

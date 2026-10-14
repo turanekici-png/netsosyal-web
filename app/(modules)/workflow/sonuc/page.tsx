@@ -43,10 +43,12 @@ type IncelemeRow = {
   islemYapan: string | null
   formTarihi: string | null
   adSoyad: string | null
-  toplamPuan: number | null
-  otomatikSonuc: string | null
-  komisyonKarari: string | null
-  inceleyenAdSoyad: string | null
+  // 2026-10-13: Hane Ziyareti ve Sosyal İnceleme Formu - puan/karar yerine
+  ziyaretSonucu: string | null
+  aciliyet: string | null
+  oncelikliIhtiyac: string | null
+  onDegerlendirme: string | null
+  ozet: string | null
   islemtarihi: string | null
 }
 
@@ -106,7 +108,11 @@ function normalizeTr(value: string) {
 function sonucBadgeClass(sonuc: string) {
   const normalized = normalizeTr(sonuc)
   if (normalized.includes('uygun degil') || normalized.includes('iptal') || normalized.includes('yardim yapilamaz')) return 'bg-rose-600'
-  if (!normalized || normalized === 'belirtilmemis') return 'bg-slate-400'
+  if (!normalized || normalized === 'belirtilmemis' || normalized.includes('aciliyet belirtilmemis')) return 'bg-slate-400'
+  // Tahkikat (Hane Ziyareti ve Sosyal İnceleme) formlarinin aciliyet degerleri
+  if (normalized.includes('acil (0')) return 'bg-rose-600'
+  if (normalized.includes('oncelikli')) return 'bg-amber-500'
+  if (normalized.includes('rutin')) return 'bg-slate-500'
   return 'bg-emerald-600'
 }
 
@@ -242,7 +248,7 @@ function DataTable<T extends { id: string }>({
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm" style={{ minWidth }}>
+        <table className="ns-tablo-olcu w-full text-left text-sm" style={{ minWidth }}>
           <thead className={`text-[11px] font-black uppercase ${accentClasses.head}`}>
             <tr className={`border-b ${accentClasses.border}`}>
               {columns.map((column) => (
@@ -364,7 +370,7 @@ function GroupedByFileView({ rows, onOpenFile, onEdit, onCancel, onDelete, formT
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                   {row.sourceType === 'inceleme' ? (
-                    <button type="button" onClick={() => onCancel(row)} className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-black uppercase text-amber-700 hover:bg-amber-100">İptal Et</button>
+                    <button type="button" onClick={() => onCancel(row)} className="rounded-md border border-teal-200 bg-teal-50 px-2 py-1 text-[10px] font-black uppercase text-teal-700 hover:bg-teal-100">Görüntüle</button>
                   ) : (
                     <button type="button" onClick={() => onEdit(row)} className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-black uppercase text-sky-700 hover:bg-sky-100">Düzenle</button>
                   )}
@@ -438,8 +444,8 @@ export default function WorkflowSonucPage() {
   // Kullanici istegi (13 Eylul 2026): "silinebilsin yada iptal edilebilsin" -
   // her rapor turunun GERCEKTEN sahip oldugu backend islemine baglanir:
   // Ön İnceleme -> DELETE (on_inceleme_raporlari), Tahkikat -> DELETE
-  // (inceleme_degerlendirme_formu) VEYA "İptal Et" (onay_durumu='reddedildi'
-  // PATCH'i - zaten var olan onay mekanizmasi), Sonuç Bekleyen/Komisyon
+  // (saha_inceleme_formu; 2026-10-13'ten beri onay/iptal yok, yerine
+  // "Görüntüle" formun yazdirilabilir halini acar), Sonuç Bekleyen/Komisyon
   // Raporu (tahkikatraporlari, Prisma "Report") -> DELETE (/api/reports/[id],
   // zaten var olan CRUD).
   const [actionError, setActionError] = useState('')
@@ -474,7 +480,7 @@ export default function WorkflowSonucPage() {
     if (!(await confirmDialog('Bu Tahkikat Formu kaydını silmek istediğinize emin misiniz?'))) return
     setActionError('')
     try {
-      const response = await fetch(`/api/documents/inceleme-degerlendirme/${id}`, { method: 'DELETE' })
+      const response = await fetch(`/api/documents/saha-inceleme/${id}`, { method: 'DELETE' })
       const payload = await response.json()
       if (!response.ok || !payload.success) throw new Error(payload.error || 'Form silinemedi.')
       setInceleme((rows) => rows.filter((row) => row.id !== id))
@@ -483,21 +489,9 @@ export default function WorkflowSonucPage() {
     }
   }
 
-  const cancelInceleme = async (id: string) => {
-    if (!(await confirmDialog('Bu Tahkikat Formu kaydını iptal edip "Reddedildi" olarak işaretlemek istediğinize emin misiniz?'))) return
-    setActionError('')
-    try {
-      const response = await fetch(`/api/documents/inceleme-degerlendirme/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onayDurumu: 'reddedildi' }),
-      })
-      const payload = await response.json()
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'İptal edilemedi.')
-      setInceleme((rows) => rows.map((row) => (row.id === id ? { ...row, komisyonKarari: 'Reddedildi' } : row)))
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'İptal edilemedi.')
-    }
+  // Formun yazdirilabilir hali (PDF'teki duzen) yeni sekmede acilir.
+  const viewInceleme = (id: string) => {
+    window.open(`/api/documents/saha-inceleme/yazdir?id=${encodeURIComponent(id)}`, '_blank', 'noopener,noreferrer')
   }
 
   const deleteBySourceType = (row: { sourceType: ReportSourceType; rawId: string }) => {
@@ -515,9 +509,8 @@ export default function WorkflowSonucPage() {
   // /api/workflow/on-inceleme/report: tarih/aciklama) ve Sonuç Bekleyen/
   // Komisyon Raporu (PUT /api/reports/[id]: date/title/content) zaten icerik
   // guncelleyebilen bir API'ye sahip - bu ikisi icin ayni kucuk duzenleme
-  // modalini kullaniyoruz. Tahkikat Formu'nun (inceleme_degerlendirme_formu)
-  // ise sadece onay_durumu guncellenebiliyor (bkz. yukaridaki cancelInceleme) -
-  // tum cevaplarini yeniden acip duzenleyen ayri bir rota yok.
+  // modalini kullaniyoruz. Tahkikat Formu (saha_inceleme_formu) duzenlenmez,
+  // sadece goruntulenir/silinir (bkz. yukaridaki viewInceleme).
   const [editTarget, setEditTarget] = useState<{ type: 'onInceleme' | 'guncelleme'; id: string; dosyaNo: string | null } | null>(null)
   const [editForm, setEditForm] = useState({ tarih: '', konu: '', metin: '' })
   const [editStatus, setEditStatus] = useState<'idle' | 'saving'>('idle')
@@ -589,6 +582,13 @@ export default function WorkflowSonucPage() {
     sonuc ? <span className={`rounded-full px-2.5 py-1 text-[11px] font-black text-white ${sonucBadgeClass(sonuc)}`}>{sonuc}</span> : <span className="text-xs text-slate-400">-</span>
   )
 
+  const aciliyetCell = (aciliyet: string | null) => {
+    if (!aciliyet) return <span className="text-xs text-slate-400">-</span>
+    const n = normalizeTr(aciliyet)
+    const renk = n.startsWith('acil') ? 'bg-rose-600' : n.startsWith('oncelikli') ? 'bg-amber-500' : 'bg-slate-500'
+    return <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-black text-white ${renk}`}>{aciliyet}</span>
+  }
+
   // Kullanici istegi (13 Eylul 2026): "düzenlenebilsin yada silinebilsin
   // yada iptal edilebilsin" - her tabloda bir "İşlem" sutunu.
   const actionButtonClass = 'rounded-md border px-2 py-1 text-[10px] font-black uppercase shadow-sm transition'
@@ -635,13 +635,13 @@ export default function WorkflowSonucPage() {
     { key: 'dosyaSahibi', label: 'Dosya Sahibi', filterText: (r) => r.dosyaSahibi || r.adSoyad || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.dosyaSahibi || r.adSoyad || '-'}</span> },
     { key: 'telefon', label: 'Telefon', filterText: (r) => r.telefon || '', render: (r) => <span className="text-xs font-semibold text-slate-600">{r.telefon || '-'}</span> },
     { key: 'adres', label: 'Adres', filterText: (r) => r.adres || '', render: (r) => <span className="block max-w-[200px] truncate text-xs font-semibold text-slate-600" title={r.adres || ''}>{r.adres || '-'}</span> },
-    { key: 'toplamPuan', label: 'Puan', align: 'right', filterText: (r) => String(r.toplamPuan ?? ''), sortValue: (r) => r.toplamPuan ?? 0, render: (r) => <span className="text-xs font-black text-slate-700">{r.toplamPuan ?? '-'}</span> },
-    { key: 'otomatikSonuc', label: 'Otomatik Sonuç', filterText: (r) => r.otomatikSonuc || '', render: (r) => sonucCell(r.otomatikSonuc) },
-    { key: 'komisyonKarari', label: 'Onay Durumu', filterText: (r) => r.komisyonKarari || '', render: (r) => <span className="block max-w-xs text-xs font-semibold leading-5 text-slate-600">{r.komisyonKarari || '-'}</span> },
+    { key: 'ziyaretSonucu', label: 'Ziyaret Sonucu', filterText: (r) => r.ziyaretSonucu || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.ziyaretSonucu || '-'}</span> },
+    { key: 'aciliyet', label: 'Aciliyet', filterText: (r) => r.aciliyet || '', render: (r) => aciliyetCell(r.aciliyet) },
+    { key: 'onDegerlendirme', label: 'Ön Değerlendirme', filterText: (r) => r.onDegerlendirme || '', render: (r) => <span className="block max-w-xs text-xs font-semibold leading-5 text-slate-600">{r.onDegerlendirme || '-'}</span> },
     { key: 'islemYapan', label: 'İşlemi Yapan', filterText: (r) => r.islemYapan || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.islemYapan || '-'}</span> },
     { key: 'action', label: 'İşlem', filterText: () => '', render: (r) => (
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" onClick={() => void cancelInceleme(r.id)} className={`${actionButtonClass} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>İptal Et</button>
+        <button type="button" onClick={() => viewInceleme(r.id)} className={`${actionButtonClass} border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100`}>Görüntüle</button>
         <button type="button" onClick={() => void deleteInceleme(r.id)} className={`${actionButtonClass} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100`}>Sil</button>
       </div>
     ) },
@@ -650,7 +650,7 @@ export default function WorkflowSonucPage() {
   const combinedRows: CombinedRow[] = useMemo(() => [
     ...guncelleme.map((r): CombinedRow => ({ id: `g-${r.id}`, rawId: r.id, sourceType: 'guncelleme', formTuru: 'Sonuç Bekleyen', tarih: r.formTarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, sonuc: r.sonuc, islemYapan: r.islemYapan })),
     ...onInceleme.map((r): CombinedRow => ({ id: `o-${r.id}`, rawId: r.id, sourceType: 'onInceleme', formTuru: 'Ön İnceleme', tarih: r.tarih, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, sonuc: r.sonuc, islemYapan: r.islemYapan })),
-    ...inceleme.map((r): CombinedRow => ({ id: `i-${r.id}`, rawId: r.id, sourceType: 'inceleme', formTuru: 'Tahkikat', tarih: r.formTarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi || r.adSoyad, telefon: r.telefon, adres: r.adres, sonuc: r.otomatikSonuc, islemYapan: r.islemYapan })),
+    ...inceleme.map((r): CombinedRow => ({ id: `i-${r.id}`, rawId: r.id, sourceType: 'inceleme', formTuru: 'Tahkikat', tarih: r.formTarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi || r.adSoyad, telefon: r.telefon, adres: r.adres, sonuc: r.aciliyet ? `Aciliyet: ${r.aciliyet}` : r.ziyaretSonucu, islemYapan: r.islemYapan })),
   ], [guncelleme, onInceleme, inceleme])
 
   const formTuruBadgeClass: Record<ReportSourceType, string> = {
@@ -671,7 +671,7 @@ export default function WorkflowSonucPage() {
     { key: 'action', label: 'İşlem', filterText: () => '', render: (r) => (
       <div className="flex flex-wrap items-center gap-1.5">
         {r.sourceType === 'inceleme' ? (
-          <button type="button" onClick={() => void cancelInceleme(r.rawId)} className={`${actionButtonClass} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>İptal Et</button>
+          <button type="button" onClick={() => viewInceleme(r.rawId)} className={`${actionButtonClass} border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100`}>Görüntüle</button>
         ) : (
           <button
             type="button"
@@ -697,7 +697,7 @@ export default function WorkflowSonucPage() {
   return (
     <main className="min-h-screen w-full bg-gradient-to-br from-sky-50 via-white to-emerald-50 px-3 py-5 text-slate-900 sm:px-5 lg:px-8">
       <div className="mx-auto w-full max-w-[1900px] space-y-5">
-        <div className="rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
+        <div className="ns-sayfa-baslik rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-white/85">İş Akışı</p>
@@ -800,7 +800,7 @@ export default function WorkflowSonucPage() {
                     if (source) openEditOnInceleme(source)
                   }
                 }}
-                onCancel={(row) => void cancelInceleme(row.rawId)}
+                onCancel={(row) => viewInceleme(row.rawId)}
                 onDelete={(row) => void deleteBySourceType(row)}
                 formTuruBadgeClass={formTuruBadgeClass}
                 sonucBadgeClass={sonucBadgeClass}
@@ -839,7 +839,7 @@ export default function WorkflowSonucPage() {
                   <h2 className="text-sm font-black text-slate-900">Sonuç türüne göre özet sayılar</h2>
                   <p className="mt-1 text-xs font-semibold text-slate-500">Seçilen tarih aralığında form türüne göre sonuç sayıları.</p>
                   <div className="mt-4 overflow-x-auto">
-                    <table className="w-full min-w-[600px] text-left text-sm">
+                    <table className="ns-tablo-olcu w-full min-w-[600px] text-left text-sm">
                       <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500">
                         <tr>
                           <th className="px-4 py-3">Form Türü</th>

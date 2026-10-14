@@ -73,11 +73,10 @@ export const USER_ACTION_PERMISSION_DEFINITIONS = [
   { id: 'documents.sms', label: 'SMS gonderme', group: 'Dosya islemleri' },
   { id: 'documents.gulkart', label: 'Gulkart islemleri', group: 'Dosya islemleri' },
   { id: 'documents.attachments', label: 'Belge islemleri', group: 'Dosya islemleri' },
+  // Hane Ziyareti ve Sosyal Inceleme Formu (Tahkikat Formu) doldurma/silme.
+  // 2026-10-13: puanlamali formla birlikte "Tahkikat formu onaylama"
+  // (documents.evaluationApprove) yetkisi de kaldirildi - yeni formda onay akisi yok.
   { id: 'documents.evaluation', label: 'Tahkikat formu', group: 'Dosya islemleri' },
-  // Inceleme formunun yeni eleme kriterli + otomatik puanlamali onay akisi -
-  // "Inceleme formu" (documents.evaluation) doldurma yetkisi olan biri zaten
-  // formu doldurabilir, bu SADECE yonetici onay/red aksiyonu icin ayri bir yetki.
-  { id: 'documents.evaluationApprove', label: 'Tahkikat formu onaylama', group: 'Dosya islemleri' },
   // Tahkikat > Inceleme Raporlari penceresindeki "Uygun Gorus Iste" butonu -
   // bir yetkili personelden raporla ilgili gorus istenmesini saglar (bkz.
   // app/(modules)/documents/page.tsx ve app/api/documents/approval-requests).

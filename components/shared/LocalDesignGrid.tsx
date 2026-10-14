@@ -285,6 +285,17 @@ interface LocalDesignGridProps {
   // buraya verir; SADECE Tasarim Modu ACIKKEN, ust bilgi cubugunun sag
   // tarafinda ("Sıfırla" dugmesinin yaninda) gosterilir.
   extraDesignControls?: ReactNode
+  // Kullanici istegi (2026-10-14): "Kişi Bilgileri, Hızlı İşlemler ve
+  // Raporlar alanlarinin alt siniri ayni hizada, Kişi Bilgileri'nin
+  // icerigiyle bitsin" - cagiran sayfa, verilen kutularin yuksekligini
+  // PIKSEL olarak dayatir. SADECE Tasarim Modu KAPALIYKEN uygulanir ve
+  // kayda (persistState) YAZILMAZ - Tasarim Modu'nda kayitli boyutlar gorunur.
+  heightOverridesPx?: Record<string, number>
+  // Kullanici istegi (2026-10-14, Dosya Yonetimi): "Tasarim Modu'nu
+  // kaldiralim, sayfa hep bu sekilde acilsin" - true ise hesaba kayitli
+  // duzen sunucudan HIC okunmaz ve hicbir sey kaydedilmez; herkes
+  // defaultLayout'u gorur. (Sunucudaki eski kayitlar silinmez.)
+  lockToDefaultLayout?: boolean
 }
 
 export const LocalDesignGrid = forwardRef<LocalDesignGridHandle, LocalDesignGridProps>(function LocalDesignGrid({
@@ -302,6 +313,8 @@ export const LocalDesignGrid = forwardRef<LocalDesignGridHandle, LocalDesignGrid
   stackedGroups,
   resetManualHeightsKey,
   extraDesignControls,
+  heightOverridesPx,
+  lockToDefaultLayout = false,
 }, ref) {
   const fixedHeightIdSet = new Set(fixedHeightIds ?? [])
   const manualOnlyIdSet = new Set(manualOnlyIds ?? [])
@@ -440,6 +453,12 @@ export const LocalDesignGrid = forwardRef<LocalDesignGridHandle, LocalDesignGrid
   useEffect(() => {
     let isCancelled = false
 
+    if (lockToDefaultLayout) {
+      setHiddenIds(new Set(defaultHiddenIds ?? []))
+      setIsLoaded(true)
+      return
+    }
+
     fetch(`/api/dashboard-layout?grid=${encodeURIComponent(storageKey)}`)
       .then((res) => res.json())
       .then((payload) => {
@@ -501,6 +520,7 @@ export const LocalDesignGrid = forwardRef<LocalDesignGridHandle, LocalDesignGrid
   // hiddenIds guncellenmis olur (mevcut layouts state'i taze halinden
   // gonderilir).
   const persistState = (nextLayouts: Partial<Record<string, Layout>>, nextHiddenIds: Set<string>) => {
+    if (lockToDefaultLayout) return
     setSaveStatus('saving')
     fetch('/api/dashboard-layout', {
       method: 'POST',
@@ -741,6 +761,26 @@ export const LocalDesignGrid = forwardRef<LocalDesignGridHandle, LocalDesignGrid
       container.removeEventListener('click', handleClickCapture, true)
     }
   }, [containerRef, designMode])
+
+  const heightOverrideKey = heightOverridesPx ? JSON.stringify(heightOverridesPx) : ''
+  useEffect(() => {
+    if (designMode || !heightOverridesPx) return
+    setLayouts((prev) => {
+      const lg = prev.lg
+      if (!lg) return prev
+      let changed = false
+      const nextLg = lg.map((item) => {
+        const px = heightOverridesPx[item.i]
+        if (!px || px <= 0) return item
+        const h = Math.max(4, Math.ceil((px + ROW_MARGIN) / (ROW_HEIGHT + ROW_MARGIN)))
+        if (h === item.h) return item
+        changed = true
+        return { ...item, h }
+      })
+      return changed ? { ...prev, lg: nextLg } : prev
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heightOverrideKey, designMode, isLoaded, gridInstanceKey])
 
   const handleLayoutChange = (_current: Layout, allLayouts: Partial<Record<string, Layout>>) => {
     if (!designMode) {
@@ -1435,7 +1475,12 @@ export const LocalDesignGrid = forwardRef<LocalDesignGridHandle, LocalDesignGrid
                           if (el) contentRefs.current.set(widget.id, el)
                           else contentRefs.current.delete(widget.id)
                         }}
-                        className="flex-1"
+                        // Kullanici istegi (2026-10-14): "kaydirinca baslik gitmesin" -
+                        // min-h-0 OLMADAN bu kutu icerigi kadar uzuyor, kaydirma DIS
+                        // kutuda olusup panel basligi da kayiyordu. Artik kutu kendi
+                        // yuksekliginde kalir; h-full panel (baslik + kendi kaydirma
+                        // alani) icinde kayar, baslik sabit kalir.
+                        className="flex min-h-0 flex-1 flex-col"
                       >
                         {widget.node}
                       </div>

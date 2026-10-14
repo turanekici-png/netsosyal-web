@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { foldTurkish } from '@/lib/utils'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { isValidNewPassword, PASSWORD_POLICY_DESCRIPTION } from '@/lib/security/passwordPolicy'
 
@@ -33,10 +34,10 @@ interface ActionResponse {
 }
 
 const roleLabel = (yetki?: number | null) => {
-  if (yetki === 1) return 'Yonetici'
-  if (yetki === 2) return 'Yetkili Kullanici'
-  if (yetki === 3) return 'Standart Kullanici'
-  return 'Tanimli Degil'
+  if (yetki === 1) return 'Yönetici'
+  if (yetki === 2) return 'Yetkili Kullanıcı'
+  if (yetki === 3) return 'Standart Kullanıcı'
+  return 'Tanımlı Değil'
 }
 
 // Kullanicinin fotografi olup olmadigini onceden bilmiyoruz (sosyalyardimdkm
@@ -163,7 +164,7 @@ function UserFormFields({
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Kullanici Adi</label>
+          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Kullanıcı Adı</label>
           <input
             value={form.username}
             onChange={(event) => onChange({ ...form, username: event.target.value })}
@@ -280,7 +281,7 @@ export default function UsersPage() {
       const payload = (await response.json()) as UsersResponse
 
       if (!response.ok || !payload.success || !Array.isArray(payload.data)) {
-        throw new Error(payload.error || 'Kullanici listesi alinamadi.')
+        throw new Error(payload.error || 'Kullanıcı listesi alınamadı.')
       }
 
       setUsers(payload.data)
@@ -530,18 +531,18 @@ export default function UsersPage() {
   }
 
   const filteredUsers = useMemo(() => {
-    const userTerm = userSearch.toLocaleLowerCase('tr-TR').trim()
-    const permissionTerm = permissionSearch.toLocaleLowerCase('tr-TR').trim()
+    const userTerm = foldTurkish(userSearch).trim()
+    const permissionTerm = foldTurkish(permissionSearch).trim()
 
     return users.filter(user => {
       const statusLabel = user.status === 1 ? 'aktif' : 'pasif'
       const userMatches = !userTerm || (
-        (user.name || user.kullanicitamadi || '').toLocaleLowerCase('tr-TR').includes(userTerm) ||
-        (user.username || '').toLocaleLowerCase('tr-TR').includes(userTerm) ||
-        (user.email || '').toLocaleLowerCase('tr-TR').includes(userTerm)
+        foldTurkish(user.name || user.kullanicitamadi || '').includes(userTerm) ||
+        foldTurkish(user.username || '').includes(userTerm) ||
+        foldTurkish(user.email || '').includes(userTerm)
       )
       const permissionMatches = !permissionTerm || (
-        roleLabel(user.yetki).toLocaleLowerCase('tr-TR').includes(permissionTerm) ||
+        foldTurkish(roleLabel(user.yetki)).includes(permissionTerm) ||
         String(user.yetki ?? '').includes(permissionTerm) ||
         statusLabel.includes(permissionTerm)
       )
@@ -556,25 +557,25 @@ export default function UsersPage() {
   return (
     <div className="space-y-5 text-slate-950">
       <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-        <div className="border-b border-slate-200 bg-[#1E2A38] px-6 py-6 text-white">
+        <div className="ns-sayfa-baslik border-b border-slate-200 bg-[#1E2A38] px-6 py-6 text-white">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="text-xl font-black uppercase tracking-wide text-white/80">Kullanici ve Yetki Yonetimi</p>
-              <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Sistem Kullanicilari</h1>
-              <p className="mt-2 max-w-2xl text-xl font-semibold text-white/75">Liste sosyalyardim veritabanindaki kullanicilar tablosundan canli okunur; yetki duzenleme ilgili kullanici kaydi uzerinden acilir.</p>
+              <p className="text-xl font-black uppercase tracking-wide text-white/80">Kullanıcı ve Yetki Yönetimi</p>
+              <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Sistem Kullanıcıları</h1>
+              <p className="mt-2 max-w-2xl text-xl font-semibold text-white/75">Sisteme giriş yapabilen tüm personel hesapları burada listelenir. Yetkileri düzenlemek için ilgili kullanıcının satırındaki düğmeyi kullanın.</p>
             </div>
             <button
               onClick={openAddModal}
               className="rounded-md bg-white px-6 py-3 text-xl font-extrabold text-[#1E2A38] shadow-sm transition-colors hover:bg-slate-100"
             >
-              Yeni Kullanici Ekle
+              Yeni Kullanıcı Ekle
             </button>
           </div>
         </div>
 
         <div className="grid gap-3 bg-slate-50 p-5 md:grid-cols-4">
           <div className="rounded-lg border border-slate-300 bg-white p-4">
-            <p className="text-lg font-black uppercase text-slate-400">Toplam Kullanici</p>
+            <p className="text-lg font-black uppercase text-slate-400">Toplam Kullanıcı</p>
             <p className="mt-1.5 text-3xl font-black text-slate-900">{users.length}</p>
           </div>
           <div className="rounded-lg border border-emerald-200 bg-white p-4">
@@ -595,14 +596,14 @@ export default function UsersPage() {
       <div className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col gap-2">
           <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Arama ve Filtreleme</p>
-          <h2 className="text-2xl font-extrabold text-slate-900">Kullanici kayitlarini hizli bulun</h2>
+          <h2 className="text-2xl font-extrabold text-slate-900">Kullanıcı kayıtlarını hızlı bulun</h2>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
-            <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Kullanici Arama</label>
+            <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Kullanıcı Arama</label>
             <input
               type="text"
-              placeholder="Ad soyad, kullanici adi veya e-posta..."
+              placeholder="Ad soyad, kullanıcı adı veya e-posta..."
               value={userSearch}
               onChange={(event) => setUserSearch(event.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold outline-none transition focus:border-[#1E2A38] focus:bg-white focus:ring-2 focus:ring-sky-100"
@@ -612,7 +613,7 @@ export default function UsersPage() {
             <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Yetki Arama</label>
             <input
               type="text"
-              placeholder="Yonetici, yetkili, standart, aktif veya pasif..."
+              placeholder="Yönetici, yetkili, standart, aktif veya pasif..."
               value={permissionSearch}
               onChange={(event) => setPermissionSearch(event.target.value)}
               className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold outline-none transition focus:border-[#1E2A38] focus:bg-white focus:ring-2 focus:ring-sky-100"
@@ -639,11 +640,11 @@ export default function UsersPage() {
       <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm md:p-8">
         <div className="mb-6 flex flex-col items-start justify-between gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
           <div>
-            <h2 className="text-2xl font-extrabold text-[#1E2A38]">Kullanici Listesi</h2>
-            <p className="mt-1.5 text-xl font-bold text-slate-500">Yetkileri duzenle butonu kullaniciyi dogrudan yetki ekraninda acar.</p>
+            <h2 className="text-2xl font-extrabold text-[#1E2A38]">Kullanıcı Listesi</h2>
+            <p className="mt-1.5 text-xl font-bold text-slate-500">"Yetkileri Düzenle" düğmesi kullanıcıyı doğrudan yetki ekranında açar.</p>
           </div>
           <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg font-black text-slate-500">
-            Kaynak: sosyalyardim.kullanicilar
+            Canlı veri
           </div>
         </div>
 
@@ -655,23 +656,23 @@ export default function UsersPage() {
         )}
 
         <div className="overflow-x-auto rounded-lg border border-slate-300">
-          <table className="w-full min-w-[900px] border-collapse text-left text-xl font-semibold">
+          <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] border-collapse text-left text-xl font-semibold">
             <thead className="border-b border-slate-200 bg-slate-50 text-lg font-extrabold uppercase text-slate-600">
               <tr>
                 <th className="px-4 py-3">Foto</th>
                 <th className="px-4 py-3">Ad Soyad</th>
-                <th className="px-4 py-3">Kullanici Adi</th>
+                <th className="px-4 py-3">Kullanıcı Adı</th>
                 <th className="px-4 py-3">E-posta</th>
                 <th className="px-4 py-3">Rol / Yetki</th>
                 <th className="px-4 py-3">Durum</th>
-                <th className="px-4 py-3 text-right">Islemler</th>
+                <th className="px-4 py-3 text-right">İşlemler</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-xl font-bold text-slate-500">
-                    Kullanicilar yukleniyor...
+                    Kullanıcılar yükleniyor...
                   </td>
                 </tr>
               ) : loadError ? (
@@ -721,7 +722,7 @@ export default function UsersPage() {
                         href={`/settings?tab=userPermissions&user=${encodeURIComponent(row.id)}`}
                         className="inline-block rounded-md border border-[#1E2A38] bg-white px-4 py-2 text-lg font-black text-[#1E2A38] transition hover:bg-slate-100"
                       >
-                        Yetkileri Duzenle
+                        Yetkileri Düzenle
                       </a>
                       </div>
                     </td>
@@ -730,7 +731,7 @@ export default function UsersPage() {
               ) : (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-xl font-bold text-slate-500">
-                    Kullanici bulunamadi.
+                    Kullanıcı bulunamadı.
                   </td>
                 </tr>
               )}
@@ -743,7 +744,7 @@ export default function UsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <form onSubmit={submitAddUser} className="w-full max-w-lg rounded-2xl border border-slate-300 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Sisteme Kullanici Ekle</h3>
+              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Sisteme Kullanıcı Ekle</h3>
               <button type="button" onClick={() => setIsAddModalOpen(false)} className="rounded-full p-1.5 text-xl text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500">
                 X
               </button>
@@ -775,7 +776,7 @@ export default function UsersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <form onSubmit={submitEditUser} className="w-full max-w-lg rounded-2xl border border-slate-300 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Kullaniciyi Duzenle</h3>
+              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Kullanıcıyı Düzenle</h3>
               <button type="button" onClick={() => setEditingUser(null)} className="rounded-full p-1.5 text-xl text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500">
                 X
               </button>
@@ -855,7 +856,7 @@ export default function UsersPage() {
                   type="password"
                   value={manualPassword}
                   onChange={(event) => setManualPassword(event.target.value)}
-                  placeholder="Yeni şifre (en az 8 karakter, 1 büyük harf + 1 rakam)"
+                  placeholder="Yeni şifre (en az 6 karakter, 1 büyük + 1 küçük harf)"
                   autoComplete="new-password"
                   className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38]"
                   required

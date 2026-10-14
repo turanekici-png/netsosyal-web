@@ -34,13 +34,18 @@ import {
   EVALUATION_FORM_TEMPLATE_SETTING_KEY,
   type EvaluationFormTemplate,
 } from '@/lib/constants/evaluationForm'
-// Kullanici istegi (13 Eylul 2026): "İnceleme Formu" butonu artik YENI
-// eleme kriterli + otomatik puanlamali sistemi acar (openEvaluationForm
-// fonksiyonu asagida bu modali acacak sekilde guncellendi). Eski modal
-// (isEvaluationModalOpen, evaluationForm state'i, JSX'i) KOD OLARAK
-// duruyor ama artik hicbir butondan tetiklenmiyor - "mevcut sisteme
-// dokunma" talimatina uyup silmek yerine devre disi biraktik.
-import IncelemeDegerlendirmeFormModal from '@/components/documents/IncelemeDegerlendirmeFormModal'
+// Kullanici istegi (13 Ekim 2026): "Tahkikat Formu" butonu artik "Hane
+// Ziyareti ve Sosyal İnceleme Formu"nu acar (puansiz, bolum/sorulari
+// Ayarlar > Tahkikat Formu Tasarımı'ndan yonetilir). Onceki puanlamali/eleme
+// kriterli form (IncelemeDegerlendirmeFormModal) kullanici istegiyle
+// kaldirildi. Daha eski modal (isEvaluationModalOpen, evaluationForm state'i,
+// JSX'i) KOD OLARAK duruyor ama hicbir butondan tetiklenmiyor.
+import SahaIncelemeFormModal from '@/components/documents/SahaIncelemeFormModal'
+import SahaIncelemeGecmisiPaneli from '@/components/documents/SahaIncelemeGecmisiPaneli'
+import DosyaMuracaatFormu, { MURACAAT_TALEP_SECENEKLERI, type MuracaatHaneSatiri } from '@/components/documents/DosyaMuracaatFormu'
+import ImzaAlani from '@/components/documents/ImzaAlani'
+import SigdirilmisMetin from '@/components/documents/SigdirilmisMetin'
+import { yasHesapla, type HaneUyesi } from '@/lib/constants/sahaIncelemeForm'
 import {
   DEFAULT_UPDATE_FORM_TEMPLATE,
   UPDATE_FORM_TEMPLATE_SETTING_KEY,
@@ -53,11 +58,12 @@ import {
 } from '@/lib/constants/preliminaryReviewForm'
 import { FormDesignRenderer } from '@/components/shared/FormDesignRenderer'
 import { getCameraUnavailableMessage, REQUIRED_PRINT_AGENT_VERSION } from '@/lib/printAgentClient'
+import { useWorkflowCounts, WORKFLOW_COUNT_PATHS } from '@/lib/hooks/useWorkflowCounts'
+import { WORKFLOW_COUNT_TONE, WORKFLOW_TONE, WorkflowCountBadge } from '@/components/layout/WorkflowCountBadge'
 import { createCardScanTracker, processScannedCardInput, resetCardScanTracker } from '@/lib/nfcCardReader'
 import { applyMessageTemplateTokens, combineDateRange, MESSAGE_TEMPLATE_TOKEN_DEFINITIONS, type MessageTemplateTokenValues } from '@/lib/messageTemplateTokens'
 import { printFormDesignHtml } from '@/lib/printFormDesign'
 import { useTabs } from '@/lib/context/TabContext'
-import { useDesignModeHost } from '@/lib/context/DesignModeContext'
 import { useOpenFiles } from '@/lib/context/OpenFilesContext'
 import {
   findYardimKriteriValue,
@@ -368,6 +374,18 @@ const assistancePeriodOptions = ['1 Ay', '2 Ay', '3 Ay', '4 Ay', '5 Ay', '6 Ay',
 const KIS_DONEMI_PERIOD_LABEL = 'Kış Dönemi'
 const KIS_DONEMI_MURACAAT_TURLERI = ['Ekmek', 'Gıda Bankası', 'Destek Paketi', 'Hazır Yemek']
 const KIS_DONEMI_TABLOLAR = ['yrd_ekmek', 'yrd_gidabankasi', 'yrd_destekpaketi', 'yrd_haziryemek']
+// 2026-10-14: Aile Niteligi - secili bir deger (orn. tahkikattan gelen "Yetim
+// Ailesi") KORUNUR; T.C. 9 ile basliyorsa "Mülteci Ailesi" (4) yalniz deger
+// bos/varsayilandayken uygulanir. Onceden Dosya Guncelle her kayitta yabanci
+// uyruklu dosyayi zorla 4'e ceviriyordu.
+const varsayilanAileNiteligi = (tc: string, mevcut: string | null | undefined) => {
+  const deger = String(mevcut ?? '').trim().replace(/^-$/, '')
+  const yabanci = String(tc ?? '').trim().startsWith('9')
+  // Yabanci uyrukluda bos ya da "Normal Aile" (eski varsayilan) -> Mülteci;
+  // ozel bir secim (Yetim, Şehit, Parçalanmış...) korunur.
+  if (yabanci && (!deger || deger === '1')) return '4'
+  return deger || '1'
+}
 const isAutoFilledPeriod = (period: string) => period.includes('Ay') || period === KIS_DONEMI_PERIOD_LABEL
 const evaluationDecisionOptions = ['Uygun', 'Uygun Degil', 'Ertelendi / Ek Belge']
 
@@ -467,6 +485,9 @@ interface PersonCard {
   maritalStatus: string
   mobilePhone: string
   familyType: string
+  aidPriority?: string
+  totalIncome?: string
+  housingStatus?: string
   neighborhood: string
   avenue?: string
   street?: string
@@ -500,6 +521,9 @@ const tabKey = (file: { fileId?: string | null; cardNo?: string | null; identity
 
 interface ApplicationRow {
   recordId?: string
+  // 2026-10-14: Müracaat Aşamaları > Açıklama (asamanotu) ve iptal nedeni
+  stageNote?: string
+  cancelReason?: string
   sourceTable?: string
   no: string
   type: string
@@ -596,6 +620,8 @@ interface AssistanceRow {
   // /api/documents/cash-aid-movements). Nakit yardimin surec asamasini
   // gosterir (DURUM rozetinden ayri, ek bir bilgi).
   stage?: string
+  // 2026-10-14: iptal edilmiş (durumu=1) kayıtta iptal nedeni (durumuaciklama)
+  cancelReason?: string
   // Sadece Gıda Bankası/Destek Paketi icin anlamli (bkz.
   // app/api/documents/fetch/route.ts - yardim_onay_talepleri LATERAL join).
   // Digerlerinde 'none'.
@@ -1913,8 +1939,24 @@ function useFloatingWindow(defaultRect: { x: number; y: number; width: number; h
   // (bkz. ScaledArea.tsx'teki AYNI teknik - layout'u GERCEKTEN kucultur,
   // transform:scale gibi koordinat/tasma sorunlari cikarmaz) olarak uygulanir.
   const containerRef = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(1)
+  const [autoScale, setScale] = useState(1)
+  // 2026-10-14: pencere ustunde Ctrl + fare tekerlegi -> SAYFA degil bu
+  // pencerenin icerigi yakinlasir (bkz. ShellZoomContext onWheel).
+  const [userZoom, setUserZoom] = useState(1)
+  const scale = +(autoScale * userZoom).toFixed(3)
   const designSizeRef = useRef({ width: defaultRect.width, height: defaultRect.height })
+
+  useEffect(() => {
+    const element = containerRef.current
+    if (!element) return
+    element.setAttribute('data-window-zoom', '')
+    const onWindowZoom = (event: Event) => {
+      const direction = (event as CustomEvent<{ direction: number }>).detail?.direction ?? 0
+      setUserZoom((prev) => Math.min(1.6, Math.max(0.6, +(prev + direction * 0.05).toFixed(2))))
+    }
+    element.addEventListener('netsosyal:window-zoom', onWindowZoom)
+    return () => element.removeEventListener('netsosyal:window-zoom', onWindowZoom)
+  })
 
   useEffect(() => {
     const element = containerRef.current
@@ -1925,7 +1967,7 @@ function useFloatingWindow(defaultRect: { x: number; y: number; width: number; h
       const heightScale = element.clientHeight / designHeight
       const next = Math.min(widthScale, heightScale)
       setScale((prev) => {
-        const clamped = Math.min(1.6, Math.max(0.55, next))
+        const clamped = Math.min(1.3, Math.max(0.75, next)) // 2026-10-13: alt sinir 0.55->0.75 (kucuk pencerede yazi okunmaz olmasin), ust 1.6->1.3
         return Math.abs(prev - clamped) < 0.01 ? prev : +clamped.toFixed(3)
       })
     }
@@ -1975,6 +2017,105 @@ function useFloatingWindow(defaultRect: { x: number; y: number; width: number; h
 // kapla/kucult butonlari ekleyelim" - 5 pencerenin (Kurum Ici Haberlesme,
 // Belgeler, Dosya Guncelle, Yardim Hareketleri, Muracaatlar) basliginda
 // tekrar eden kod yerine TEK bir paylasilan buton bileseni.
+// Kullanici istegi (2026-10-14): Yardım Hareketleri'nden acilan eski/iptal
+// edilmis muracaatlarin DURUMU, muracaat penceresinin USTUNDEN
+// degistirilebilsin. Sadece Beklemede (0) <-> İptal (1); Ödendi (6) gibi
+// odeme kayitlarina bagli durumlar burada sadece GOSTERILIR (sunucu da
+// izin vermez - bkz. service-record "application-status" modu).
+const APPLICATION_STATUS_META: Record<string, { label: string; className: string }> = {
+  '0': { label: 'Beklemede', className: 'border-amber-300 bg-amber-50 text-amber-800' },
+  '1': { label: 'İptal Edildi', className: 'border-rose-300 bg-rose-50 text-rose-700' },
+  '6': { label: 'Ödendi', className: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
+}
+
+function ApplicationStatusBar({
+  row,
+  fileId,
+  canEdit,
+  onChanged,
+}: {
+  row: ApplicationRow
+  fileId: string
+  canEdit: boolean
+  onChanged: (nextStatus: string) => void
+}) {
+  const current = String(row.status ?? '').trim() || '0'
+  const meta = APPLICATION_STATUS_META[current] ?? { label: `Durum ${current}`, className: 'border-slate-300 bg-slate-50 text-slate-700' }
+  const isChangeable = current === '0' || current === '1'
+  const [nextStatus, setNextStatus] = useState(current === '1' ? '0' : '1')
+  const [note, setNote] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  const save = async () => {
+    if (!note.trim()) {
+      alert('Durum değişikliği için açıklama yazın.')
+      return
+    }
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/documents/service-record', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'application-status',
+          fileId,
+          recordId: row.recordId,
+          sourceTable: row.sourceTable,
+          status: Number(nextStatus),
+          description: note.trim(),
+        }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok || !payload?.success) throw new Error(payload?.error || 'Durum değiştirilemedi.')
+      setNote('')
+      onChanged(nextStatus)
+      setNextStatus(nextStatus === '1' ? '0' : '1')
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Durum değiştirilemedi.')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-[#DDE3E8] bg-[#F7F9FA] px-5 py-2.5">
+      <span className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[#64748B]">Müracaat Durumu</span>
+      <span className={`inline-flex items-center rounded-md border px-2.5 py-1 text-[13px] font-bold ${meta.className}`}>{meta.label}</span>
+      {canEdit && isChangeable ? (
+        <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <select
+            value={nextStatus}
+            onChange={(event) => setNextStatus(event.target.value)}
+            className="h-9 rounded-md border border-[#C9D3DA] bg-white px-2 text-[13px] font-semibold text-[#1E2A38] outline-none focus:border-[#0E7C86]"
+            aria-label="Yeni durum"
+          >
+            {current !== '0' && <option value="0">Beklemede (yeniden aç)</option>}
+            {current !== '1' && <option value="1">İptal Et</option>}
+          </select>
+          <input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Açıklama (zorunlu)"
+            className="h-9 min-w-[180px] flex-1 rounded-md border border-[#C9D3DA] bg-white px-2.5 text-[13px] font-medium text-[#0F172A] outline-none focus:border-[#0E7C86] sm:max-w-[340px]"
+          />
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={isSaving}
+            className="h-9 rounded-md border border-[#0A5F67] bg-[#0E7C86] px-3.5 text-[13px] font-semibold text-white transition hover:bg-[#0A5F67] disabled:cursor-wait disabled:opacity-60"
+          >
+            {isSaving ? 'Kaydediliyor...' : 'Durumu Değiştir'}
+          </button>
+        </div>
+      ) : (
+        <span className="ml-auto text-[12px] font-medium text-[#64748B]">
+          {!isChangeable ? 'Bu durum ödeme kayıtlarına bağlı olduğu için buradan değiştirilemez.' : 'Durum değiştirme yetkiniz yok.'}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function WindowMaximizeButton({
   isMaximized,
   onToggle,
@@ -2015,6 +2156,7 @@ function Section({
   icon,
   compactHeader = false,
   stackedHeader = false,
+  scrollBody = false,
 }: {
   title: string
   children: ReactNode
@@ -2023,6 +2165,8 @@ function Section({
   icon?: ReactNode
   compactHeader?: boolean
   stackedHeader?: boolean
+  // true: icerik kendi alaninda kayar, baslik sabit kalir.
+  scrollBody?: boolean
 }) {
   // Kullanici istegi (Ekim 2026, 2. tur - "başlık alanları... daha belirgin
   // ve renklendirelim"): tamamen duz beyaz baslik gecici olarak denendi
@@ -2045,7 +2189,8 @@ function Section({
     default: { header: 'bg-[#0B5F68]', icon: 'bg-white/15 text-white', title: 'font-bold' },
     applications: { header: 'bg-[#0B5F68]', icon: 'bg-white/15 text-white', title: 'font-bold' },
     assistance: { header: 'bg-[#0C5F48]', icon: 'bg-white/15 text-white', title: 'font-bold' },
-    reports: { header: 'bg-[#1E2A38]', icon: 'bg-white/15 text-white', title: 'font-semibold uppercase tracking-wide' },
+    // 2026-10-14: kurumsal lacivert degrade + altin alt serit (imza penceresiyle ayni dil)
+    reports: { header: 'bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] border-b-2 border-[#b8860b]', icon: 'bg-white/10 text-white ring-1 ring-white/20', title: 'font-semibold uppercase tracking-[0.08em]' },
     notes: { header: 'bg-[#54397F]', icon: 'bg-white/15 text-white', title: 'font-bold' },
   }[tone]
 
@@ -2101,7 +2246,7 @@ function Section({
           (Tasarim Modu'nda) belirlenen genislige HER ZAMAN sadik kalir,
           genis icerik ise (DataTable'in kendi "overflow-x-auto" alaninda)
           YATAY kaydirma ile gorunur - konteyner genislemez. */}
-      <div className="min-h-0 min-w-0 flex-1 bg-white">
+      <div className={`min-h-0 min-w-0 flex-1 bg-white ${scrollBody ? 'overflow-y-auto' : ''}`}>
         {children}
       </div>
     </section>
@@ -2127,6 +2272,7 @@ function DataTable<T extends object>({
   gulkartLookup,
   reorderTableId,
   columnCustomizationEnabled = false,
+  columnResizeEnabled = false,
   headerAccentColor,
   reserveScrollGutter = false,
 }: {
@@ -2168,6 +2314,12 @@ function DataTable<T extends object>({
   // degistirilemez (yanlislikla normal kullanimda duzenin bozulmasini
   // onlemek icin).
   columnCustomizationEnabled?: boolean
+  // Kullanici istegi (2026-10-14): Tasarim Modu kaldirildi - "sekmelerde
+  // sutun genisligini ayarlayabilelim, nasil ayarlarsak hafizaya alsin".
+  // true ise SADECE genislik tutamaci (sag kenar) her zaman aktiftir;
+  // surukle-birak ile sira degistirme columnCustomizationEnabled'a bagli
+  // kalir. Kayit, reorderTableId ile ayni mekanizmayla otomatik yapilir.
+  columnResizeEnabled?: boolean
   // Kullanici istegi (Ekim 2026): alt sekmelerde bir sekme acildiginda,
   // tablo basligi da o sekmenin RENGIYLE (acik tonlu zemin + renkli metin +
   // renkli alt kenarlik) boyansin - verilirse "head" temasini ezer.
@@ -2558,12 +2710,20 @@ function DataTable<T extends object>({
               <button
                 key={`${item.no}-${item.index}`}
                 type="button"
+                // Kullanici istegi (2026-10-14): "tek tıklayınca raporu seçsin,
+                // çift tıklayınca okuma sayfası açılsın" - eskiden TEK tıklama
+                // hem seçip hem okuma penceresini açıyordu.
                 onClick={() => {
+                  setSelectedIndex(item.index)
+                  onRowSelect?.(item.row, item.index)
+                }}
+                onDoubleClick={() => {
                   setSelectedIndex(item.index)
                   onRowSelect?.(item.row, item.index)
                   onRowDoubleClick?.(item.row, item.index)
                 }}
-                className={`w-full rounded-lg border px-3 py-2.5 text-left shadow-sm transition ${
+                title="Seçmek için tıklayın, okumak için çift tıklayın"
+                className={`w-full select-none rounded-lg border px-3 py-2.5 text-left shadow-sm transition ${
                   item.selected
                     ? 'border-[#6fb744] bg-[#f1faed] ring-1 ring-[#6fb744]/40'
                     : `${toneClasses.border} ${baseBg} ${toneClasses.hoverBorder} ${toneClasses.hoverBg}`
@@ -2582,7 +2742,19 @@ function DataTable<T extends object>({
                     <span className="shrink-0 text-slate-300">•</span>
                     <span className={`min-w-0 flex-1 truncate text-[14px] font-black uppercase leading-snug ${toneClasses.subject}`}>{item.subject}</span>
                   </div>
-                  <span className="shrink-0 rounded-md bg-[#0076b6]/10 px-2 py-1 text-[11px] font-black uppercase text-[#0076b6]">
+                  {/* "Oku" rozetine TEK tıklama da okumayı açar (bilinen
+                      kısayol korunur); kartın geri kalanı tek tıkta yalnız seçer. */}
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setSelectedIndex(item.index)
+                      onRowSelect?.(item.row, item.index)
+                      onRowDoubleClick?.(item.row, item.index)
+                    }}
+                    className="shrink-0 cursor-pointer rounded-md bg-[#0076b6]/10 px-2 py-1 text-[11px] font-black uppercase text-[#0076b6] hover:bg-[#0076b6]/20"
+                  >
                     Oku
                   </span>
                 </div>
@@ -2653,7 +2825,7 @@ function DataTable<T extends object>({
                   className={`relative border-b border-r ${tableTone.border} text-center ${isCompactTable ? 'py-2' : isRequestTable ? 'py-1.5' : 'py-2'} ${tableName === 'person' ? personCompactColumnClass(columnName) : isRequestTable ? 'px-2' : 'px-3'} ${reportColumnClass(columnName)} ${reorderTableId ? 'overflow-hidden text-ellipsis' : ''} ${columnCustomizationEnabled ? 'cursor-move select-none' : ''} ${draggedColumnKey === columnName ? 'opacity-40' : ''} ${dragOverColumnKey === columnName && draggedColumnKey && draggedColumnKey !== columnName ? 'bg-sky-100/80 ring-2 ring-inset ring-sky-400' : ''}`}
                 >
                   {tableName === 'reports' && colorTone === 'cyan' && columnName === 'no' ? <span className="block leading-tight">Sıra<br />No</span> : column.label}
-                  {columnCustomizationEnabled && (
+                  {(columnCustomizationEnabled || (columnResizeEnabled && reorderTableId)) && (
                     <div
                       draggable={false}
                       onMouseDown={(event) => startColumnResize(event, columnName)}
@@ -3190,9 +3362,11 @@ function Field({ label, value, copyable = false, callable = false }: { label: st
     <label
       onDoubleClick={handleDoubleClick}
       title={copyable ? 'Kopyalamak için çift tıklayın' : (value || undefined)}
-      className={`group flex min-w-0 flex-col gap-0.5 border-b py-1.5 transition-colors print:border-slate-300 ${copyable ? 'cursor-copy' : ''} ${justCopied ? 'border-emerald-300' : 'border-[#E2E5DE] hover:border-teal-200'}`}
+      className={`dy-field group flex min-w-0 flex-col gap-1 border-b py-1.5 transition-colors print:border-slate-300 ${copyable ? 'cursor-copy' : ''} ${justCopied ? 'border-emerald-300' : 'border-[#E6EBEF] hover:border-[#0E7C86]/40'}`}
     >
-      <span className="truncate text-[12.5px] font-bold uppercase tracking-wide text-[#3A4A55] print:text-slate-800">
+      {/* 2026-10-14 kurumsal: etiket sakin gri/ince (ikincil), deger koyu
+          lacivert/kalin (birincil) - goz once veriyi okur. */}
+      <span className="dy-field-label truncate text-[12px] font-semibold uppercase tracking-[0.06em] text-[#64748B] print:text-slate-800">
         {label}
       </span>
       {/* Hata raporu (2026-09-12): "mobilde Kişi Bilgileri'ndeki yazılar
@@ -3204,7 +3378,7 @@ function Field({ label, value, copyable = false, callable = false }: { label: st
           kaliyor, "duzensiz" gorunuyordu. Mobilde 14px'e cekildi (masaustu -
           sm: - 18px aynen korunuyor, orada boyle bir sikayet yok). */}
       <span className="flex min-w-0 items-center gap-1.5">
-        <span className={`min-w-0 truncate text-[13px] font-black leading-tight sm:text-[18px] print:text-black ${justCopied ? 'text-emerald-700' : 'text-black'}`}>
+        <span className={`dy-field-value min-w-0 truncate text-[13px] font-bold leading-tight sm:text-[18px] print:text-black ${justCopied ? 'text-emerald-700' : 'text-[#0F172A]'}`}>
           {justCopied ? 'Kopyalandı ✓' : (value || '—')}
         </span>
         {/* Kullanici istegi (2026-10-08): "mobil tarafta telefon no'nun yanina
@@ -3377,6 +3551,8 @@ interface NewFileFormState {
   fileNo: string
   status: string
   familyType: string
+  // 2026-10-14: dosyalar.yaronceliksirasi (1-5) - '' = belirtilmedi
+  aidPriority?: string
   address: string
   phone: string
   description: string
@@ -4564,7 +4740,7 @@ function DocumentsPageContent() {
     const compute = () => {
       const next = Math.min(element.clientWidth / designWidth, element.clientHeight / designHeight)
       setCommunicationScale((prev) => {
-        const clamped = Math.min(1.6, Math.max(0.55, next))
+        const clamped = Math.min(1.3, Math.max(0.75, next)) // 2026-10-13: alt sinir 0.55->0.75 (kucuk pencerede yazi okunmaz olmasin), ust 1.6->1.3
         return Math.abs(prev - clamped) < 0.01 ? prev : +clamped.toFixed(3)
       })
     }
@@ -4580,7 +4756,8 @@ function DocumentsPageContent() {
   const belgeWindow = useFloatingWindow({ x: 60, y: 40, width: 1220, height: 820 })
   const createFileWindow = useFloatingWindow({ x: 60, y: 30, width: 1180, height: 760 })
   const aidMovementsWindow = useFloatingWindow({ x: 60, y: 30, width: 1400, height: 860 })
-  const addApplicationWindow = useFloatingWindow({ x: 80, y: 40, width: 780, height: 780 })
+  // 2026-10-14: "Yardım Müracaatı penceresi daha geniş açılsın" 780 -> 1240.
+  const addApplicationWindow = useFloatingWindow({ x: 60, y: 30, width: 1240, height: 860 })
   // Kullanici istegi (2026-10-07): "Yardım Düzenle" penceresi de digerleri
   // (Belgeler/Dosya Ekle/Müracaatlar) gibi SURUKLENEBILIR/YENIDEN
   // BOYUTLANDIRILABILIR olsun.
@@ -4685,7 +4862,8 @@ function DocumentsPageContent() {
   const [applicationPaymentForm, setApplicationPaymentForm] = useState({ date: getTodayInputDate(), description: '' })
   const [applicationPaymentStatus, setApplicationPaymentStatus] = useState<'idle' | 'saving'>('idle')
   const [isCancelApplicationModalOpen, setIsCancelApplicationModalOpen] = useState(false)
-  const [cancelApplicationForm, setCancelApplicationForm] = useState({ date: getTodayInputDate(), description: '' })
+  // writeReport (2026-10-14): "aynı bilgi tahkikat raporuna işlensin mi" tiki
+  const [cancelApplicationForm, setCancelApplicationForm] = useState({ date: getTodayInputDate(), description: '', writeReport: false })
   const [cancelApplicationStatus, setCancelApplicationStatus] = useState<'idle' | 'saving'>('idle')
   const [isFileStatusModalOpen, setIsFileStatusModalOpen] = useState(false)
   const [fileStatusForm, setFileStatusForm] = useState({ date: getTodayInputDate(), status: '0', description: '' })
@@ -4859,6 +5037,195 @@ function DocumentsPageContent() {
   const [printSending, setPrintSending] = useState(false)
   const [printData, setPrintData] = useState<any>(null)
   const printContentRef = useRef<HTMLDivElement>(null)
+  // Kullanici istegi (2026-10-14): "Dosya" turundeki tasarim (07 - Dosya
+  // Müracaat Formu) artik kodla cizilen kurumsal form (DosyaMuracaatFormu)
+  // olarak basilir; müracaatçının dijital imzasi ve talepleri ayri tabloya
+  // (dosya_muracaat_formu) kaydedilir ve sonraki ciktilarda gosterilir.
+  const isMuracaatFormuDesign = !!selectedPrintDesign
+    && normalizePrinterConfigKey(selectedPrintDesign.linkedAssistance) === normalizePrinterConfigKey('Dosya')
+  const [muracaatImza, setMuracaatImza] = useState<string | null>(null)
+  const [muracaatTalepler, setMuracaatTalepler] = useState<string[]>([])
+  const [muracaatKayit, setMuracaatKayit] = useState<{ imza: string | null; personelImza: string | null; onayYazisi: string | null; personelAdi: string; talepler: string[]; tarih: string; kullanici: string } | null>(null)
+  const [muracaatPersonelImza, setMuracaatPersonelImza] = useState<string | null>(null)
+  const [muracaatOnayYazisi, setMuracaatOnayYazisi] = useState<string | null>(null)
+  const [muracaatDurum, setMuracaatDurum] = useState<{ tone: 'info' | 'ok' | 'error'; text: string } | null>(null)
+  const [muracaatKaydediliyor, setMuracaatKaydediliyor] = useState(false)
+  const [muracaatLogo, setMuracaatLogo] = useState('')
+  // A4 onizlemenin pencereye sigdirilmasi: "sayfa" = tum sayfa gorunur,
+  // "genislik" = genislige sigar (dikey kaydirilir).
+  const muracaatOnizlemeRef = useRef<HTMLDivElement>(null)
+  const [muracaatSigdirma, setMuracaatSigdirma] = useState<'sayfa' | 'genislik'>('genislik')
+  const [muracaatOlcek, setMuracaatOlcek] = useState(1)
+  useEffect(() => {
+    const alan = muracaatOnizlemeRef.current
+    if (!isPrintModalOpen || !isMuracaatFormuDesign || !alan) return
+    // 210mm x 297mm (96 dpi) + alanin ic boslugu
+    const A4_GENISLIK = 794
+    const A4_YUKSEKLIK = 1123
+    const hesapla = () => {
+      const genislik = Math.max(1, alan.clientWidth - 26)
+      const yukseklik = Math.max(1, alan.clientHeight - 26)
+      const olcek = muracaatSigdirma === 'sayfa'
+        ? Math.min(genislik / A4_GENISLIK, yukseklik / A4_YUKSEKLIK)
+        : genislik / A4_GENISLIK
+      setMuracaatOlcek(Math.max(0.3, Math.min(1.25, +olcek.toFixed(3))))
+    }
+    hesapla()
+    const gozlemci = new ResizeObserver(hesapla)
+    gozlemci.observe(alan)
+    return () => gozlemci.disconnect()
+  }, [isPrintModalOpen, isMuracaatFormuDesign, muracaatSigdirma])
+  // Kullanici istegi (2026-10-14, 3. tur): imza baski onizlemesinde DEGIL,
+  // Kisi Bilgileri kartindaki "Müracaatçı İmzası Al" butonuyla acilan ayri
+  // pencerede alinir. muracaatImza/muracaatTalepler o pencerenin taslagi;
+  // muracaatKayit dosyanin kayitli (son) imzasi - baski bunu kullanir.
+  const [isMuracaatImzaModalOpen, setIsMuracaatImzaModalOpen] = useState(false)
+  const muracaatDegisti = !!muracaatImza && (
+    muracaatImza !== muracaatKayit?.imza
+    || (muracaatPersonelImza ?? null) !== (muracaatKayit?.personelImza ?? null)
+    || (muracaatOnayYazisi ?? null) !== (muracaatKayit?.onayYazisi ?? null)
+  )
+  const openMuracaatImzaModal = () => {
+    setMuracaatImza(muracaatKayit?.imza ?? null)
+    setMuracaatPersonelImza(muracaatKayit?.personelImza ?? null)
+    setMuracaatOnayYazisi(muracaatKayit?.onayYazisi ?? null)
+    setMuracaatTalepler(muracaatKayit?.talepler ?? [])
+    setMuracaatDurum(null)
+    setIsMuracaatImzaModalOpen(true)
+  }
+  // Logo yazdirma agent'ina da gidecegi icin gomulu (data URL) olarak kullanilir.
+  useEffect(() => {
+    if (!isPrintModalOpen || !isMuracaatFormuDesign || muracaatLogo) return
+    fetch('/sivas-belediyesi-logo.png')
+      .then((response) => response.blob())
+      .then((blob) => new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.readAsDataURL(blob)
+      }))
+      .then(setMuracaatLogo)
+      .catch(() => setMuracaatLogo(`${window.location.origin}/sivas-belediyesi-logo.png`))
+  }, [isPrintModalOpen, isMuracaatFormuDesign, muracaatLogo])
+
+  // Dosya Müracaat Formu'nu A4 PDF olarak indir (kullanici istegi 2026-10-14).
+  // Onizlemenin HTML'i (gomulu stiliyle) sunucuya gider, orada Chrome ile
+  // PDF'e cevrilir. Sunucu dis ag istegi yapmadigi icin gorseller burada
+  // (oturum cerezleriyle) data URL'e cevrilir.
+  const [pdfIndiriliyor, setPdfIndiriliyor] = useState(false)
+  const downloadPrintPdf = async () => {
+    const content = printContentRef.current
+    if (!content || pdfIndiriliyor) return
+    // Chrome, http (sifresiz) adresten acilan sayfalardaki TUM indirmeleri
+    // "guvenli degil" diye isaretler. Bu durumda PDF uyarisiz olarak yeni
+    // sekmede acilir (goruntule/yazdir); https'te dogrudan indirilir. Sekme
+    // tiklama aninda acilir (sonradan acilirsa acilir pencere engeline takilir).
+    const yeniSekme = window.isSecureContext ? null : window.open('', '_blank')
+    setPdfIndiriliyor(true)
+    try {
+      const kopya = content.cloneNode(true) as HTMLElement
+      await Promise.all(Array.from(kopya.querySelectorAll('img')).map(async (img) => {
+        const src = img.getAttribute('src') || ''
+        if (!src || src.startsWith('data:')) return
+        try {
+          const blob = await (await fetch(src)).blob()
+          img.setAttribute('src', await new Promise<string>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(String(reader.result || ''))
+            reader.readAsDataURL(blob)
+          }))
+        } catch {
+          img.remove()
+        }
+      }))
+      const html = `<!doctype html><html><head><meta charset="utf-8" /><style>@page { size: A4; margin: 0; } html, body { margin: 0; padding: 0; background: #fff; } .dmf { min-height: 296mm !important; }</style></head><body>${kopya.innerHTML}</body></html>`
+      const adSoyad = String(printData?.kisi?.ad_soyad ?? '').trim()
+      const fileName = ['Muracaat Formu', printData?.dosya?.dosyano, adSoyad].filter((p) => p && p !== '-').join(' - ')
+      const response = await fetch('/api/documents/html-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, fileName }),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload?.error || 'PDF oluşturulamadı.')
+      }
+      const url = URL.createObjectURL(await response.blob())
+      if (yeniSekme) {
+        yeniSekme.location.href = url
+        setTimeout(() => URL.revokeObjectURL(url), 10 * 60_000)
+        return
+      }
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${fileName || 'Muracaat Formu'}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
+    } catch (error) {
+      yeniSekme?.close()
+      setPrintNotification(`PDF indirilemedi: ${error instanceof Error ? error.message : 'Bilinmeyen hata'}`)
+    } finally {
+      setPdfIndiriliyor(false)
+    }
+  }
+
+  const saveMuracaatImza = async () => {
+    const dosyaId = displayedPerson.fileId
+    if (!muracaatImza || !dosyaId) return
+    setMuracaatKaydediliyor(true)
+    setMuracaatDurum(null)
+    try {
+      const response = await fetch('/api/documents/muracaat-formu', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dosyaId,
+          dosyaNo: displayedPerson.cardNo,
+          adSoyad: [displayedPerson.firstName, displayedPerson.lastName].filter(Boolean).join(' '),
+          tc: displayedPerson.identityNumber,
+          talepler: muracaatTalepler,
+          imza: muracaatImza,
+          personelImza: muracaatPersonelImza,
+          onayYazisi: muracaatOnayYazisi,
+          personelAdi: currentUserName || '',
+          // Imza anindaki form iceriginin anlik kopyasi - dosya sonradan
+          // degisse de imzalanan formun neyi kapsadigi belgelenmis olur.
+          formBilgileri: {
+            kisi: {
+              tc: displayedPerson.identityNumber || '',
+              adSoyad: [displayedPerson.firstName, displayedPerson.lastName].filter(Boolean).join(' '),
+              babaAdi: displayedPerson.fatherName || '',
+              anaAdi: displayedPerson.motherName || '',
+              dogumYeri: displayedPerson.birthPlace || '',
+              dogumTarihi: displayedPerson.birthDate || '',
+              medeniHal: getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, displayedPerson.maritalStatus),
+              telefon: displayedPerson.mobilePhone || '',
+            },
+            adres: displayedPerson.address || '',
+            hane: (displayedPerson.household || []).map((uye) => ({
+              yakinlik: getRelationshipDisplayLabel(predefinedValues, predefinedValueTitles, uye.relation, uye.relation || '-'),
+              tc: uye.identityNumber || '',
+              adSoyad: [uye.firstName, uye.lastName].filter(Boolean).join(' '),
+              dogumTarihi: uye.birthDate || '',
+              medeniHal: getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, uye.maritalStatus),
+            })),
+            personel: currentUserName || '',
+            imzaTarihi: new Date().toISOString(),
+          },
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || payload?.success === false) throw new Error(payload?.error || 'İmza kaydedilemedi.')
+      setMuracaatKayit({ imza: muracaatImza, personelImza: muracaatPersonelImza, onayYazisi: muracaatOnayYazisi, personelAdi: currentUserName || '', talepler: muracaatTalepler, tarih: new Date().toLocaleDateString('tr-TR'), kullanici: currentUserName || '' })
+      setIsMuracaatImzaModalOpen(false)
+      setPrintNotification('İmzalar kaydedildi. Dosya Müracaat Formu çıktısında görünecek.')
+    } catch (error) {
+      setMuracaatDurum({ tone: 'error', text: error instanceof Error ? error.message : 'İmza kaydedilemedi.' })
+    } finally {
+      setMuracaatKaydediliyor(false)
+    }
+  }
   const [isCameraModalOpen, setIsCameraModalOpen] = useState(false)
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'starting' | 'ready' | 'saving'>('idle')
   const [cameraError, setCameraError] = useState('')
@@ -4974,6 +5341,11 @@ function DocumentsPageContent() {
   // Yeni eleme kriterli + otomatik puanlamali İnceleme Formu - "İnceleme
   // Formu" butonu artik BUNU acar (bkz. openEvaluationForm).
   const [isIncelemeFormuModalOpen, setIsIncelemeFormuModalOpen] = useState(false)
+  // Kullanici istegi (2026-10-14): Dosya Yönetimi > "Tahkikat Formları" sekmesi -
+  // dosyanin tum kayitli formlari listelenir, Düzenle formu o kayitla acar.
+  const [incelemeDuzenlenecekFormId, setIncelemeDuzenlenecekFormId] = useState<string | null>(null)
+  const [tahkikatFormYenile, setTahkikatFormYenile] = useState(0)
+  const [tahkikatFormSayisi, setTahkikatFormSayisi] = useState(0)
   const [evaluationSections, setEvaluationSections] = useState<EvaluationFormTemplate>(DEFAULT_EVALUATION_FORM_TEMPLATE)
   const [evaluationRecords, setEvaluationRecords] = useState<IncelemeFormRecord[]>([])
   const [pendingEvaluationSelectId, setPendingEvaluationSelectId] = useState<string | null>(null)
@@ -5278,7 +5650,13 @@ function DocumentsPageContent() {
   // icindeki bilgi cubugundan ust menuye (kullanici adinin yanina) tasindi -
   // durum artik global DesignModeContext'te tutulur; bu kanca, Dosya
   // Yonetimi sayfasi acikken ust menudeki dugmeyi gorunur kilar.
-  const [isDosyaYonetimiDesignMode, setIsDosyaYonetimiDesignMode] = useDesignModeHost()
+  // Kullanici istegi (2026-10-14): "Tasarim Modu alanini kaldiralim, sayfa
+  // hep bu sekilde acilsin" - host artik KAYDEDILMEZ (ust menudeki dugme
+  // gorunmez), mod daima kapali; izgara da kisiye ozel kayitli duzeni
+  // degil HERKES icin DOSYA_YONETIMI_DEFAULT_LAYOUT'u kullanir (bkz.
+  // LocalDesignGrid "lockToDefaultLayout").
+  const isDosyaYonetimiDesignMode = false
+  const setIsDosyaYonetimiDesignMode = (_next: boolean) => {}
   // Kullanici istegi (Agustos 2026): SADECE mobil gorunumde "Raporlar ve
   // Tahkikatlar" paneli ile altindaki sekme (Hane/Müracaatlar/Yardımlar...)
   // alaninin yeri degistirilir - mobilde once sekmeler, sonra Raporlar. Web
@@ -5379,6 +5757,26 @@ function DocumentsPageContent() {
       ? quickActionIds.filter((x) => x !== id)
       : [...quickActionIds, id])
   }
+  // Kullanici istegi (2026-10-14): kisayollarin sirasi asagi/yukari
+  // degistirilebilsin - sira zaten quickActionIds dizisinin sirasidir,
+  // ayni hesaba ozel kayda yazilir.
+  // gorunenIds: panelde gorunen (yetkisi olan) kisayollar - komsu bunlar
+  // arasindan secilir, gizli bir kayitla yer degistirip "hareket etmedi"
+  // gibi gorunmesin.
+  const moveQuickAction = (id: string, yon: -1 | 1, gorunenIds: string[]) => {
+    const g = gorunenIds.indexOf(id)
+    const komsu = gorunenIds[g + yon]
+    if (g < 0 || !komsu) return
+    const yeni = [...quickActionIds]
+    const i = yeni.indexOf(id)
+    const j = yeni.indexOf(komsu)
+    if (i < 0 || j < 0) return
+    ;[yeni[i], yeni[j]] = [yeni[j], yeni[i]]
+    persistQuickActions(yeni)
+  }
+  // Is Akisi kisayollarinda bekleyen dosya bildirimi (2026-10-14) - sol
+  // menuyle AYNI sayilar (bkz. lib/hooks/useWorkflowCounts).
+  const workflowCounts = useWorkflowCounts()
   // Kullanici istegi (Ekim 2026): "Hane Bilgileri", "Müracaatlar",
   // "Yardımlar" ve "Raporlar ve Tahkikatlar" artik ana sayfada (Tasarim
   // Modu izgarasinda) DEGIL, ayri bir SEKME cubugunda gosterilir - tek
@@ -5392,8 +5790,8 @@ function DocumentsPageContent() {
   // useEffect) GERI URL'e yazilir (router.replace, gecmise yeni kayit
   // EKLEMEDEN - geri tusu kirlenmesin diye) - sayfa yenilenince tarayici
   // zaten ayni URL'i (query dahil) tekrar istedigi icin sekme korunur.
-  const DETAIL_TAB_VALUES = ['hane', 'muracaatlar', 'yardimlar', 'disKurum', 'notlar'] as const
-  const [activeDetailTab, setActiveDetailTab] = useState<'hane' | 'muracaatlar' | 'yardimlar' | 'disKurum' | 'notlar'>(() => {
+  const DETAIL_TAB_VALUES = ['hane', 'muracaatlar', 'yardimlar', 'disKurum', 'notlar', 'tahkikat'] as const
+  const [activeDetailTab, setActiveDetailTab] = useState<typeof DETAIL_TAB_VALUES[number]>(() => {
     const fromUrl = searchParams.get('detailTab')
     return (DETAIL_TAB_VALUES as readonly string[]).includes(fromUrl || '') ? (fromUrl as typeof DETAIL_TAB_VALUES[number]) : 'hane'
   })
@@ -5648,7 +6046,10 @@ function DocumentsPageContent() {
       stageStatus: isCashApplication
         ? resolvePredefinedOptionId(cashStageOptions, serviceRow.stage)
         : cleanDisplayValue(serviceRow.stage),
-      stageDescription: '',
+      // 2026-10-14: eskiden HER ZAMAN boş açılıyordu - kayıtlı aşama notu
+      // (asamanotu) yoksa ve kayıt iptal edilmişse iptal nedeni gösterilir.
+      // (Boş açılması, "Güncelle"de mevcut asamanotu'nu da siliyordu.)
+      stageDescription: cleanDisplayValue(serviceRow.stageNote) || cleanDisplayValue(serviceRow.cancelReason),
       stageCode: '',
       otomatikRedIptal: Boolean(serviceRow.otomatikRedIptal),
       // Kullanici istegi: mevcut "TC1-TC2-TC3" seklinde kayitli deger
@@ -6726,7 +7127,8 @@ function DocumentsPageContent() {
       const nextForm: NewFileFormState = {
         fileNo: cleanDisplayValue(activeFile.cardNo),
         status: cleanDisplayValue(activeFile.fileStatus) || '0',
-        familyType: applicant.tc.startsWith('9') ? '4' : (cleanDisplayValue(activeFile.familyType) || '1'),
+        familyType: varsayilanAileNiteligi(applicant.tc, cleanDisplayValue(activeFile.familyType)),
+        aidPriority: cleanDisplayValue(activeFile.aidPriority),
         address: cleanDisplayValue(activeFile.address),
         phone: cleanDisplayValue(activeFile.mobilePhone),
         description: '',
@@ -10730,6 +11132,7 @@ function DocumentsPageContent() {
     setCancelApplicationForm({
       date: getTodayInputDate(),
       description: '',
+      writeReport: false,
     })
     setIsCancelApplicationModalOpen(true)
   }
@@ -10748,7 +11151,7 @@ function DocumentsPageContent() {
     }
 
     if (!cancelApplicationForm.date || !cancelApplicationForm.description.trim()) {
-      alert('Tarih ve durum açıklama alanları zorunludur.')
+      alert('İptal tarihi ve iptal nedeni zorunludur.')
       return
     }
 
@@ -10764,6 +11167,7 @@ function DocumentsPageContent() {
           sourceTable: serviceRow.sourceTable,
           cancelDate: cancelApplicationForm.date,
           cancelReason: cancelApplicationForm.description,
+          writeReport: cancelApplicationForm.writeReport,
         }),
       })
       const payload = await response.json()
@@ -10775,7 +11179,9 @@ function DocumentsPageContent() {
       setIsCancelApplicationModalOpen(false)
       setSelectedApplicationRow(null)
       refreshFileDetailsInBackground(displayedPerson.fileId)
-      alert('İptal bilgileri kaydedildi.')
+      alert(payload.reportAdded
+        ? 'Müracaat iptal edildi. İptal açıklaması Raporlar ve Tahkikatlar > İnceleme alanına da eklendi.'
+        : 'Müracaat iptal edildi.')
     } catch (error) {
       alert(error instanceof Error ? error.message : 'İptal kaydedilemedi.')
     } finally {
@@ -11271,7 +11677,8 @@ function DocumentsPageContent() {
     setNewFileForm({
       fileNo: cleanDisplayValue(displayedPerson.cardNo),
       status: cleanDisplayValue(displayedPerson.fileStatus) || '0',
-      familyType: applicant.tc.startsWith('9') ? '4' : (cleanDisplayValue(displayedPerson.familyType) || '1'),
+      familyType: varsayilanAileNiteligi(applicant.tc, cleanDisplayValue(displayedPerson.familyType)),
+      aidPriority: cleanDisplayValue(displayedPerson.aidPriority),
       address: cleanDisplayValue(displayedPerson.address),
       phone: cleanDisplayValue(displayedPerson.mobilePhone),
       description: '',
@@ -11323,7 +11730,7 @@ function DocumentsPageContent() {
         const nextApplicant = { ...current.applicant, [field]: value }
         return {
           ...current,
-          familyType: field === 'tc' ? (value.startsWith('9') ? '4' : '1') : current.familyType,
+          familyType: field === 'tc' && ['', '1', '4'].includes(current.familyType) ? varsayilanAileNiteligi(value, '') : current.familyType,
           applicant: nextApplicant,
         }
       }
@@ -11444,7 +11851,7 @@ function DocumentsPageContent() {
       }
       const nextForm = {
         ...newFileForm,
-        familyType: nextApplicant.tc.startsWith('9') ? '4' : newFileForm.familyType,
+        familyType: varsayilanAileNiteligi(nextApplicant.tc, newFileForm.familyType),
         applicant: nextApplicant,
       }
 
@@ -12303,7 +12710,7 @@ function DocumentsPageContent() {
         const kentRehberi = await fetchAddressDetailsFromKentRehberi(addressNoForLookup)
         const nextForm = {
           ...newFileForm,
-          familyType: tc.startsWith('9') ? '4' : (newFileForm.familyType || '1'),
+          familyType: varsayilanAileNiteligi(tc, newFileForm.familyType),
           applicant: {
             ...newFileForm.applicant,
             firstName: p.ad,
@@ -12758,6 +13165,28 @@ function DocumentsPageContent() {
       if (relNumberA !== relNumberB) return relNumberA - relNumberB
       return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`, 'tr')
     })
+
+  // Hane Ziyareti ve Sosyal İnceleme Formu'nun "Hane üyeleri" tablosu icin
+  // otomatik dolum: dosya sahibi + hayattaki hane bireyleri (ad, dogum
+  // tarihinden hesaplanan tam yas, yakinlik). Personel formda duzeltebilir/ekleyip silebilir.
+  const haneUyeleriForInceleme = (): HaneUyesi[] => {
+    if (!hasSelectedFile) return []
+    const sahip: HaneUyesi = {
+      adSoyad: [displayedPerson.firstName, displayedPerson.lastName].filter(Boolean).join(' ').trim(),
+      yasGrubu: yasHesapla(displayedPerson.birthDate),
+      yakinlik: 'Başvuru sahibi',
+      adres: cleanDisplayValue(displayedPerson.address),
+    }
+    const digerleri = displayedHousehold
+      .filter((person) => !cleanDisplayValue(person.deathDate))
+      .map((person): HaneUyesi => ({
+        adSoyad: `${person.firstName || ''} ${person.lastName || ''}`.trim(),
+        yasGrubu: yasHesapla(person.birthDate),
+        yakinlik: getRelationshipDisplayLabel(predefinedValues, predefinedValueTitles, person.relation, ''),
+        adres: cleanDisplayValue(person.address) || cleanDisplayValue(displayedPerson.address),
+      }))
+    return [sahip, ...digerleri].filter((uye) => uye.adSoyad)
+  }
 
   useEffect(() => {
     setSelectedHouseholdRow(null)
@@ -14146,6 +14575,8 @@ function DocumentsPageContent() {
       },
       'cikti.kullanici': currentUserName || 'Sistem Kullanıcısı',
       barkod_no: `${displayedPerson.cardNo}-${row.no}`,
+      // Yeni kurumsal Dosya Müracaat Formu (DosyaMuracaatFormu) hane tablosu icin.
+      bireyler_liste: householdPrintRows,
       qr_dosya_url: `${window.location.origin}/documents?fileId=${encodeURIComponent(displayedPerson.fileId || displayedPerson.cardNo)}`,
     };
 
@@ -14577,12 +15008,78 @@ function DocumentsPageContent() {
       .filter((item): item is { label: string; value: string } => Boolean(item.value))
   }, [priorOnIncelemeRecord, preliminaryReviewFields])
 
-  const openEvaluationForm = () => {
+  // Kullanici istegi (2026-10-14): masaustunde Kişi Bilgileri, Hızlı İşlemler
+  // ve Raporlar ve Tahkikatlar panelleri AYNI hizada, Kişi Bilgileri'nin
+  // ICERIGININ bittigi yerde biter. Icerik (baslik + fotograf/bilgiler
+  // izgarasi) olculur, LocalDesignGrid'e heightOverridesPx olarak verilir.
+  // (>=900px'te icerik, panel icinde absolute kaydirma kutusunda durdugu
+  // icin olcum panel yuksekliginden bagimsizdir - geri besleme dongusu yok.)
+  const [kisiPanelBaslikEl, setKisiPanelBaslikEl] = useState<HTMLDivElement | null>(null)
+  const [kisiPanelIcerikEl, setKisiPanelIcerikEl] = useState<HTMLDivElement | null>(null)
+  const [kisiPanelYukseklikPx, setKisiPanelYukseklikPx] = useState(0)
+  useEffect(() => {
+    if (!kisiPanelBaslikEl || !kisiPanelIcerikEl || isDosyaYonetimiMobile) return
+    const olc = () => {
+      // offsetHeight: CSS (zoom/olcek oncesi) piksel - izgaranin satir birimiyle ayni.
+      const px = kisiPanelBaslikEl.offsetHeight + kisiPanelIcerikEl.offsetHeight + 2 // ust+alt kenarlik
+      setKisiPanelYukseklikPx((onceki) => (Math.abs(onceki - px) > 2 ? px : onceki))
+    }
+    olc()
+    const gozlemci = new ResizeObserver(olc)
+    gozlemci.observe(kisiPanelBaslikEl)
+    gozlemci.observe(kisiPanelIcerikEl)
+    return () => gozlemci.disconnect()
+  }, [kisiPanelBaslikEl, kisiPanelIcerikEl, isDosyaYonetimiMobile])
+
+  // Dosyanin kayitli müracaatçı imzasi (Kisi Bilgileri butonu + Dosya Müracaat Formu ciktisi).
+  useEffect(() => {
+    const fileId = displayedPerson.fileId
+    setMuracaatKayit(null)
+    if (!fileId) return
+    let iptal = false
+    fetch(`/api/documents/muracaat-formu?dosyaId=${encodeURIComponent(fileId)}`, { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((payload: { success?: boolean; data?: { imza: string | null; personel_imza: string | null; onay_yazisi: string | null; personel_adi: string | null; talepler: string[] | null; olusturma_tarihi: string; kullanici: string | null } | null }) => {
+        if (iptal || !payload?.success || !payload.data) return
+        setMuracaatKayit({
+          imza: payload.data.imza,
+          personelImza: payload.data.personel_imza,
+          onayYazisi: payload.data.onay_yazisi,
+          personelAdi: payload.data.personel_adi || '',
+          talepler: Array.isArray(payload.data.talepler) ? payload.data.talepler : [],
+          tarih: new Date(payload.data.olusturma_tarihi).toLocaleDateString('tr-TR'),
+          kullanici: payload.data.kullanici || '',
+        })
+      })
+      .catch(() => {})
+    return () => { iptal = true }
+  }, [displayedPerson.fileId])
+
+  // "Tahkikat Formları" sekme sayaci - sekme acik olmasa da dosya secilince guncel.
+  useEffect(() => {
+    const fileId = displayedPerson.fileId
+    if (!fileId) {
+      setTahkikatFormSayisi(0)
+      return
+    }
+    let iptal = false
+    fetch(`/api/documents/saha-inceleme?dosyaId=${encodeURIComponent(fileId)}`, { cache: 'no-store' })
+      .then((response) => response.json())
+      .then((payload: { success?: boolean; data?: unknown[] }) => {
+        if (!iptal && payload?.success && Array.isArray(payload.data)) setTahkikatFormSayisi(payload.data.length)
+      })
+      .catch(() => {})
+    return () => { iptal = true }
+  }, [displayedPerson.fileId, tahkikatFormYenile])
+
+  // Butonlarin onClick'i olay nesnesi gecirir - sadece metin id duzenleme demektir.
+  const openEvaluationForm = (duzenlenecekFormId?: unknown) => {
     if (!displayedPerson.fileId) {
       alert('Inceleme formu icin once bir dosya secin.')
       return
     }
 
+    setIncelemeDuzenlenecekFormId(typeof duzenlenecekFormId === 'string' ? duzenlenecekFormId : null)
     setIsIncelemeFormuModalOpen(true)
     // Eski sistemden kalma, hala calisan fetch - Tahkikat Formu'ndaki
     // "Geçmiş Formlar" alaninda en son Guncelleme Formu ve On Inceleme
@@ -15498,12 +15995,12 @@ function DocumentsPageContent() {
   // MANUAL_ONLY_IDS / panel kaydi) - bu tek kutu artik satirin TAMAMINI
   // (w:48) kapliyor.
   const fileSearchPanel = (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col justify-center gap-2 overflow-y-auto rounded-xl border border-[#0E7C86]/30 bg-[#0E7C86]/[0.05] p-2.5 shadow-[0_1px_2px_rgba(16,30,43,0.04)] print:hidden">
-      <div className="flex flex-wrap items-center gap-2 sm:gap-6">
+    <div className="dy-arama-bant flex h-full min-h-0 w-full min-w-0 flex-col justify-center gap-2 overflow-y-auto rounded-xl border border-[#DDE3E8] bg-white px-2.5 py-1.5 shadow-[0_1px_2px_rgba(16,30,43,0.05),0_4px_14px_rgba(16,30,43,0.04)] print:hidden">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
         {/* Mobilde "Dosya Ara" kutusu satirin TAMAMINI kaplar, yardimci
             butonlar kuculur -> kutu belirgin sekilde daha genis acilir. */}
-        <div className="flex w-full min-w-0 items-stretch gap-1.5 sm:w-auto sm:min-w-[260px] sm:flex-1 sm:gap-2 sm:max-w-[560px]">
-          <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#0E7C86]/50 bg-white px-2.5 shadow-[0_1px_2px_rgba(14,124,134,0.12)] transition focus-within:border-[#0E7C86] focus-within:ring-2 focus-within:ring-[#0E7C86]/20 sm:h-12 sm:px-3">
+        <div className="flex w-full min-w-0 items-stretch gap-1.5 sm:w-auto sm:min-w-[260px] sm:flex-[0_1_520px] sm:gap-2">
+          <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-[#C9D3DA] bg-[#FBFCFD] px-2.5 transition focus-within:border-[#0E7C86] focus-within:bg-white focus-within:ring-2 focus-within:ring-[#0E7C86]/20 sm:h-10 sm:px-3">
             <ActionIcon name="search" className="h-4 w-4 shrink-0 text-[#0E7C86]" />
             <input
               ref={searchInputRef}
@@ -15518,7 +16015,7 @@ function DocumentsPageContent() {
               }}
               disabled={searchStatus === 'loading'}
               placeholder="Dosya Ara — No, TC, İsim, Telefon, Kart No"
-              className="min-w-0 flex-1 border-0 bg-transparent text-[13px] font-semibold text-[#16232B] outline-none placeholder:font-medium placeholder:text-[#5B8F93] sm:text-[14px]"
+              className="min-w-0 flex-1 border-0 bg-transparent text-[13px] font-semibold text-[#0F172A] outline-none placeholder:font-normal placeholder:text-[#8A97A0] sm:text-[15px]"
             />
           </div>
           <button
@@ -15526,7 +16023,7 @@ function DocumentsPageContent() {
             onClick={handleSearch}
             disabled={searchStatus === 'loading'}
             title="Dosya Ara"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0E7C86] text-white shadow-sm transition hover:bg-[#0A5F67] disabled:cursor-wait disabled:opacity-60 sm:h-12 sm:w-12"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0E7C86] text-white shadow-sm transition hover:bg-[#0A5F67] disabled:cursor-wait disabled:opacity-60 sm:h-10 sm:w-10"
           >
             <ActionIcon name={searchStatus === 'loading' ? 'refresh' : 'search'} className={`h-4 w-4 ${searchStatus === 'loading' ? 'animate-spin' : ''}`} />
           </button>
@@ -15535,7 +16032,7 @@ function DocumentsPageContent() {
             onClick={refreshAllFiles}
             disabled={searchStatus === 'loading' || openFiles.length === 0}
             title="Tüm açık dosyaları yenile"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#E2E5DE] bg-white text-[#5B6B74] transition hover:bg-[#F1F3EF] disabled:opacity-40 sm:h-12 sm:w-12"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#D5DDE2] bg-white text-[#475569] transition hover:border-[#0E7C86] hover:text-[#0A5F67] disabled:opacity-40 sm:h-10 sm:w-10"
           >
             <ActionIcon name="refresh" className="h-4 w-4" />
           </button>
@@ -15544,7 +16041,7 @@ function DocumentsPageContent() {
             onClick={clearAllFiles}
             disabled={searchStatus === 'loading' || openFiles.length === 0}
             title="Tüm dosyaları kapat"
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#E2E5DE] bg-white text-[#C1453B] transition hover:bg-rose-50 disabled:opacity-40 sm:h-12 sm:w-12"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#D5DDE2] bg-white text-[#B42318] transition hover:border-rose-300 hover:bg-rose-50 disabled:opacity-40 sm:h-10 sm:w-10"
           >
             <ActionIcon name="clean" className="h-4 w-4" />
           </button>
@@ -15560,7 +16057,7 @@ function DocumentsPageContent() {
           </ActionDropdown>
           {hasSelectedFile && (
             <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E5DE] bg-[#FAFBFA] px-2.5 py-1.5">
-              <span className="text-[9px] font-black uppercase tracking-[0.08em] text-[#93A0A6]">Diğ. Kurum</span>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-[#64748B]">Diğer Kurum</span>
               <span className="font-mono text-[13px] font-bold text-[#16232B]">{externalAidsCashSummary.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</span>
             </div>
           )}
@@ -15578,7 +16075,7 @@ function DocumentsPageContent() {
             Butonun kendi ETKI RENGI (color) sadece hover/acik durumunda
             ince bir vurgu olarak kullanilmaya devam eder.
         */}
-        <div className="hidden flex-wrap items-center justify-center gap-1.5 sm:flex">
+        <div className="hidden min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto py-0.5 [scrollbar-width:thin] sm:flex">
         {fileActionGroups.map(({ id, label, icon }) => {
           const isOpen = activeDocumentActionGroup === id
           return (
@@ -15587,13 +16084,13 @@ function DocumentsPageContent() {
               ref={(el) => { actionBtnRefs.current.set(id, el) }}
               type="button"
               onClick={() => openActionGroup(id)}
-              className={`group inline-flex h-9 items-center gap-1.5 rounded-lg border px-2 shadow-sm transition sm:h-10 sm:gap-2 sm:px-2.5 ${isOpen ? 'border-[#24384A] bg-[#F1F3EF]' : 'border-[#E2E5DE] bg-white hover:border-[#B8C2C7] hover:bg-[#F6F8F5]'}`}
+              className={`dy-arama-btn group inline-flex h-9 items-center gap-1.5 rounded-lg border px-2 transition sm:h-10 sm:gap-2 sm:px-3 ${isOpen ? 'border-[#0E7C86] bg-[#EEF6F6] ring-1 ring-[#0E7C86]/30' : 'border-[#D5DDE2] bg-white hover:border-[#0E7C86]/60 hover:bg-[#F6FAFA]'}`}
             >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#24384A]/[0.07] text-[#24384A]">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#0E7C86]/[0.09] text-[#0A5F67]">
                 <ActionIcon name={icon} className="h-4 w-4" />
               </span>
-              <span className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-[#16232B] sm:flex-none sm:text-[13px]">{label}</span>
-              <span className="shrink-0 text-[10px] text-[#AAB4B9] transition-transform" style={{ transform: isOpen ? 'rotate(180deg)' : undefined }}>▾</span>
+              <span className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-[#1E2A38] sm:flex-none sm:text-[14px]">{label}</span>
+              <span className="shrink-0 text-[11px] text-[#7C8A93] transition-transform" style={{ transform: isOpen ? 'rotate(180deg)' : undefined }}>▾</span>
             </button>
           )
         })}
@@ -15602,17 +16099,17 @@ function DocumentsPageContent() {
           onClick={() => setIsFileAnalysisModalOpen(true)}
           disabled={!hasSelectedFile}
           title="Dosya Analizi"
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E5DE] bg-white px-2 shadow-sm transition hover:border-[#B8C2C7] hover:bg-[#F6F8F5] disabled:opacity-40 sm:h-10 sm:gap-2 sm:px-2.5"
+          className="dy-arama-btn inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#D5DDE2] bg-white px-2 transition hover:border-[#0E7C86]/60 hover:bg-[#F6FAFA] disabled:opacity-40 sm:h-10 sm:gap-2 sm:px-3"
         >
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[#24384A]/[0.07] text-[#24384A]">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#0E7C86]/[0.09] text-[#0A5F67]">
             <ActionIcon name="report" className="h-4 w-4" />
           </span>
-          <span className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-[#16232B] sm:flex-none sm:text-[13px]">Dosya Analizi</span>
+          <span className="min-w-0 flex-1 truncate text-left text-[12.5px] font-semibold text-[#1E2A38] sm:flex-none sm:text-[14px]">Dosya Analizi</span>
         </button>
         {hasSelectedFile && (
-          <div className="ml-auto flex items-center gap-2 rounded-lg border border-[#E2E5DE] bg-[#FAFBFA] px-3 py-1.5">
-            <span className="text-[10px] font-black uppercase tracking-[0.1em] text-[#93A0A6]">DKY</span>
-            <span className="font-mono text-[14px] font-bold text-[#16232B]">
+          <div className="dy-dky ml-auto flex shrink-0 flex-col justify-center rounded-lg border border-[#D5DDE2] bg-[#F7F9FA] px-3 py-1 leading-tight" title="Diğer kurumlardan alınan nakdi yardımların toplamı">
+            <span className="whitespace-nowrap text-[10.5px] font-semibold uppercase tracking-[0.05em] text-[#64748B]">Diğer Kurum Yardımı</span>
+            <span className="text-[15px] font-bold tabular-nums text-[#0F172A]">
               {externalAidsCashSummary.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺
             </span>
           </div>
@@ -15705,28 +16202,60 @@ function DocumentsPageContent() {
 
   const quickActionsPanel = (
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden rounded-xl border border-[#1E2A38]/30 bg-white shadow-[0_1px_2px_rgba(16,30,43,0.04)] print:hidden">
-      <div className="dashboard-drag-handle relative z-[500] flex shrink-0 flex-col gap-1.5 bg-[#1E2A38] px-4 py-2.5 text-white">
-        <span className="flex min-w-0 items-center gap-2.5 text-[13px] font-semibold uppercase tracking-wide sm:text-[14.5px]">
-          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15">
+      {/* 2026-10-14: kurumsal lacivert degrade + altin alt serit; baslik ve
+          "Düzenle" tek satirda, panel kayarken baslik sabit kalir. */}
+      <div className="dashboard-drag-handle relative z-[500] flex min-h-14 shrink-0 items-center justify-between gap-2 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-3 py-2 text-white">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20">
             <ActionIcon name="refresh" className="h-4 w-4" />
           </span>
-          <span className="truncate">Hızlı İşlemler</span>
+          <span className="truncate !text-[13px] font-semibold uppercase tracking-[0.08em]">Hızlı İşlemler</span>
         </span>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          <button
-            type="button"
-            onClick={() => setQuickActionsEditing((v) => !v)}
-            title={quickActionsEditing ? 'Bitir' : 'İşlem ekle / kaldır'}
-            className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-[10.5px] font-black uppercase tracking-wide shadow-sm transition ${quickActionsEditing ? 'bg-white text-[#1E2A38] hover:bg-slate-100' : 'bg-white/15 text-white hover:bg-white/25'}`}
-          >
-            {quickActionsEditing ? 'Bitir' : 'Düzenle'}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setQuickActionsEditing((v) => !v)}
+          title={quickActionsEditing ? 'Bitir' : 'İşlem ekle / kaldır'}
+          className={`inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-md px-2 !text-[11px] font-semibold uppercase tracking-wide transition ${quickActionsEditing ? 'bg-white text-[#0b1f3f] hover:bg-slate-100' : 'border border-white/30 bg-white/10 text-white hover:bg-white/20'}`}
+        >
+          {quickActionsEditing ? 'Bitir' : 'Düzenle'}
+        </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {quickActionsEditing ? (
           <div className="space-y-1">
             <p className="px-1 pb-1 text-[10px] font-bold text-[#5B6B74]">Eklemek istediklerinizi işaretleyin. Sayfa kısayolları tek tıkla ilgili sekmeyi açar.</p>
+            {/* 2026-10-14: secili kisayollarin sirasi ▲/▼ ile degistirilir */}
+            {quickActionSelected.length > 1 && (
+              <div className="space-y-1 pb-1">
+                <p className="px-1 pt-1 text-[9px] font-black uppercase tracking-wide text-[#93A0A6]">Sıralama</p>
+                {quickActionSelected.map((a, idx) => (
+                  <div key={`sira-${a.id}`} className="flex items-center gap-1 rounded-lg border border-[#0E7C86]/30 bg-[#0E7C86]/[0.05] px-1.5 py-1">
+                    <span className="w-4 shrink-0 text-center text-[10px] font-black text-[#5B6B74]">{idx + 1}</span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-[#16232B]">{a.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => moveQuickAction(a.id, -1, quickActionSelected.map((x) => x.id))}
+                      disabled={idx === 0}
+                      title="Yukarı taşı"
+                      aria-label={`${a.label} yukarı taşı`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#C9D2CE] bg-white text-[11px] font-black text-[#0A5F67] hover:bg-[#F1F3EF] disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      ▲
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveQuickAction(a.id, 1, quickActionSelected.map((x) => x.id))}
+                      disabled={idx === quickActionSelected.length - 1}
+                      title="Aşağı taşı"
+                      aria-label={`${a.label} aşağı taşı`}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-[#C9D2CE] bg-white text-[11px] font-black text-[#0A5F67] hover:bg-[#F1F3EF] disabled:cursor-not-allowed disabled:opacity-30"
+                    >
+                      ▼
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             {(['action', 'nav'] as const).map((kind) => {
               const items = quickActionCatalogAvailable.filter((a) => a.kind === kind)
               if (items.length === 0) return null
@@ -15760,21 +16289,32 @@ function DocumentsPageContent() {
           </p>
         ) : (
           <div className="space-y-0.5">
-            {quickActionSelected.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                onClick={a.onClick}
-                disabled={a.disabled}
-                title={a.kind === 'nav' ? `${a.label} sayfasını aç` : a.label}
-                className={`flex w-full items-center gap-1.5 rounded-md border border-[#E2E5DE] bg-white px-2 py-1 text-left text-[11.5px] font-semibold text-[#16232B] shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${a.kind === 'nav' ? 'hover:border-[#B98A34]/50 hover:bg-[#B98A34]/[0.06]' : 'hover:border-[#0E7C86]/50 hover:bg-[#0E7C86]/[0.05]'}`}
-              >
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${a.kind === 'nav' ? 'bg-[#B98A34]/[0.14] text-[#B98A34]' : 'bg-[#0E7C86]/[0.12] text-[#0E7C86]'}`}>
-                  <ActionIcon name={a.icon} className="h-3 w-3" />
-                </span>
-                <span className="min-w-0 truncate">{a.label}</span>
-              </button>
-            ))}
+            {quickActionSelected.map((a) => {
+              // Is Akisi kisayolu + bekleyen dosya varsa: durum rengi + sayi rozeti
+              const sayacAnahtari = a.kind === 'nav' ? WORKFLOW_COUNT_PATHS[a.id.slice(4)] : undefined
+              const bekleyen = sayacAnahtari && workflowCounts ? workflowCounts[sayacAnahtari] : 0
+              const ton = sayacAnahtari && bekleyen > 0 ? WORKFLOW_TONE[WORKFLOW_COUNT_TONE[sayacAnahtari]] : null
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={a.onClick}
+                  disabled={a.disabled}
+                  title={a.kind === 'nav' ? `${a.label} sayfasını aç${bekleyen > 0 ? ` (${bekleyen} bekleyen dosya)` : ''}` : a.label}
+                  className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left text-[11.5px] font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${ton
+                    ? `border-transparent ${ton.item}`
+                    : `border-[#E2E5DE] bg-white text-[#16232B] ${a.kind === 'nav' ? 'hover:border-[#B98A34]/50 hover:bg-[#B98A34]/[0.06]' : 'hover:border-[#0E7C86]/50 hover:bg-[#0E7C86]/[0.05]'}`}`}
+                >
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ${ton ? `border ${ton.icon}` : a.kind === 'nav' ? 'bg-[#B98A34]/[0.14] text-[#B98A34]' : 'bg-[#0E7C86]/[0.12] text-[#0E7C86]'}`}>
+                    <ActionIcon name={a.icon} className="h-3 w-3" />
+                  </span>
+                  <span className="min-w-0 truncate">{a.label}</span>
+                  {sayacAnahtari && bekleyen > 0 && (
+                    <WorkflowCountBadge count={bekleyen} tone={WORKFLOW_COUNT_TONE[sayacAnahtari]} label={a.label} className="!h-[18px] !min-w-[18px] !text-[11px]" />
+                  )}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
@@ -15848,6 +16388,7 @@ function DocumentsPageContent() {
         tone="reports"
         compactHeader
         stackedHeader
+        scrollBody
         icon={<ActionIcon name="report" className="h-4 w-4" />}
         actions={(() => {
           const switchReportTab = (id: ReportTab) => {
@@ -15890,8 +16431,12 @@ function DocumentsPageContent() {
                 control" gorunumu: tamamen yuvarlak (rounded-full) hap
                 sekilli sekmeler, kenarliksiz, daha acik/sade bir tepsi
                 icinde; aktif sekme beyaz zeminle net one cikar. */}
+            {/* 2026-10-14: "daha kurumsal" - hap/renkli nokta yerine kose yuvarlakligi
+                az, cerceveli bir sekme grubu; aktif sekme beyaz zemin + altin alt
+                cizgi, sayilar sade rozet. Yazi boyutlari .dy-base-16 genel olcegini
+                ezmek icin !text-. */}
             <div className="hidden flex-wrap items-center justify-end gap-2 lg:flex">
-              <div className="flex items-center gap-1 rounded-full bg-white/10 p-1">
+              <div className="flex items-stretch overflow-hidden rounded-md border border-white/25 bg-white/[0.06]">
                 {[
                   { id: 'investigations' as ReportTab, label: 'İnceleme', count: displayedInvestigations.length, dot: 'bg-amber-400' },
                   { id: 'approvals' as ReportTab, label: 'Onay', count: displayedApprovalReports.length, dot: 'bg-emerald-400' },
@@ -15903,11 +16448,10 @@ function DocumentsPageContent() {
                       key={tab.id}
                       type="button"
                       onClick={() => switchReportTab(tab.id)}
-                      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12px] font-black uppercase tracking-tight transition ${active ? 'bg-white text-slate-800 shadow-sm' : 'text-white/75 hover:bg-white/10 hover:text-white'}`}
+                      className={`relative inline-flex h-10 items-center gap-2 whitespace-nowrap border-r border-white/15 px-4 !text-[13.5px] font-semibold uppercase tracking-[0.05em] transition last:border-r-0 ${active ? 'bg-white text-[#0b1f3f] shadow-[inset_0_-3px_0_#b8860b]' : 'text-white/85 hover:bg-white/10 hover:text-white'}`}
                     >
-                      <span className={`h-2 w-2 rounded-full ${tab.dot} ${active ? '' : 'opacity-70'}`} />
                       {tab.label}
-                      <span className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-black leading-none ${active ? 'bg-slate-800 text-white' : 'bg-black/25 text-white'}`}>{tab.count}</span>
+                      <span className={`inline-flex h-[22px] min-w-[26px] items-center justify-center rounded px-1.5 !text-[13px] font-bold tabular-nums leading-none ${active ? 'bg-[#0b1f3f] text-white' : 'bg-white/15 text-white'}`}>{tab.count}</span>
                     </button>
                   )
                 })}
@@ -15919,8 +16463,8 @@ function DocumentsPageContent() {
                   { label: 'Sil', onClick: deleteSelectedReport, icon: <ActionIcon name="delete" />, variant: 'danger', iconTone: 'rose' },
                 ]}
               >
-                <button type="button" className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-white px-3 py-1.5 text-[12px] font-black uppercase tracking-wide text-[#1E2A38] shadow-sm transition hover:bg-slate-100">
-                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+                <button type="button" className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md border border-white/30 bg-white/10 px-4 !text-[13.5px] font-semibold uppercase tracking-[0.05em] text-white transition hover:bg-white/20">
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
                   İşlemler
                   <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
                 </button>
@@ -16186,6 +16730,26 @@ function DocumentsPageContent() {
                         {familyTypeOptions.map((option) => (
                           <option key={option.id} value={option.id}>{option.name}</option>
                         ))}
+                      </select>
+                    </label>
+                    {/* 2026-10-14: Yardım Önceliği (dosyalar.yaronceliksirasi) - tahkikat
+                        formundan gelir, burada elle de duzeltilebilir. Yesil = oncelikli. */}
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px] font-black text-slate-500 uppercase ml-1">Yardım Önceliği</span>
+                      <select
+                        value={newFileForm.aidPriority ?? ''}
+                        onChange={(event) => updateNewFileField('aidPriority', event.target.value)}
+                        className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-xs font-bold text-slate-950 shadow-sm outline-none focus:border-[#0076b6]"
+                      >
+                        <option value="">Belirtilmedi</option>
+                        {newFileForm.aidPriority && !['1', '2', '3', '4', '5'].includes(newFileForm.aidPriority) && (
+                          <option value={newFileForm.aidPriority}>{newFileForm.aidPriority} (eski kod)</option>
+                        )}
+                        <option value="1">1. Derece (Çok Kötü)</option>
+                        <option value="2">2. Derece (Kötü)</option>
+                        <option value="3">3. Derece (Orta)</option>
+                        <option value="4">4. Derece (İyi)</option>
+                        <option value="5">5. Derece (Çok İyi)</option>
                       </select>
                     </label>
                     <label className="flex flex-col gap-1">
@@ -16548,12 +17112,14 @@ function DocumentsPageContent() {
         </div>
       )}
 
-      <IncelemeDegerlendirmeFormModal
+      <SahaIncelemeFormModal
         dosyaid={displayedPerson.fileId || ''}
         open={isIncelemeFormuModalOpen}
-        onClose={() => setIsIncelemeFormuModalOpen(false)}
-        onSaved={() => {}}
-        canApprove={canUseAction('documents.evaluationApprove')}
+        onClose={() => { setIsIncelemeFormuModalOpen(false); setIncelemeDuzenlenecekFormId(null); setTahkikatFormYenile((n) => n + 1) }}
+        onSaved={() => setTahkikatFormYenile((n) => n + 1)}
+        duzenlenecekFormId={incelemeDuzenlenecekFormId}
+        canDelete={canUseAction('documents.evaluation')}
+        haneUyeleri={isIncelemeFormuModalOpen ? haneUyeleriForInceleme() : []}
         dosyaBilgileri={{
           identityNumber: displayedPerson.identityNumber,
           fullName: [displayedPerson.firstName, displayedPerson.lastName].filter(Boolean).join(' '),
@@ -16849,7 +17415,7 @@ function DocumentsPageContent() {
                           <button
                             type="button"
                             onClick={() => void toggleEvaluationDictation()}
-                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-black shadow-sm transition ${evaluationDictationActive ? 'border-red-700 bg-red-600 text-white hover:bg-red-700' : 'border-teal-200 bg-teal-50 text-teal-800 hover:bg-teal-100'}`}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-black shadow-sm transition ${evaluationDictationActive ? 'border-red-700 bg-red-600 text-white hover:bg-red-700' : 'border-emerald-700 bg-emerald-600 text-white hover:bg-emerald-700'}`}
                             title={evaluationDictationActive ? 'Mikrofonu kapat' : 'Mikrofonla yaz'}
                           >
                             <ActionIcon name="mic" className="h-3.5 w-3.5" />
@@ -17660,7 +18226,7 @@ function DocumentsPageContent() {
                       className="h-3.5 w-3.5 accent-rose-600"
                     />
                     Otomatik Red İptal
-                    {row.isOtomatikRed && !row.otomatikRedIptal && <span className="rounded bg-rose-600 px-1 py-0.5 text-[8px] uppercase leading-none text-white">şu an red</span>}
+                    {row.isOtomatikRed && !row.otomatikRedIptal && <span className="rounded bg-rose-600 px-1 py-0.5 text-[10px] uppercase leading-none text-white">şu an red</span>}
                     {row.otomatikRedIptal && <span className="text-[9px] font-bold text-emerald-600">(zaten iptalli)</span>}
                   </label>
                 )
@@ -17927,60 +18493,73 @@ function DocumentsPageContent() {
           */}
           <div
             className="dy-modal-eq16 dy-search-modal flex max-h-[90vh] max-w-[95vw] min-h-[320px] min-w-[480px] resize flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-            style={{ width: 1100, height: '70vh', transform: `translate(${searchModalOffset.x}px, ${searchModalOffset.y}px)` }}
+            style={{ width: 'min(1400px, 95vw)', height: '72vh', transform: `translate(${searchModalOffset.x}px, ${searchModalOffset.y}px)` }}
           >
+            {/* 2026-10-14: kurumsal başlık (lacivert degrade + altın çizgi). */}
             <div
               onMouseDown={handleSearchModalDragStart}
-              className="flex cursor-move items-center justify-between border-b border-sky-900 bg-gradient-to-r from-[#073a5c] via-[#005f95] to-[#0076b6] px-6 py-4 shrink-0 select-none"
+              className="flex shrink-0 cursor-move select-none items-center justify-between border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-6 py-4"
             >
-              <div className="flex items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 ring-1 ring-white/30">
-                  <svg className="h-4.5 w-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" /></svg>
+              <div className="flex items-center gap-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/25">
+                  <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" /></svg>
                 </span>
                 <div>
-                  <p className="text-[11px] font-black uppercase tracking-[0.14em] text-white/75">Dosya Arama Sonucu</p>
-                  <h3 className="mt-0.5 text-xl font-black leading-tight text-white">Eşleşen Dosyalar</h3>
+                  <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/70">Dosya Arama Sonucu</p>
+                  <h3 className="mt-0.5 text-[20px] font-bold leading-tight text-white">Eşleşen Dosyalar</h3>
                 </div>
+                <span className="ml-2 hidden rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[14px] font-bold text-white sm:inline-block">
+                  {searchResults.length} kayıt
+                </span>
               </div>
-              <button onClick={() => { setIsSearchModalOpen(false); setSearchModalOffset({ x: 0, y: 0 }) }} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors">
+              <button
+                type="button"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => { setIsSearchModalOpen(false); setSearchModalOffset({ x: 0, y: 0 }) }}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/75 transition-colors hover:bg-white/15 hover:text-white"
+                aria-label="Kapat"
+              >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto p-4">
-              <table className="w-full min-w-max border-collapse text-left">
-                <thead className="sticky top-0 bg-gradient-to-r from-[#073a5c] via-[#0076b6] to-[#0f8fb8] text-[13px] font-extrabold uppercase tracking-wide text-white">
-                  <tr>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">Dosya No</th>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">TC No</th>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">Adı Soyadı</th>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">Doğum Tarihi</th>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">Anne Adı</th>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">Baba Adı</th>
-                    <th className="whitespace-nowrap px-4 py-1.5 border-b border-sky-800/40">Adresi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {searchResults.map((res, idx) => (
-                    <tr
-                      key={`${res.file_id}-${res.tckimlikno}-${idx}`}
-                      onClick={() => fetchFileDetails(res.file_id)}
-                      className={`cursor-pointer border-b border-slate-100 transition-colors hover:bg-sky-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}`}
-                    >
-                      <td className="whitespace-nowrap px-4 py-1.5 font-extrabold text-[#0076b6]">{res.dosyano}</td>
-                      <td className="whitespace-nowrap px-4 py-1.5 font-bold text-slate-600">{res.tckimlikno}</td>
-                      <td className="whitespace-nowrap px-4 py-1.5 font-extrabold text-slate-900">{res.adisoyadi}</td>
-                      <td className="whitespace-nowrap px-4 py-1.5 font-semibold text-slate-600">{res.dogumtarihi || '-'}</td>
-                      <td className="whitespace-nowrap px-4 py-1.5 font-semibold text-slate-600">{res.anaadi || '-'}</td>
-                      <td className="whitespace-nowrap px-4 py-1.5 font-semibold text-slate-600">{res.babaadi || '-'}</td>
-                      <td className="whitespace-nowrap px-4 py-1.5 font-semibold text-slate-500">{res.adres}</td>
+            {/* Hata düzeltmesi (2026-10-14): kaydırma alanının iç boşluğu (p-4)
+                yüzünden yapışkan başlık en üste değil boşluğun altına
+                yapışıyor, satırlar başlığın ÜSTÜNDE görünüyordu. Boşluk dış
+                çerçeveye alındı; kaydırma alanında iç boşluk yok ve her başlık
+                hücresinin kendi zemini var. */}
+            <div className="flex min-h-0 flex-1 flex-col bg-[#f6f8fb] p-4">
+              <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-white">
+                <table className="w-full min-w-max border-collapse text-left">
+                  <thead className="text-[13px] font-bold uppercase tracking-wide text-white">
+                    <tr>
+                      {['Dosya No', 'TC Kimlik No', 'Adı Soyadı', 'Doğum Tarihi', 'Anne Adı', 'Baba Adı', 'Adresi'].map((heading) => (
+                        <th key={heading} className="sticky top-0 z-10 whitespace-nowrap border-b-2 border-[#b8860b] bg-[#1E2A38] px-4 py-2.5">{heading}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {searchResults.map((res, idx) => (
+                      <tr
+                        key={`${res.file_id}-${res.tckimlikno}-${idx}`}
+                        onClick={() => fetchFileDetails(res.file_id)}
+                        className={`group cursor-pointer border-b border-slate-100 transition-colors hover:bg-[#0E7C86]/10 ${idx % 2 === 0 ? 'bg-white' : 'bg-[#f6f8fb]'}`}
+                      >
+                        <td className="whitespace-nowrap border-l-4 border-transparent px-4 py-1.5 font-bold text-[#0A5F67] group-hover:border-[#0E7C86]">{res.dosyano}</td>
+                        <td className="whitespace-nowrap px-4 py-1.5 font-semibold tabular-nums text-slate-700">{res.tckimlikno}</td>
+                        <td className="whitespace-nowrap px-4 py-1.5 font-bold text-[#1E2A38]">{res.adisoyadi}</td>
+                        <td className="whitespace-nowrap px-4 py-1.5 font-medium tabular-nums text-slate-700">{res.dogumtarihi || '-'}</td>
+                        <td className="whitespace-nowrap px-4 py-1.5 font-medium text-slate-700">{res.anaadi || '-'}</td>
+                        <td className="whitespace-nowrap px-4 py-1.5 font-medium text-slate-700">{res.babaadi || '-'}</td>
+                        <td className="whitespace-nowrap px-4 py-1.5 font-medium text-slate-600">{res.adres}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-            <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-3">
-              <span className="text-[13px] font-bold text-slate-400">Satıra tıklayarak dosyayı açabilirsiniz. Başlıktan sürükleyip, sağ-alt köşeden boyutlandırabilirsiniz.</span>
-              <span className="rounded-full bg-[#0076b6]/10 px-3 py-1 text-[13px] font-black text-[#0076b6]">Toplam {searchResults.length} sonuç bulundu.</span>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-6 py-3">
+              <span className="text-[14px] font-medium text-slate-500">Satıra tıklayarak dosyayı açabilirsiniz. Pencereyi başlıktan sürükleyebilir, sağ-alt köşeden boyutlandırabilirsiniz.</span>
+              <span className="rounded-full bg-[#0E7C86]/10 px-3 py-1 text-[14px] font-bold text-[#0A5F67]">Toplam {searchResults.length} sonuç bulundu</span>
             </div>
           </div>
         </div>
@@ -18119,13 +18698,16 @@ function DocumentsPageContent() {
           {/* Kullanici istegi (Ekim 2026): bu renkli baslik seridi,
               "Raporlar ve Tahkikatlar" (<Section compactHeader>) seridiyle
               AYNI yukseklikte (h-14) olsun. */}
-          <div className="flex min-h-14 shrink-0 items-center bg-[#0E7C86] px-4 py-1.5 print:hidden">
+          <div ref={setKisiPanelBaslikEl} className="flex min-h-14 shrink-0 items-center border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-4 py-1.5 print:hidden">
+            {/* 2026-10-14: "Kişi Bilgileri basligi daha kurumsal" - Hizli
+                Islemler / Raporlar ve Tahkikatlar seritleriyle AYNI kurumsal
+                lacivert degrade + altin alt cizgi; puan sag tarafta rozet. */}
             <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-              <div className="flex min-w-0 items-center gap-2 text-[13.5px] font-bold text-white sm:text-[15px]">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/15 text-white">
+              <div className="flex min-w-0 items-center gap-2.5 text-white">
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20">
                   <ActionIcon name="idCard" />
                 </span>
-                Kişi Bilgileri
+                <span className="truncate !text-[14px] font-semibold uppercase tracking-[0.08em] sm:!text-[15px]">Kişi Bilgileri</span>
               </div>
               {/* Kullanici istegi (Ekim 2026): "Müracaat Tarihi" bu baslik
                   seridinden ALINDI - asagidaki bilgi izgarasinda "Ölüm
@@ -18137,19 +18719,19 @@ function DocumentsPageContent() {
                   onClick={openEvaluationForm}
                   disabled={!hasSelectedFile}
                   title="Tahkikat formu kayıtlarını görüntülemek için tıklayın"
-                  className="inline-flex w-full min-w-0 cursor-pointer items-center justify-between gap-3 rounded-lg px-1 py-1 text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:gap-4"
+                  className="inline-flex w-full min-w-0 cursor-pointer items-center justify-between gap-2.5 rounded-md border border-white/25 bg-white/[0.06] py-1 pl-3 pr-1 text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
-                  <span className="text-[11px] font-black uppercase tracking-wide text-white/70">İnceleme Puanı</span>
-                  <span className="font-mono text-lg font-semibold leading-none text-white">
+                  <span className="!text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/80">İnceleme Puanı</span>
+                  <span className="rounded bg-white px-2 py-1 !text-[14px] font-bold leading-none tabular-nums text-[#0b1f3f]">
                     {displayedPerson.evaluationScore !== null && displayedPerson.evaluationScore !== undefined && displayedPerson.evaluationScore !== ''
                       ? `${displayedPerson.evaluationScore} / 100`
                       : '-'}
                   </span>
                 </button>
               ) : (
-                <div className="inline-flex w-full min-w-0 items-center justify-between gap-3 px-1 py-1 text-white sm:w-auto sm:gap-4">
-                  <span className="text-[11px] font-black uppercase tracking-wide text-white/70">İnceleme Puanı</span>
-                  <span className="font-mono text-lg font-semibold leading-none text-white">
+                <div className="inline-flex w-full min-w-0 items-center justify-between gap-2.5 rounded-md border border-white/25 bg-white/[0.06] py-1 pl-3 pr-1 text-white sm:w-auto">
+                  <span className="!text-[11.5px] font-semibold uppercase tracking-[0.08em] text-white/80">İnceleme Puanı</span>
+                  <span className="rounded bg-white px-2 py-1 !text-[14px] font-bold leading-none tabular-nums text-[#0b1f3f]">
                     {displayedPerson.evaluationScore !== null && displayedPerson.evaluationScore !== undefined && displayedPerson.evaluationScore !== ''
                       ? `${displayedPerson.evaluationScore} / 100`
                       : '-'}
@@ -18214,7 +18796,7 @@ function DocumentsPageContent() {
               Masaustu (isDosyaYonetimiMobile=false, butonlar ayri widget)
                             -> [foto | Kisi Bilgileri] 2 sutun (eski davranis)
               Foto ve buton sutunlari dar/sabit; genisleyen alani ORTADAKI bilgiler alir. */}
-          <div className={`grid min-w-0 items-start gap-2.5 p-2.5 sm:gap-3 sm:p-4 print:grid-cols-[150px_minmax(0,1fr)] print:gap-6 print:p-0 ${isDosyaYonetimiMobile
+          <div ref={setKisiPanelIcerikEl} className={`grid min-w-0 items-start gap-2.5 p-2.5 sm:gap-3 sm:p-4 print:grid-cols-[150px_minmax(0,1fr)] print:gap-6 print:p-0 ${isDosyaYonetimiMobile
             ? 'grid-cols-[minmax(0,0.9fr)_minmax(0,1fr)] @[700px]/panel:grid-cols-[minmax(150px,180px)_minmax(0,1fr)_minmax(180px,230px)]'
             // Kullanici istegi (Eylul 2026): foto/dosya-no sutunu dar kalip
             // yaninda "Kişi Bilgileri" etiketlerinin (KART NO, DOĞUM
@@ -18384,13 +18966,32 @@ function DocumentsPageContent() {
                 )}
               </div>
               )}
+              {/* Kullanici istegi (2026-10-14): müracaatçı imzasi profil
+                  fotografinin altindan alinir; Dosya Müracaat Formu
+                  ciktisinda kayitli imza gorunur. */}
+              {hasSelectedFile && canUseAction('documents.print') && (
+                <div className="mt-1.5 flex w-full flex-col gap-1 sm:mt-2 print:hidden">
+                  <button
+                    type="button"
+                    onClick={openMuracaatImzaModal}
+                    title={muracaatKayit?.imza ? `Kayıtlı imza: ${muracaatKayit.tarih}` : 'Müracaatçının imzasını al'}
+                    className={`inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border px-2 !text-[12px] font-bold text-white shadow-sm transition ${muracaatKayit?.imza ? 'border-emerald-700 bg-emerald-600 hover:bg-emerald-700' : 'border-rose-700 bg-rose-600 hover:bg-rose-700'}`}
+                  >
+                    <ActionIcon name="edit" className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{muracaatKayit?.imza ? 'İmzayı Yenile' : 'Müracaatçı İmzası Al'}</span>
+                  </button>
+                  <span className={`text-center !text-[13.5px] font-bold leading-tight ${muracaatKayit?.imza ? 'text-emerald-700' : 'text-rose-600'}`}>
+                    {muracaatKayit?.imza ? `✓ İmzalı · ${muracaatKayit.tarih}` : 'İmza alınmamış'}
+                  </span>
+                </div>
+              )}
               </div>
             </div>
 
             {/* Kisi Bilgileri (orta alan). Mobil 440-700 bandinda: [foto|butonlar]
                 ust satirin ALTINA, tam genislik (order-3 + col-span-2). >=700'de
                 ORTA sutun (order-2). Masaustunde override yok -> eski davranis. */}
-            <div className={`relative flex min-w-0 flex-col gap-3 ${isDosyaYonetimiMobile ? 'order-3 col-span-2 @[700px]/panel:order-2 @[700px]/panel:col-span-1' : ''}`}>
+            <div className={`relative flex min-w-0 flex-col gap-3 ${isDosyaYonetimiMobile ? 'order-3 col-span-2 @[700px]/panel:order-2 @[700px]/panel:col-span-1' : 'self-stretch'}`}>
               {/* Kullanici istegi (Ekim 2026): vefat uyarisi ARTIK alani
                   ITMEZ/GENISLETMEZ - verinin UZERINDE, mutlak (absolute)
                   konumlu, yanip sonen (animate-pulse) bir dikdortgen olarak
@@ -18412,16 +19013,46 @@ function DocumentsPageContent() {
               {hasSelectedFile && (
                 <div className="flex flex-wrap gap-1.5">
                   {getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, displayedPerson.maritalStatus) && (
-                    <span className="rounded-full border border-[#E2E5DE] bg-[#F1F3EF] px-2.5 py-1 text-[13px] font-bold text-[#16232B]">
+                    <span className="dy-chip rounded-md border border-[#D5DDE2] bg-white px-2.5 py-1 text-[13px] font-semibold text-[#334155]">
                       {getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, displayedPerson.maritalStatus)}
                     </span>
                   )}
-                  <span className="rounded-full border border-[#E2E5DE] bg-[#F1F3EF] px-2.5 py-1 text-[13px] font-bold text-[#16232B]">
+                  <span className="dy-chip rounded-md border border-[#D5DDE2] bg-white px-2.5 py-1 text-[13px] font-semibold text-[#334155]">
                     {familyTypeOptions.find((option) => option.id === String(displayedPerson.familyType ?? ''))?.name
                       || (String(displayedPerson.familyType ?? '') === '1' ? 'Normal Aile' : String(displayedPerson.familyType ?? '') === '4' ? 'Mülteci Ailesi' : displayedPerson.familyType || 'Aile Niteliği Belirtilmedi')}
                   </span>
+                  {/* 2026-10-14: dosyalar.yaronceliksirasi - Hane Ziyareti formundaki
+                      "Yardım Önceliği" (1. Derece Çok Kötü ... 5. Derece Çok İyi) */}
+                  {(() => {
+                    const derece = Number(displayedPerson.aidPriority)
+                    if (!displayedPerson.aidPriority || !Number.isFinite(derece)) return null
+                    const ad = ({ 1: 'Çok Kötü', 2: 'Kötü', 3: 'Orta', 4: 'İyi', 5: 'Çok İyi' } as Record<number, string>)[derece]
+                    // Kurum kurali (kullanici, 2026-10-14): yesil = ONCELIKLI yardim
+                    // edilecek. 1-2 yesil, 3 sari, 4 turuncu, 5 kirmizi.
+                    const renk = derece >= 1 && derece <= 2 ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                      : derece === 3 ? 'border-amber-300 bg-amber-50 text-amber-800'
+                        : derece === 4 ? 'border-orange-300 bg-orange-50 text-orange-800'
+                          : derece === 5 ? 'border-rose-300 bg-rose-50 text-rose-800'
+                            : 'border-[#D5DDE2] bg-white text-[#334155]'
+                    return (
+                      <span className={`dy-chip rounded-md border px-2.5 py-1 text-[13px] font-semibold ${renk}`} title="Yardım önceliği (tahkikat formundan)">
+                        Yardım Önceliği: {ad ? `${derece}. Derece (${ad})` : derece}
+                      </span>
+                    )
+                  })()}
+                  {/* 2026-10-14: tahkikat formundan dosyaya islenen konut / toplam gelir */}
+                  {displayedPerson.housingStatus && (
+                    <span className="dy-chip rounded-md border border-[#D5DDE2] bg-white px-2.5 py-1 text-[13px] font-semibold text-[#334155]" title="Konut / mülkiyet durumu (tahkikat formundan)">
+                      Konut: {displayedPerson.housingStatus}
+                    </span>
+                  )}
+                  {displayedPerson.totalIncome && Number.isFinite(Number(displayedPerson.totalIncome)) && (
+                    <span className="dy-chip rounded-md border border-[#C7D7EE] bg-[#F3F7FC] px-2.5 py-1 text-[13px] font-semibold text-[#1E3A8A]" title="Haneye giren toplam aylık gelir (tahkikat formundan)">
+                      Hane Geliri: {Number(displayedPerson.totalIncome).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} TL
+                    </span>
+                  )}
                   {displayedPerson.nationality && (
-                    <span className="rounded-full border border-[#F3E6C8] bg-[#F3E6C8]/60 px-2.5 py-1 text-[13px] font-bold text-[#5C4110]">
+                    <span className="dy-chip rounded-md border border-[#E9D9B0] bg-[#FBF6EA] px-2.5 py-1 text-[13px] font-semibold text-[#6B4E12]">
                       {displayedPerson.nationality} Uyruklu
                     </span>
                   )}
@@ -18474,38 +19105,44 @@ function DocumentsPageContent() {
                 </div>
                 )}
               </div>
+              {/* Adres (MASAUSTU) - kullanici istegi (2026-10-14): bilgi alanlarinin
+                  altinda; kutu, profil resmi sutununun bittigi yere kadar uzar
+                  (orta sutun self-stretch + flex-1) ve yazi bu kutuya sigacak en
+                  buyuk puntoda gosterilir. "Haritada Gör" simge dugme. */}
+              {!isDosyaYonetimiMobile && (
+                <div className="flex min-h-[64px] flex-1 flex-col">
+                  <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-stretch gap-2 rounded-lg border border-[#E2E5DE] bg-[#F8FAF7] px-3 py-2 print:border-slate-300 dark:!border-slate-700 dark:!bg-[#1a2740]">
+                    {/* Baslik yok (kullanici istegi); yazi bu kutuya sigacak en buyuk puntoda. */}
+                    <div className="relative min-h-0 min-w-0">
+                      {displayedPerson.address ? (
+                        <SigdirilmisMetin
+                          metin={displayedPerson.address}
+                          enFazla={17 * dosyaYonetimiTextScale}
+                          enAz={12}
+                          kutuyaSigdir
+                          className="min-w-0 font-bold leading-snug text-black print:text-black"
+                        />
+                      ) : (
+                        <span className="!text-[13px] font-medium text-[#93A0A6]">Adres bilgisi yok</span>
+                      )}
+                    </div>
+                    {displayedPerson.address && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMap(buildAddressMapQuery(displayedPerson), displayedPerson.fileId)}
+                        title="Adresi haritada göster"
+                        aria-label="Haritada Gör"
+                        className="inline-flex h-9 w-9 shrink-0 self-center items-center justify-center rounded-lg bg-gradient-to-br from-[#0E7C86] to-[#0A5F67] text-white shadow-[0_2px_8px_rgba(14,124,134,0.45)] ring-1 ring-white/25 transition hover:brightness-110 print:hidden"
+                      >
+                        <ActionIcon name="map" className="h-[18px] w-[18px]" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
             </div>
 
-            {/* Adres (MASAUSTU) - kullanici istegi (Eylul 2026): "ADRES
-                basligini kaldir, adresi profil fotografinin ALTINDAN, alanin
-                BASINDAN baslat; konum butonunu renkli/belirgin yap". Orta
-                sutunun DISINDA, dis izgarada tam genislikte (col-span-full)
-                ayri bir satir - fotograf + bilgiler sutunlarinin altina gelir. */}
-            {!isDosyaYonetimiMobile && (
-              <div className="col-span-full mt-0.5 flex items-start gap-2.5 border-t border-[#E2E5DE] pt-2.5 print:border-slate-300">
-                <textarea
-                  readOnly
-                  rows={2}
-                  value={displayedPerson.address}
-                  placeholder="Adres bilgisi yok"
-                  className="min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent p-0 font-bold leading-snug text-black outline-none placeholder:font-medium placeholder:text-[#93A0A6] print:text-black"
-                  style={{ fontSize: 'calc(15px * var(--dy-fs, 1))' }}
-                />
-                {displayedPerson.address && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenMap(buildAddressMapQuery(displayedPerson), displayedPerson.fileId)}
-                    title="Adresi haritada göster"
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-gradient-to-br from-[#0E7C86] to-[#0A5F67] px-3 py-2 font-black uppercase tracking-wide text-white shadow-[0_2px_8px_rgba(14,124,134,0.45)] ring-1 ring-white/25 transition hover:brightness-110 hover:shadow-[0_4px_14px_rgba(14,124,134,0.55)] print:hidden"
-                    style={{ fontSize: 'calc(10.5px * var(--dy-fs, 1))' }}
-                  >
-                    <ActionIcon name="map" className="h-4 w-4" />
-                    Haritada Gör
-                  </button>
-                )}
-              </div>
-            )}
             {/* Hizli Islemler + sayac rozetleri: KATMAN 2 - dis izgaranin
                 UCUNCU sutunu (panel >= 700px: [fotograf | bilgiler | hizli islem]).
                 700px altinda [foto|butonlar] ust satir; 440px altinda tek sutun.
@@ -18516,15 +19153,15 @@ function DocumentsPageContent() {
               <div className="flex min-w-0 flex-col gap-1.5 self-start order-2 @[520px]/panel:max-w-[400px] @[700px]/panel:order-3 @[700px]/panel:max-w-none print:hidden">
                 <div className="grid grid-cols-3 gap-1">
                   <div className="rounded-md border border-sky-100 bg-sky-50 px-1 py-1 text-center">
-                    <span className="block text-[8px] font-black uppercase leading-none text-sky-700">Mür.</span>
+                    <span className="block text-[10px] font-black uppercase leading-none text-sky-700">Mür.</span>
                     <span className="text-[13px] font-black leading-tight text-slate-950">{displayedApplications.length}</span>
                   </div>
                   <div className="rounded-md border border-emerald-100 bg-emerald-50 px-1 py-1 text-center" title="Halen aktif (aldığı) yardım sayısı">
-                    <span className="block text-[8px] font-black uppercase leading-none text-emerald-700">Yrd.</span>
+                    <span className="block text-[10px] font-black uppercase leading-none text-emerald-700">Yrd.</span>
                     <span className="text-[13px] font-black leading-tight text-slate-950">{(displayedPerson.assistances ?? []).filter((row) => Number(row.status) === 2).length}</span>
                   </div>
                   <div className="rounded-md border border-indigo-100 bg-indigo-50 px-1 py-1 text-center">
-                    <span className="block text-[8px] font-black uppercase leading-none text-indigo-700">Evr.</span>
+                    <span className="block text-[10px] font-black uppercase leading-none text-indigo-700">Evr.</span>
                     <span className="text-[13px] font-black leading-tight text-slate-950">{displayedNotes.length}</span>
                   </div>
                 </div>
@@ -18556,8 +19193,12 @@ function DocumentsPageContent() {
             manualOnlyIds={DOSYA_YONETIMI_MANUAL_ONLY_IDS}
             stackedGroups={DOSYA_YONETIMI_STACKED_GROUPS}
             resetManualHeightsKey={displayedPerson.fileId}
+            heightOverridesPx={!isDosyaYonetimiMobile && kisiPanelYukseklikPx > 0
+              ? { 'kisi-bilgileri': kisiPanelYukseklikPx, 'hizli-islem': kisiPanelYukseklikPx, 'raporlar-tahkikatlar': kisiPanelYukseklikPx }
+              : undefined}
             designMode={isDosyaYonetimiDesignMode}
             onDesignModeChange={setIsDosyaYonetimiDesignMode}
+            lockToDefaultLayout
             showToggleButton={false}
             showInfoBar={false}
             extraDesignControls={(() => {
@@ -18605,42 +19246,56 @@ function DocumentsPageContent() {
           (DataTable'lar, ActionDropdown'lar, tum mantik/handler'lar) YUKARIDA
           silinen widget'lardan BIREBIR AYNEN buraya tasindi - hicbir veri
           baglantisi/davranis degismedi, sadece nasil acildiklari degisti. */}
-      <div className="mt-2 w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-[#E2E5DE] bg-white shadow-[0_1px_2px_rgba(16,30,43,0.04),0_8px_24px_rgba(16,30,43,0.06)] sm:mt-5 print:hidden">
-        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto bg-[#F1F3EF] p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:p-2.5">
+      {/* Kullanici istegi (2026-10-14): "isaretli sekmeleri ve iceriklerini
+          daha kurumsal ve profesyonel hale getir" - kalin/buyuk harfli "hap"
+          butonlar yerine alt cizgili kurumsal sekme cubugu; tablo/kart
+          gorunumu globals.css ".dy-detay" blogunda. Mantik degismedi. */}
+      <div className="dy-detay mt-2 w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-[#DDE3E8] bg-white shadow-[0_1px_2px_rgba(16,30,43,0.05),0_6px_18px_rgba(16,30,43,0.05)] sm:mt-5 print:hidden">
+        <div className="dy-detay-bar flex flex-wrap items-end justify-between gap-x-3 gap-y-1 border-b border-[#DDE3E8] bg-[#F7F9FA] px-2 pt-1.5 sm:px-3">
+          <div role="tablist" aria-label="Dosya detay sekmeleri" className="flex min-w-0 max-w-full flex-nowrap items-end gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {([
-            ['hane', 'Hane Bilgileri', displayedHousehold.length, '#1E2A38'] as const,
-            ['muracaatlar', 'Müracaatlar', displayedApplications.length, '#1E2A38'] as const,
-            ['yardimlar', 'Yardımlar', displayedAssistance.length, '#1E2A38'] as const,
-            ['disKurum', 'Diğer Kurum Yardımları', displayedExternalAids.length, '#1E2A38'] as const,
-            ['notlar', 'Notlar / Eksik Evrak', displayedNotes.length, '#1E2A38'] as const,
-          ]).map(([id, label, count, color]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActiveDetailTab(id)}
-              style={activeDetailTab === id ? { backgroundColor: color } : undefined}
-              className={`relative flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border px-3 py-2 !text-[16px] font-black uppercase tracking-wide shadow-sm transition-colors sm:px-4 sm:py-2.5 ${
-                activeDetailTab === id ? 'border-[#1E2A38] text-white shadow-md' : 'border-[#D7DEE3] bg-white text-[#1E2A38] hover:bg-[#EEF1F3]'
-              }`}
-            >
-              {label}
-              {count > 0 ? (
+            ['hane', 'Hane Bilgileri', displayedHousehold.length] as const,
+            ['muracaatlar', 'Müracaatlar', displayedApplications.length] as const,
+            ['yardimlar', 'Yardımlar', displayedAssistance.length] as const,
+            ['disKurum', 'Diğer Kurum Yardımları', displayedExternalAids.length] as const,
+            ['notlar', 'Notlar / Eksik Evrak', displayedNotes.length] as const,
+            ['tahkikat', 'Tahkikat Formları', hasSelectedFile ? tahkikatFormSayisi : 0] as const,
+          ]).map(([id, label, count]) => {
+            const isActive = activeDetailTab === id
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveDetailTab(id)}
+                className={`dy-detay-tab relative -mb-px flex shrink-0 items-center gap-2 whitespace-nowrap rounded-t-lg border border-b-0 px-3 py-2.5 text-[15px] transition-colors sm:px-4 ${
+                  isActive
+                    ? 'is-active border-[#DDE3E8] bg-white font-bold text-[#0A5F67]'
+                    : 'border-transparent font-semibold text-[#475569] hover:bg-white/70 hover:text-[#0A5F67]'
+                }`}
+              >
+                {label}
                 <span
-                  style={activeDetailTab === id ? { color } : { backgroundColor: color }}
-                  className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 !text-[16px] font-black leading-none ${activeDetailTab === id ? 'bg-white' : 'text-white'}`}
+                  className={`dy-detay-count inline-flex h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full px-1.5 text-[12px] font-bold leading-none tabular-nums ${
+                    isActive
+                      ? 'bg-[#0E7C86] text-white'
+                      : count > 0
+                        ? 'bg-[#E3E9ED] text-[#1E2A38]'
+                        : 'bg-transparent text-[#A3AEB5]'
+                  }`}
                 >
                   {count}
                 </span>
-              ) : (
-                <span className={`!text-[16px] font-black ${activeDetailTab === id ? 'text-white/60' : 'text-[#93A0A6]'}`}>0</span>
-              )}
-            </button>
-          ))}
+              </button>
+            )
+          })}
+          </div>
 
           {/* Kullanici istegi (Ekim 2026): ayri renkli "baslik banket"
               satiri KALDIRILDI - o an secili sekmenin islem butonu(lari)
               dogrudan sekme cubugunun sagina alindi. */}
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ml-auto">
+          <div className="dy-detay-araclar ml-auto flex shrink-0 flex-wrap items-center gap-2 pb-1.5">
           {/* Kullanici istegi (Ekim 2026): "Yardım Hareketleri butonu sadece
               Yardımlar sekmesinde değil her zaman görünür olsun" - artik
               aktif sekmeden BAGIMSIZ, her zaman render edilir. */}
@@ -18648,7 +19303,7 @@ function DocumentsPageContent() {
             type="button"
             onClick={openAidMovementsModal}
             disabled={!hasSelectedFile}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#E2E5DE] bg-white px-3.5 py-2 text-[13px] font-medium text-[#16232B] shadow-sm transition hover:bg-[#F1F3EF] disabled:cursor-not-allowed disabled:opacity-50 print:hidden"
+            className="dy-detay-btn inline-flex items-center gap-2 rounded-lg border border-[#CFD8DE] bg-white px-3.5 py-2 text-[14px] font-semibold text-[#1E2A38] shadow-sm transition hover:border-[#0E7C86] hover:text-[#0A5F67] disabled:cursor-not-allowed disabled:opacity-50 print:hidden"
           >
             <ActionIcon name="report" />
             Yardım Hareketleri
@@ -18720,10 +19375,21 @@ function DocumentsPageContent() {
               type="button"
               onClick={openNoteModal}
               disabled={!hasSelectedFile}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#6D4AA6] px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#5c3d8c] disabled:cursor-not-allowed disabled:opacity-50"
+              className="dy-detay-btn-primary inline-flex items-center gap-2 rounded-lg border border-[#0A5F67] bg-[#0E7C86] px-4 py-2 text-[14px] font-semibold text-white shadow-sm transition hover:bg-[#0A5F67] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <ActionIcon name="note" />
               Eksik Evrak İste
+            </button>
+          )}
+          {activeDetailTab === 'tahkikat' && canUseAction('documents.evaluation') && (
+            <button
+              type="button"
+              onClick={() => openEvaluationForm()}
+              disabled={!hasSelectedFile}
+              className="dy-detay-btn-primary inline-flex items-center gap-2 rounded-lg border border-[#0A5F67] bg-[#0E7C86] px-4 py-2 text-[14px] font-semibold text-white shadow-sm transition hover:bg-[#0A5F67] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <ActionIcon name="note" />
+              Yeni Tahkikat Formu
             </button>
           )}
           </div>
@@ -18742,7 +19408,7 @@ function DocumentsPageContent() {
             SEKMENINayni SABIT yukseklikte olmasi degil, HEPSININ AYNI
             MEKANIZMAYI (min 4cm taban + dogal buyume + dikey kaydirma
             YOK) kullanmasi anlamina geliyormus. */}
-        <div className="flex min-h-[4cm] min-w-0 flex-col">
+        <div className="dy-detay-icerik flex min-h-[4cm] min-w-0 flex-col">
           {activeDetailTab === 'hane' && (
             <div className="flex min-w-0 flex-1 flex-col p-1">
               <DataTable
@@ -18757,6 +19423,7 @@ function DocumentsPageContent() {
                 predefinedValueTitles={predefinedValueTitles}
                 reorderTableId="documents-hane-bilgileri"
                 columnCustomizationEnabled={isDosyaYonetimiDesignMode}
+                columnResizeEnabled
                 onRowSelect={(row, index) => setSelectedHouseholdRow({ row, index })}
                 onRowContextMenu={(event, row, index) => {
                   const selection = { row: row as HouseholdRow, index }
@@ -18780,6 +19447,7 @@ function DocumentsPageContent() {
                 gulkartLookup={gulkartCardByTc}
                 reorderTableId="documents-muracaatlar"
                 columnCustomizationEnabled={isDosyaYonetimiDesignMode}
+                columnResizeEnabled
                 actionColumnLabel={allApplicationsAreNakit ? undefined : 'Yazdır'}
                 renderRowAction={allApplicationsAreNakit ? undefined : (row) => {
                   const applicationRow = row as ApplicationRow
@@ -18832,6 +19500,7 @@ function DocumentsPageContent() {
                 predefinedValueTitles={predefinedValueTitles}
                 reorderTableId="documents-yardimlar"
                 columnCustomizationEnabled={isDosyaYonetimiDesignMode}
+                columnResizeEnabled
                 actionColumnLabel="Yazdır"
                 renderRowAction={(row) => {
                   const assistanceRow = row as AssistanceRow
@@ -18882,6 +19551,20 @@ function DocumentsPageContent() {
                 reserveScrollGutter
                 colorTone="cyan"
                 headerAccentColor="#1E2A38"
+                reorderTableId="documents-dis-kurum"
+                columnResizeEnabled
+              />
+            </div>
+          )}
+          {activeDetailTab === 'tahkikat' && (
+            <div className="flex min-w-0 flex-1 flex-col p-3">
+              <SahaIncelemeGecmisiPaneli
+                dosyaid={hasSelectedFile ? displayedPerson.fileId || null : null}
+                canDelete={canUseAction('documents.evaluation')}
+                yenile={tahkikatFormYenile}
+                onDuzenle={canUseAction('documents.evaluation') ? (formId) => openEvaluationForm(formId) : undefined}
+                onSayi={setTahkikatFormSayisi}
+                genis
               />
             </div>
           )}
@@ -18890,51 +19573,51 @@ function DocumentsPageContent() {
               {displayedNotes.length > 0 ? (
                 <div className="space-y-2">
                   {displayedNotes.map((note) => (
-                    <div key={note.id} className="rounded-lg border border-[#E2E5DE] bg-white px-3 py-2.5 shadow-sm">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h5 className="text-[14px] font-black uppercase text-[#6D4AA6]">{note.title || 'İstenen Evrak'}</h5>
+                    <div key={note.id} className="dy-detay-not rounded-lg border border-[#DDE3E8] border-l-4 border-l-[#0E7C86] bg-white px-4 py-3 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h5 className="text-[15px] font-bold text-[#0A5F67]">{note.title || 'İstenen Evrak'}</h5>
                           {note.personName && (
-                            <p className="mt-1 text-[11px] font-black uppercase text-[#93A0A6]">
-                              Kişi: {note.personName}
+                            <p className="mt-0.5 text-[13px] font-semibold text-[#64748B]">
+                              Kişi: <span className="text-[#1E2A38]">{note.personName}</span>
                             </p>
                           )}
-                          <p className="mt-1 whitespace-pre-wrap text-[15px] font-bold leading-relaxed text-black">{note.note || 'Açıklama girilmedi.'}</p>
+                          <p className="mt-1.5 whitespace-pre-wrap text-[15px] font-medium leading-relaxed text-[#1E293B]">{note.note || 'Açıklama girilmedi.'}</p>
                         </div>
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 gap-1.5">
                           <button
                             type="button"
                             onClick={() => openMissingDocumentUpload(note)}
-                            className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 hover:bg-emerald-100"
+                            className="rounded-md border border-[#0A5F67] bg-[#0E7C86] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#0A5F67]"
                           >
                             Ekle
                           </button>
                           <button
                             type="button"
                             onClick={() => openEditNoteModal(note)}
-                            className="rounded-lg border border-[#E2E5DE] bg-[#F1F3EF] px-2 py-1 text-[10px] font-black text-[#16232B] hover:bg-teal-50"
+                            className="rounded-md border border-[#CFD8DE] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1E2A38] hover:border-[#0E7C86] hover:text-[#0A5F67]"
                           >
                             Düzenle
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleDeleteNote(note)}
-                            className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-700 hover:bg-rose-100"
+                            className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-[12px] font-semibold text-rose-700 hover:bg-rose-50"
                           >
                             Sil
                           </button>
                         </div>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-black uppercase text-[#93A0A6]">
-                        <span>{note.date}</span>
-                        <span className="rounded-lg bg-[#F1F3EF] px-1.5 py-0.5">{note.status || 'bekliyor'}</span>
-                        <span>İsteyen: {note.requestedBy || '-'}</span>
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#EEF1F3] pt-2 text-[12.5px] font-medium text-[#64748B]">
+                        <span className="tabular-nums">{note.date}</span>
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold text-amber-800">{note.status || 'bekliyor'}</span>
+                        <span>İsteyen: <span className="font-semibold text-[#1E2A38]">{note.requestedBy || '-'}</span></span>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="rounded-lg border border-dashed border-[#E2E5DE] bg-[#F1F3EF] px-3 py-4 text-sm font-bold italic text-[#5B6B74]">
+                <p className="rounded-lg border border-dashed border-[#CFD8DE] bg-[#F7F9FA] px-3 py-5 text-center text-[14px] font-medium text-[#64748B]">
                   Bu dosya için istenen eksik evrak bulunmamaktadır.
                 </p>
               )}
@@ -19125,53 +19808,102 @@ function DocumentsPageContent() {
 
       {isCancelApplicationModalOpen && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-rose-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-5 py-4">
-              <div>
-                <h3 className="text-lg font-extrabold text-rose-900">{selectedApplicationRow?.type || 'Müracaat'} İptali</h3>
-                <p className="text-xs font-bold text-slate-500">
-                  {selectedApplicationRow?.fullName || '-'} - {selectedApplicationRow?.amount || '-'}
-                </p>
+          {/* 2026-10-14: kurumsal iptal penceresi (lacivert başlık + altın
+              çizgi, müracaat özeti, tahkikat raporuna işleme tiki). */}
+          <div className="w-full max-w-3xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-6 py-4 text-white">
+              <div className="flex min-w-0 items-center gap-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/25">
+                  <ActionIcon name="cancel" className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/70">Müracaat İptali</p>
+                  <h3 className="mt-0.5 text-[20px] font-bold leading-tight">{selectedApplicationRow?.type || 'Müracaat'} Müracaatı</h3>
+                  <p className="mt-0.5 text-[15px] font-semibold text-white/85">{selectedApplicationRow?.fullName || '-'}</p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsCancelApplicationModalOpen(false)}
                 disabled={cancelApplicationStatus === 'saving'}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-rose-100 hover:text-rose-700 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/70 hover:bg-white/15 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                aria-label="Kapat"
               >
                 <ActionIcon name="close" className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="space-y-4 p-5">
+            {/* Müracaat özeti */}
+            {/* Müracaat özeti - değerler kesilmeden (gerekirse alt satıra
+                kayarak) tam görünür; dönem adı uzun olduğu için geniş sütun. */}
+            <div className="grid grid-cols-1 gap-px border-b border-slate-200 bg-slate-200 sm:grid-cols-4">
+              {[
+                { label: 'Dönem', value: selectedApplicationRow?.period, span: 'sm:col-span-2' },
+                { label: 'Aşama', value: selectedApplicationRow?.stage, span: '' },
+                { label: 'Tutar', value: selectedApplicationRow?.amount, span: '' },
+              ].map((item) => (
+                <div key={item.label} className={`min-w-0 bg-[#f6f8fb] px-5 py-3 ${item.span}`}>
+                  <p className="text-[12px] font-bold uppercase tracking-wide text-slate-500">{item.label}</p>
+                  <p className="mt-0.5 break-words text-[15px] font-bold leading-snug text-[#1E2A38]">{item.value && item.value.trim() ? item.value : '-'}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-4 px-6 py-5">
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-extrabold uppercase text-slate-600">Tarih</span>
+                <span className="text-[13px] font-bold uppercase tracking-wide text-slate-600">İptal Tarihi</span>
                 <input
                   type="date"
                   value={cancelApplicationForm.date}
                   onChange={(event) => setCancelApplicationForm((prev) => ({ ...prev, date: event.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-950 outline-none focus:border-[#0076b6]"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-[15px] font-semibold text-slate-950 outline-none focus:border-[#0E7C86] focus:ring-2 focus:ring-[#0E7C86]/15"
                 />
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-extrabold uppercase text-slate-600">Durum açıklama</span>
+                <span className="text-[13px] font-bold uppercase tracking-wide text-slate-600">İptal Nedeni</span>
                 <textarea
                   value={cancelApplicationForm.description}
                   onChange={(event) => setCancelApplicationForm((prev) => ({ ...prev, description: event.target.value }))}
                   rows={4}
-                  maxLength={100}
-                  className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-950 outline-none focus:border-[#0076b6]"
+                  maxLength={380}
+                  placeholder="Örn: Hak sahibi başvurusundan vazgeçti, belge eksikliği vb."
+                  className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-[15px] font-semibold text-slate-950 outline-none focus:border-[#0E7C86] focus:ring-2 focus:ring-[#0E7C86]/15"
                 />
+                <span className="text-right text-[12px] font-semibold text-slate-400">{cancelApplicationForm.description.length}/380</span>
+              </label>
+
+              {(selectedApplicationRow?.stage || '').trim().toLocaleLowerCase('tr-TR') === 'otomatik red' && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] font-semibold text-amber-900">
+                  Bu müracaat “Otomatik Red” aşamasında. Kaydın otomatik red açıklaması ile yazdığınız neden
+                  {' '}<span className="font-black">“-------”</span>{' '}ile ayrılarak birlikte iptal açıklamasına kaydedilir.
+                </div>
+              )}
+
+              <label className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${cancelApplicationForm.writeReport ? 'border-[#0E7C86] bg-[#0E7C86]/5' : 'border-slate-200 bg-white hover:border-[#0E7C86]/50'}`}>
+                <input
+                  type="checkbox"
+                  checked={cancelApplicationForm.writeReport}
+                  onChange={(event) => setCancelApplicationForm((prev) => ({ ...prev, writeReport: event.target.checked }))}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-[#0E7C86]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-bold text-[#1E2A38]">Bu bilgiyi tahkikat raporuna da işle</span>
+                  <span className="mt-0.5 block text-[13px] font-medium leading-relaxed text-slate-600">
+                    İptal açıklaması, bugünün tarihi ve
+                    {' '}<span className="font-bold text-[#0A5F67]">“Bilgi{selectedApplicationRow?.period?.trim() ? ` - ${selectedApplicationRow.period.trim()}` : ''}”</span>{' '}
+                    konu başlığıyla Raporlar ve Tahkikatlar &gt; İnceleme alanına eklenir.
+                  </span>
+                </span>
               </label>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-[#f6f8fb] px-6 py-4">
               <button
                 type="button"
                 onClick={() => setIsCancelApplicationModalOpen(false)}
                 disabled={cancelApplicationStatus === 'saving'}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
+                className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-[14px] font-bold text-[#1E2A38] hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
               >
                 Vazgeç
               </button>
@@ -19179,10 +19911,10 @@ function DocumentsPageContent() {
                 type="button"
                 onClick={() => void handleSaveCancelApplication()}
                 disabled={cancelApplicationStatus === 'saving'}
-                className="inline-flex items-center gap-2 rounded-lg border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-extrabold text-white shadow-sm hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-700 px-5 py-2.5 text-[14px] font-bold text-white shadow-sm hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60"
               >
                 <ActionIcon name="cancel" />
-                {cancelApplicationStatus === 'saving' ? 'Kaydediliyor...' : 'İptal Et'}
+                {cancelApplicationStatus === 'saving' ? 'Kaydediliyor...' : 'Müracaatı İptal Et'}
               </button>
             </div>
           </div>
@@ -19900,18 +20632,18 @@ function DocumentsPageContent() {
               maxWidth: 'calc(100vw - 8px)',
               maxHeight: 'calc(100dvh - 8px)',
             }}
-            className="dy-modal-compact dy-modal-yh-14 fixed min-h-[420px] min-w-[640px] resize overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
+            className="dy-modal-compact dy-modal-yh-14 yh-kurumsal fixed min-h-[420px] min-w-[640px] resize overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
           >
           <div style={{ zoom: aidMovementsWindow.scale }} className="flex h-full w-full flex-col overflow-hidden">
             <div
               onPointerDown={aidMovementsWindow.startDrag}
               onPointerMove={aidMovementsWindow.onDrag}
               onPointerUp={(event) => { aidMovementsWindow.endDrag(event) }}
-              className="flex cursor-move touch-none select-none flex-wrap items-start justify-between gap-1.5 bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a] px-2 py-1.5 text-white sm:flex-nowrap sm:items-center sm:gap-2.5 sm:px-4 sm:py-2.5">
+              className="flex cursor-move touch-none select-none flex-wrap items-start justify-between gap-1.5 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-2 py-1.5 text-white sm:flex-nowrap sm:items-center sm:gap-2.5 sm:px-5 sm:py-3">
               <div className="min-w-0">
-                <p className="font-black uppercase tracking-[0.1em] text-white/70 sm:tracking-[0.12em]">Dosya Yardım Geçmişi</p>
-                <h3 className="mt-0.5 font-black leading-tight text-white">Yardım Hareketleri</h3>
-                <p className="mt-0.5 font-bold leading-snug text-white/90">
+                <p className="yh-ust-etiket font-semibold uppercase tracking-[0.12em] text-white/70">Dosya Yardım Geçmişi</p>
+                <h3 className="yh-baslik mt-0.5 font-bold leading-tight text-white">Yardım Hareketleri</h3>
+                <p className="yh-alt-bilgi mt-1 font-medium leading-snug text-white/85">
                   Dosya No: {formatFileNo(displayedPerson.cardNo) || displayedPerson.cardNo || '-'} · {displayedPerson.firstName} {displayedPerson.lastName} · Tel: {displayedPerson.mobilePhone || '-'}
                 </p>
               </div>
@@ -19919,7 +20651,7 @@ function DocumentsPageContent() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/50 bg-white/15 px-2 py-1.5 font-black text-white transition hover:bg-white/25 print:hidden sm:gap-1.5 sm:px-2.5 sm:py-1.5"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-white/30 bg-white/10 px-2 py-1.5 font-semibold text-white transition hover:bg-white/20 print:hidden sm:gap-1.5 sm:px-3 sm:py-1.5"
                 >
                   <ActionIcon name="print" />
                   Yazdır
@@ -19937,18 +20669,18 @@ function DocumentsPageContent() {
 
             <div className="flex min-h-0 flex-1 flex-col p-1.5 sm:p-3.5">
               <div className="mb-1.5 grid shrink-0 grid-cols-3 gap-1.5 sm:mb-2.5 sm:gap-2">
-                <div className="rounded-lg border border-[#D7DEE3] bg-[#F7F8F9] px-1.5 py-1 shadow-sm sm:px-3 sm:py-1.5">
-                  <div className="font-black uppercase tracking-wide text-[#5B6B74]">Yardım Türü</div>
+                <div className="rounded-lg border border-[#D7DEE3] border-l-4 border-l-[#0E7C86] bg-white px-1.5 py-1 shadow-sm sm:px-3 sm:py-1.5">
+                  <div className="yh-stat-label font-semibold uppercase tracking-[0.06em] text-[#64748B]">Yardım Türü</div>
                   <div className="yh-stat-value font-black text-[#1E2A38]">
                     {combinedAidTabs.length || aidMovementTableGroups.length}
                   </div>
                 </div>
-                <div className="rounded-lg border border-[#D7DEE3] bg-[#F7F8F9] px-1.5 py-1 shadow-sm sm:px-3 sm:py-1.5">
-                  <div className="font-black uppercase tracking-wide text-[#5B6B74]">Toplam Kayıt</div>
+                <div className="rounded-lg border border-[#D7DEE3] border-l-4 border-l-[#0E7C86] bg-white px-1.5 py-1 shadow-sm sm:px-3 sm:py-1.5">
+                  <div className="yh-stat-label font-semibold uppercase tracking-[0.06em] text-[#64748B]">Toplam Kayıt</div>
                   <div className="yh-stat-value font-black text-[#1E2A38]">{combinedAidTabs.reduce((sum, tab) => sum + tab.count, 0)}</div>
                 </div>
-                <div className="rounded-lg border border-[#D7DEE3] bg-[#F7F8F9] px-1.5 py-1 shadow-sm sm:px-3 sm:py-1.5">
-                  <div className="font-black uppercase tracking-wide text-[#5B6B74]">Rapor Tarihi</div>
+                <div className="rounded-lg border border-[#D7DEE3] border-l-4 border-l-[#0E7C86] bg-white px-1.5 py-1 shadow-sm sm:px-3 sm:py-1.5">
+                  <div className="yh-stat-label font-semibold uppercase tracking-[0.06em] text-[#64748B]">Rapor Tarihi</div>
                   <div className="yh-stat-value font-black text-[#1E2A38]">{new Date().toLocaleDateString('tr-TR')}</div>
                 </div>
               </div>
@@ -19961,7 +20693,7 @@ function DocumentsPageContent() {
                 <div className="flex min-h-0 flex-1 flex-col gap-1.5 sm:gap-2.5">
                   <div className="shrink-0">
                     <p className="mb-1 text-[9px] font-black uppercase tracking-wide text-slate-500 sm:mb-1.5 sm:text-[11px]">Yardım türüne göre kayıtlar</p>
-                    <div className="flex flex-wrap gap-1 border-b border-slate-100 pb-1.5 sm:gap-1.5 sm:pb-2">
+                    <div className="flex flex-wrap gap-0.5 border-b-2 border-[#DDE3E8] pb-0">
                       {combinedAidTabs.map((tab) => {
                         const active = selectedAidMovementType === tab.type
                         return (
@@ -19969,9 +20701,10 @@ function DocumentsPageContent() {
                             key={tab.type}
                             type="button"
                             onClick={() => setSelectedAidMovementType(tab.type)}
-                            className={`rounded-lg border px-2 py-1 font-black uppercase tracking-wide transition sm:px-2.5 sm:py-1.5 ${active ? 'border-[#127f92] bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a] text-white' : 'border-[#D7DEE3] bg-white text-[#0c6f9e] hover:bg-[#EEF1F3]'}`}
+                            className={`yh-tur-sekme -mb-[2px] inline-flex items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 transition sm:px-3.5 ${active ? 'is-active border-[#DDE3E8] bg-white font-bold text-[#0A5F67] shadow-[inset_0_3px_0_#0E7C86]' : 'border-transparent bg-transparent font-semibold text-[#475569] hover:bg-[#F1F5F9] hover:text-[#0A5F67]'}`}
                           >
-                            {tab.type} ({tab.count})
+                            {tab.type}
+                            <span className={`yh-tur-sayi inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-1.5 py-0.5 font-bold leading-none tabular-nums ${active ? 'bg-[#0E7C86] text-white' : 'bg-[#E3E9ED] text-[#1E2A38]'}`}>{tab.count}</span>
                           </button>
                         )
                       })}
@@ -19988,10 +20721,10 @@ function DocumentsPageContent() {
                       (bkz. 18988 civari) yatay/dikey kaydirma ile devreye girer. */}
                   <div className="min-h-[4cm] flex-initial">
                   {selectedAidMovementGroup && selectedAidMovementTheme && (
-                    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-[#127f92]/30 shadow-sm">
-                      <div className="flex shrink-0 items-center justify-between bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a] px-2.5 py-1.5 text-white shadow-sm sm:px-3 sm:py-2">
-                        <h4 className="font-black uppercase tracking-wide text-white">{selectedAidMovementGroup.type}</h4>
-                        <span className="rounded-full border border-white/40 bg-white/15 px-2 py-0.5 font-black text-white sm:px-2.5 sm:py-1">
+                    <div className="flex h-full flex-col overflow-hidden rounded-lg border border-[#D7DEE3] shadow-sm">
+                      <div className="flex shrink-0 items-center justify-between border-b border-[#D7DEE3] border-l-4 border-l-[#0E7C86] bg-[#F1F5F9] px-2.5 py-1.5 text-[#1E2A38] sm:px-3 sm:py-2">
+                        <h4 className="font-black uppercase tracking-wide text-[#1E2A38]">{selectedAidMovementGroup.type}</h4>
+                        <span className="rounded-full bg-[#1E2A38] px-2 py-0.5 font-bold text-white sm:px-2.5 sm:py-1">
                           {selectedAidMovementGroup.rows.length} kayıt
                         </span>
                       </div>
@@ -20081,7 +20814,7 @@ function DocumentsPageContent() {
                             bunlar zaten "guzel" onaylandi) biraz daha kucuk
                             kaliyor. */}
                         <table
-                          className="hidden w-full text-left font-semibold sm:table [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-2 [&_th]:py-1.5 [&_td]:px-2 [&_td]:py-1"
+                          className="hidden w-full text-left font-semibold sm:table [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-1.5 [&_tbody_tr]:border-b [&_tbody_tr]:border-[#EEF2F6]"
                         >
                           <thead className={`sticky top-0 z-10 font-black uppercase shadow-sm ${selectedAidMovementTheme.headBg} ${selectedAidMovementTheme.headText}`}>
                             <tr>
@@ -20089,14 +20822,14 @@ function DocumentsPageContent() {
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('date')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Tarih
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'date' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'date' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               {!hideAidDurationColumns && (
                                 <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                   <button type="button" onClick={() => toggleAidAssistanceSort('startDate')} className="inline-flex items-center gap-1 hover:opacity-70">
                                     Başlangıç
-                                    <span className="text-[7px]">{aidAssistanceSortKey === 'startDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                    <span className="text-[10px]">{aidAssistanceSortKey === 'startDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                   </button>
                                 </th>
                               )}
@@ -20104,53 +20837,53 @@ function DocumentsPageContent() {
                                 <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                   <button type="button" onClick={() => toggleAidAssistanceSort('endDate')} className="inline-flex items-center gap-1 hover:opacity-70">
                                     Bitiş
-                                    <span className="text-[7px]">{aidAssistanceSortKey === 'endDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                    <span className="text-[10px]">{aidAssistanceSortKey === 'endDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                   </button>
                                 </th>
                               )}
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('status')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Durum
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'status' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'status' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('amount')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Tutar
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'amount' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'amount' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('shoppingAmount')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Alışveriş Miktarı
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'shoppingAmount' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'shoppingAmount' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               {!hideAidPeriodColumn && (
                                 <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                   <button type="button" onClick={() => toggleAidAssistanceSort('periodInfo')} className="inline-flex items-center gap-1 hover:opacity-70">
                                     Dönem
-                                    <span className="text-[7px]">{aidAssistanceSortKey === 'periodInfo' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                    <span className="text-[10px]">{aidAssistanceSortKey === 'periodInfo' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                   </button>
                                 </th>
                               )}
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('stage')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Aşama
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'stage' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'stage' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('label')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Etiket
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'label' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'label' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               {!hideAidDurationColumns && (
                                 <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                   <button type="button" onClick={() => toggleAidAssistanceSort('paymentStartDate')} className="inline-flex items-center gap-1 hover:opacity-70">
                                     Ödeme Başlangıç
-                                    <span className="text-[7px]">{aidAssistanceSortKey === 'paymentStartDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                    <span className="text-[10px]">{aidAssistanceSortKey === 'paymentStartDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                   </button>
                                 </th>
                               )}
@@ -20158,26 +20891,26 @@ function DocumentsPageContent() {
                                 <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                   <button type="button" onClick={() => toggleAidAssistanceSort('paymentEndDate')} className="inline-flex items-center gap-1 hover:opacity-70">
                                     Ödeme Bitiş
-                                    <span className="text-[7px]">{aidAssistanceSortKey === 'paymentEndDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                    <span className="text-[10px]">{aidAssistanceSortKey === 'paymentEndDate' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                   </button>
                                 </th>
                               )}
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('paymentDescription')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Ödeme Açıklama
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'paymentDescription' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'paymentDescription' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('muracaatDescription')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Müracaat Açıklama
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'muracaatDescription' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'muracaatDescription' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                               <th className="px-2 py-1" style={{ fontSize: '11.5px' }}>
                                 <button type="button" onClick={() => toggleAidAssistanceSort('description')} className="inline-flex items-center gap-1 hover:opacity-70">
                                   Açıklama
-                                  <span className="text-[7px]">{aidAssistanceSortKey === 'description' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                                  <span className="text-[10px]">{aidAssistanceSortKey === 'description' ? (aidAssistanceSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                                 </button>
                               </th>
                             </tr>
@@ -20208,6 +20941,17 @@ function DocumentsPageContent() {
                                   >
                                     {getAssistanceStatusDisplayLabel(predefinedValues, predefinedValueTitles, row.status, row.sourceTable)}
                                   </span>
+                                  {/* 2026-10-14: iptal edilen yardımın yanında iptal nedeni
+                                      (tek satır; tamamı fareyle üzerine gelince görünür). */}
+                                  {row.cancelReason && (
+                                    <span
+                                      className="ml-1.5 inline-block max-w-[340px] truncate align-middle font-semibold text-rose-700"
+                                      style={{ fontSize: '11.5px' }}
+                                      title={`İptal nedeni: ${row.cancelReason}`}
+                                    >
+                                      {row.cancelReason}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className={`px-2 py-1 font-black ${selectedAidMovementTheme.amountText}`} style={{ fontSize: '11.5px' }}>{row.amount || '-'}</td>
                                 <td className="px-2 py-1" style={{ fontSize: '11.5px' }}>{row.shoppingAmount || '-'}</td>
@@ -20828,38 +21572,189 @@ function DocumentsPageContent() {
         </div>
       )}
 
+      {/* Müracaatçı İmzası penceresi (2026-10-14) - Kisi Bilgileri'ndeki
+          "Müracaatçı İmzası Al" butonu acar. Talepler + imza dosya_muracaat_formu'na
+          kaydedilir; Dosya Müracaat Formu ciktisi kayitli imzayi kullanir. */}
+      {/* Müracaat Formu imza penceresi (2026-10-14) - Kisi Bilgileri'ndeki
+          "Müracaatçı İmzası Al" butonu acar. Müracaatçı + formu teslim alan
+          personel imzasi dosya_muracaat_formu'na kaydedilir; Dosya Müracaat
+          Formu ciktisi kayitli imzalari kullanir. */}
+      {isMuracaatImzaModalOpen && (
+        <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-[#0b1f3f]/70 p-2 backdrop-blur-sm sm:p-4">
+          <div className="flex max-h-[96vh] w-full max-w-[980px] flex-col overflow-hidden rounded-2xl border border-[#c9d4e5] bg-white shadow-[0_30px_80px_-20px_rgba(11,31,63,0.55)]">
+            <div className="flex items-center justify-between gap-3 border-b-[3px] border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-5 py-3.5 text-white">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/10">
+                  <ActionIcon name="edit" className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="!text-[16px] font-bold tracking-wide">Müracaat Formu İmzaları</h3>
+                  <p className="truncate !text-[12px] text-[#cfdcf0]">Sosyal Yardım Talep Formu · Sivas Belediyesi Sosyal Hizmetler Müdürlüğü</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setIsMuracaatImzaModalOpen(false)} title="Kapat" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 transition hover:bg-white/20">
+                <ActionIcon name="close" className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-px border-b border-[#dde5f0] bg-[#dde5f0] sm:grid-cols-3">
+              {([
+                ['Müracaatçı', [displayedPerson.firstName, displayedPerson.lastName].filter(Boolean).join(' ') || '-'],
+                ['T.C. Kimlik No', displayedPerson.identityNumber || '-'],
+                ['Dosya No', formatFileNo(displayedPerson.cardNo) || displayedPerson.cardNo || '-'],
+              ] as const).map(([etiket, deger]) => (
+                <div key={etiket} className="bg-[#f4f7fb] px-5 py-2.5">
+                  <p className="!text-[11px] font-bold uppercase tracking-wider text-[#5b6b82]">{etiket}</p>
+                  <p className="truncate !text-[14px] font-bold text-[#0b1f3f]">{deger}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto bg-[#fbfcfe] p-4 sm:p-5">
+              <div className="flex items-start gap-2.5 rounded-lg border border-[#e7d9b0] border-l-4 border-l-[#b8860b] bg-[#fdf9ee] px-3.5 py-2.5">
+                <span className="mt-0.5 !text-[14px] font-bold text-[#8a6508]">i</span>
+                <p className="!text-[12.5px] leading-snug text-[#5c4710]">
+                  Müracaatçı, formdaki <b>beyan ve açık rıza</b> metnini okuduktan sonra imzalar. Formu teslim alan personel de kendi alanını imzalar. İmzalar kalem, parmak veya fareyle atılabilir.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <section className="overflow-hidden rounded-xl border border-[#c9d4e5] bg-white shadow-sm">
+                  <div className="flex items-center justify-between gap-2 bg-[#0f2a52] px-4 py-2 text-white">
+                    <span className="!text-[12.5px] font-bold uppercase tracking-wider">Müracaatçı</span>
+                    {muracaatImza
+                      ? <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 !text-[11px] font-bold text-emerald-200">İmzalandı</span>
+                      : <span className="rounded-full bg-white/10 px-2 py-0.5 !text-[11px] font-semibold text-white/70">Bekleniyor</span>}
+                  </div>
+                  <div className="p-3">
+                    <p className="mb-2 truncate !text-[13px] font-bold text-[#0b1f3f]">{[displayedPerson.firstName, displayedPerson.lastName].filter(Boolean).join(' ') || '-'}</p>
+                    <div className="saha-form dmf-imza-panel dmf-imza-pencere">
+                      <ImzaAlani value={muracaatImza ?? undefined} onChange={(dataUrl) => setMuracaatImza(dataUrl || null)} />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="overflow-hidden rounded-xl border border-[#c3ddd9] bg-white shadow-sm">
+                  <div className="flex items-center justify-between gap-2 bg-[#0f5f5a] px-4 py-2 text-white">
+                    <span className="!text-[12.5px] font-bold uppercase tracking-wider">Formu Teslim Alan Personel</span>
+                    {muracaatPersonelImza
+                      ? <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 !text-[11px] font-bold text-emerald-100">İmzalandı</span>
+                      : <span className="rounded-full bg-white/10 px-2 py-0.5 !text-[11px] font-semibold text-white/70">İsteğe bağlı</span>}
+                  </div>
+                  <div className="p-3">
+                    <p className="mb-2 truncate !text-[13px] font-bold text-[#0b1f3f]">{currentUserName || 'Personel'}</p>
+                    <div className="saha-form dmf-imza-panel dmf-imza-pencere">
+                      <ImzaAlani value={muracaatPersonelImza ?? undefined} onChange={(dataUrl) => setMuracaatPersonelImza(dataUrl || null)} />
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              {muracaatDurum && (
+                <p className={`rounded-md px-3 py-2 !text-[12.5px] font-semibold ${muracaatDurum.tone === 'error' ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                  {muracaatDurum.text}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#dde5f0] bg-[#f4f7fb] px-5 py-3">
+              <p className="!text-[12px] text-[#5b6b82]">
+                {muracaatKayit?.imza
+                  ? `Son kayıt: ${muracaatKayit.tarih}${muracaatKayit.kullanici ? ` · ${muracaatKayit.kullanici}` : ''} — yenilemek için “Temizle” ile silip tekrar imzalatın.`
+                  : 'Bu dosya için henüz kayıtlı imza yok.'}
+              </p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setIsMuracaatImzaModalOpen(false)} className="rounded-lg border border-[#c9d4e5] bg-white px-4 py-2 !text-[13px] font-bold text-[#0b1f3f] hover:bg-[#eef2f8]">
+                  Vazgeç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveMuracaatImza()}
+                  disabled={!muracaatDegisti || muracaatKaydediliyor}
+                  title={!muracaatImza ? 'Önce müracaatçı imzası alınmalı' : undefined}
+                  className="rounded-lg border-b-2 border-[#b8860b] bg-[#0f2a52] px-6 py-2 !text-[13px] font-bold tracking-wide text-white shadow-sm hover:bg-[#0b2042] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {muracaatKaydediliyor ? 'Kaydediliyor...' : 'İmzaları Kaydet'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Print Preview Modal */}
       {isPrintModalOpen && selectedPrintDesign && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm print:bg-white print:static print:z-auto print:block">
-          <div className="w-full max-w-4xl bg-slate-100 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] print:shadow-none print:max-h-none print:bg-white">
-            <div className="flex items-center justify-between px-6 py-4 border-b bg-white print:hidden">
-              <div>
-                <h3 className="text-lg font-extrabold text-slate-800">Baskı Önizleme - {selectedPrintDesign.name}</h3>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <label htmlFor="preview-printer-select" className="text-xs font-black text-slate-600">Yazıcı:</label>
+          <div className={`w-full bg-slate-100 rounded-xl shadow-2xl overflow-hidden flex flex-col print:shadow-none print:max-h-none print:h-auto print:bg-white ${isMuracaatFormuDesign ? 'h-[94vh] max-w-[1320px]' : 'max-w-4xl max-h-[90vh]'}`}>
+            {/* Kullanici istegi (2026-10-14): baslik cubugu sade ve duzenli - tum
+                dugmeler AYNI boyutta (h-9, 13px), tek satir; yazici secimi kompakt.
+                (Dosya Yönetimi'nin genel yazi olcegi kurallarini ezmek icin !text-.) */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-2.5 print:hidden">
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate !text-[14px] font-bold text-slate-800">
+                  <span className="font-semibold text-slate-500">Baskı Önizleme · </span>{selectedPrintDesign.name}
+                </h3>
+                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2">
+                  <label htmlFor="preview-printer-select" className="!text-[12px] font-semibold text-slate-600">Yazıcı</label>
                   <select
                     id="preview-printer-select"
                     value={selectedPreviewPrinter}
                     onChange={(event) => setSelectedPreviewPrinter(event.target.value)}
-                    className="h-9 min-w-[310px] max-w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-extrabold text-emerald-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    className="h-8 w-64 max-w-full rounded-md border border-slate-300 bg-white px-2 !text-[12.5px] font-semibold text-slate-800 outline-none transition focus:border-[#0076b6] focus:ring-2 focus:ring-sky-100"
                   >
                     <option value="">Yazıcı seçin</option>
                     {availablePrintPrinters.map((printer) => (
                       <option key={printer} value={printer}>{printer}</option>
                     ))}
                   </select>
-                  <span className={`text-[10px] font-bold ${detectedPrintAgentVersion && detectedPrintAgentVersion !== requiredPrintAgentVersion ? 'text-rose-600' : 'text-slate-500'}`}>{printerDiscoveryStatus}</span>
+                  {printerDiscoveryStatus && (
+                    <span className={`truncate !text-[11px] font-medium ${detectedPrintAgentVersion && detectedPrintAgentVersion !== requiredPrintAgentVersion ? 'text-rose-600' : 'text-slate-500'}`}>{printerDiscoveryStatus}</span>
+                  )}
                 </div>
               </div>
-              <div className="flex gap-2">
+
+              {isMuracaatFormuDesign && (
+                <div className="flex flex-col items-end gap-1">
+                  <div className="inline-flex overflow-hidden rounded-md border border-slate-300">
+                    {([['sayfa', 'Tam sayfa'], ['genislik', 'Genişliğe sığdır']] as const).map(([mod, etiket]) => (
+                      <button
+                        key={mod}
+                        type="button"
+                        onClick={() => setMuracaatSigdirma(mod)}
+                        className={`h-7 px-2.5 !text-[11.5px] font-semibold ${muracaatSigdirma === mod ? 'bg-[#0f2a52] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                      >
+                        {etiket}
+                      </button>
+                    ))}
+                  </div>
+                  <span className={`!text-[11px] font-semibold ${muracaatKayit?.imza ? 'text-emerald-700' : 'text-rose-600'}`}>
+                    {muracaatKayit?.imza ? `✓ Müracaatçı imzası: ${muracaatKayit.tarih}` : 'Müracaatçı imzası alınmamış'}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => void printRenderedDesign()}
                   disabled={!selectedPreviewPrinter || printSending || (selectedPreviewPrinter !== VIRTUAL_PRINTER_NAME && detectedPrintAgentVersion !== requiredPrintAgentVersion)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#0076b6] px-6 py-2 text-sm font-extrabold text-white shadow hover:bg-[#005f95] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#0076b6] px-3.5 !text-[13px] font-semibold text-white shadow-sm hover:bg-[#005f95] disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  <ActionIcon name="print" />
-                  {printSending ? 'GÖNDERİLİYOR...' : 'YAZDIR'}
+                  <ActionIcon name="print" className="h-4 w-4" />
+                  {printSending ? 'Gönderiliyor...' : 'Yazdır'}
                 </button>
+                {isMuracaatFormuDesign && (
+                  <button
+                    type="button"
+                    onClick={() => void downloadPrintPdf()}
+                    disabled={pdfIndiriliyor}
+                    title="Formu A4 PDF olarak indirir"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#b8860b] bg-[#fdf8ec] px-3.5 !text-[13px] font-semibold text-[#7a5a06] shadow-sm hover:bg-[#f8eed2] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <ActionIcon name="report" className="h-4 w-4" />
+                    {pdfIndiriliyor ? 'Hazırlanıyor...' : 'PDF İndir'}
+                  </button>
+                )}
                 {/* Kullanici istegi (Agustos 2026): yazdirma servisine (yerel
                     agent) ulasilamadigin durumda - ör. uygulamaya DISARIDAN
                     baglanan kullanicilar - tarayicinin kendi yazdir penceresi
@@ -20868,30 +21763,65 @@ function DocumentsPageContent() {
                     korunur. */}
                 {detectedPrintAgentVersion !== requiredPrintAgentVersion && (
                   <button
+                    type="button"
                     onClick={() => window.print()}
                     title="Tarayıcının yazdır penceresini açar - yazıcıyı orada elle seçersiniz"
-                    className="inline-flex items-center gap-2 rounded-lg border border-[#0076b6] bg-white px-4 py-2 text-sm font-extrabold text-[#0076b6] shadow hover:bg-[#eaf7fd]"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-[#0076b6] bg-white px-3.5 !text-[13px] font-semibold text-[#0076b6] shadow-sm hover:bg-[#eaf7fd]"
                   >
-                    <ActionIcon name="print" />
-                    TARAYICIDAN YAZDIR
+                    <ActionIcon name="print" className="h-4 w-4" />
+                    Tarayıcıdan Yazdır
                   </button>
                 )}
-                <button onClick={() => setIsPrintModalOpen(false)} className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-400 hover:bg-rose-50 hover:text-rose-500">
-                  <ActionIcon name="close" className="h-5 w-5" />
+                <button type="button" onClick={() => setIsPrintModalOpen(false)} title="Kapat" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600">
+                  <ActionIcon name="close" className="h-4 w-4" />
                 </button>
               </div>
             </div>
-            
-            <div className="flex-1 overflow-auto p-8 flex justify-center print:p-0 print:overflow-visible print:bg-white">
-              <div ref={printContentRef} className="print-content">
-                <FormDesignRenderer design={selectedPrintDesign} data={printData} />
+
+            {/* Kullanici istegi (2026-10-14, 2. tur): "pencerede tam gorunsun, yazilar
+                cok buyuk" - Dosya Müracaat Formu'nda A4 sayfa onizleme alanina
+                otomatik olceklenir (kabuk zoom'undan bagimsiz); imza artik Kisi
+                Bilgileri'ndeki ayri pencerede alinir. Olcek SADECE ekrandadir: yazdirma agent'ina
+                printContentRef.innerHTML (olceksiz) gider, tarayicidan yazdirmada
+                @media print .dmf-olcek'i sifirlar. */}
+            <div className={`flex min-h-0 flex-1 ${isMuracaatFormuDesign ? 'flex-col lg:flex-row' : 'flex-col'}`}>
+              <div
+                ref={isMuracaatFormuDesign ? muracaatOnizlemeRef : undefined}
+                className={`min-h-0 min-w-0 flex-1 overflow-auto flex justify-center print:p-0 print:overflow-visible print:bg-white ${isMuracaatFormuDesign ? 'items-start bg-slate-300/70 p-3' : 'p-8'}`}
+              >
+                <div className={isMuracaatFormuDesign ? 'dmf-olcek shadow-[0_4px_18px_rgba(15,23,42,0.25)] print:shadow-none' : undefined} style={isMuracaatFormuDesign ? { zoom: muracaatOlcek } : undefined}>
+                  <div ref={printContentRef} className="print-content">
+                    {isMuracaatFormuDesign ? (
+                      <DosyaMuracaatFormu
+                        kisi={printData?.kisi ?? {}}
+                        dosyaNo={String(printData?.dosya?.dosyano ?? '')}
+                        adres={String(printData?.dosya?.adres ?? '').replace(/^-$/, '')}
+                        hane={(printData?.bireyler_liste ?? []) as MuracaatHaneSatiri[]}
+                        imza={muracaatKayit?.imza ?? null}
+                        personelImza={muracaatKayit?.personelImza ?? null}
+                        onayYazisi={muracaatKayit?.onayYazisi ?? null}
+                        imzaTarihi={muracaatKayit?.tarih ?? new Date().toLocaleDateString('tr-TR')}
+                        personel={(muracaatKayit?.personelImza && muracaatKayit.personelAdi) || String(printData?.cikti?.kullanici ?? '')}
+                        logoSrc={muracaatLogo}
+                        fotoSrc={(() => {
+                          const foto = String(printData?.kisi?.resim ?? '')
+                          return foto.startsWith('/') ? `${window.location.origin}${foto}` : foto
+                        })()}
+                      />
+                    ) : (
+                      <FormDesignRenderer design={selectedPrintDesign} data={printData} />
+                    )}
+                  </div>
+                </div>
               </div>
+
             </div>
           </div>
           <style dangerouslySetInnerHTML={{__html: `
             @media print {
               body * { visibility: hidden !important; }
               .print-content, .print-content * { visibility: visible !important; }
+              .dmf-olcek { zoom: 1 !important; box-shadow: none !important; }
               .print-content {
                 position: absolute !important;
                 left: 0 !important;
@@ -22319,7 +23249,7 @@ function DocumentsPageContent() {
               onPointerDown={addApplicationWindow.startDrag}
               onPointerMove={addApplicationWindow.onDrag}
               onPointerUp={(event) => { addApplicationWindow.endDrag(event) }}
-              className={`flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 bg-gradient-to-r px-5 py-4 text-white shadow-sm ${applicationTypeTheme.headerBar}`}>
+              className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-5 py-3.5 text-white shadow-sm">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/30 bg-white/15 shadow-inner">
                   <ActionIcon name="fileAdd" className="h-4.5 w-4.5" />
@@ -22340,7 +23270,20 @@ function DocumentsPageContent() {
                 </button>
               </div>
             </div>
-            <div className={`flex-1 overflow-y-auto p-4 md:p-6 bg-gradient-to-b ${applicationTypeTheme.headBg} via-white to-white`}>
+            {editingApplicationRow?.recordId && editingApplicationRow.sourceTable && displayedPerson.fileId && (
+              <ApplicationStatusBar
+                key={`${editingApplicationRow.sourceTable}-${editingApplicationRow.recordId}-${editingApplicationRow.status}`}
+                row={editingApplicationRow}
+                fileId={displayedPerson.fileId}
+                canEdit={!isApplicationModalReadOnly && canUseAction('requests.update')}
+                onChanged={(nextStatus) => {
+                  setEditingApplicationRow((prev) => (prev ? { ...prev, status: nextStatus } : prev))
+                  refreshFileDetailsInBackground(displayedPerson.fileId)
+                  if (isAidMovementsModalOpen) void fetchCashAidMovementRows()
+                }}
+              />
+            )}
+            <div className={`flex-1 overflow-y-auto p-3 md:p-4 bg-gradient-to-b ${applicationTypeTheme.headBg} via-white to-white`}>
               <div className="space-y-4">
                 {/* SABİT �SST B�L�SM: Müracaat Temel Bilgileri */}
                 {addApplicationForm.type !== 'Ayni/Nakdi' && (

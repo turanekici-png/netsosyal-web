@@ -173,6 +173,9 @@ export async function POST(request: NextRequest) {
     const requestAddress = clean(payload.address) ?? clean(applicant.address)
     const requestPhone = cleanPhone(payload.phone) ?? cleanPhone(applicant.phone)
     const familyType = clean(applicant.tc)?.startsWith('9') ? 4 : (cleanNumber(payload.familyType) ?? 1)
+    // 2026-10-14: Yardım Önceliği (1-5), bossa NULL
+    const oncelikSayi = cleanNumber((payload as { aidPriority?: unknown }).aidPriority)
+    const yardimOnceligi = oncelikSayi !== null && Number.isInteger(oncelikSayi) && oncelikSayi > 0 ? oncelikSayi : null
     const allPeople = [applicant, ...(payload.household ?? [])].filter((person) => {
       return clean(person.firstName) || clean(person.lastName) || clean(person.tc)
     })
@@ -181,11 +184,12 @@ export async function POST(request: NextRequest) {
       await stampAuditUser(tx, undefined, getAuditMetaFromRequest(request))
 
       const fileRows = await tx.$queryRaw<CreatedFileRow[]>`
-        INSERT INTO dosyalar (dosyano, durumu, aileniteligi, muracaattarihi, adres, telefon, mahalleadi, cadde, sokak, binano, daireno, adresno, aciklama, ilkislemtarihi, islemtarihi)
+        INSERT INTO dosyalar (dosyano, durumu, aileniteligi, yaronceliksirasi, muracaattarihi, adres, telefon, mahalleadi, cadde, sokak, binano, daireno, adresno, aciklama, ilkislemtarihi, islemtarihi)
         VALUES (
           ${fileNo},
           0,
           ${familyType},
+          ${yardimOnceligi}::int,
           CURRENT_DATE,
           ${requestAddress},
           ${requestPhone},

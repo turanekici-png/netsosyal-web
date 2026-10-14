@@ -25,6 +25,8 @@ import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { ColumnPickerReportModal, type ReportRow } from '@/components/shared/ColumnPickerReportModal'
 import { formatDate, formatFileNo, getColumnsFromData, isDateField } from '@/lib/utils'
 import { combineDateRange, type MessageTemplateTokenValues } from '@/lib/messageTemplateTokens'
+import { validateOnlineApplicationEdit } from '@/lib/onlineApplications/validation'
+import { buildCancelReason, CANCEL_REASON_SEPARATOR } from '@/lib/nakitAutoRejectText'
 
 type ManagedReportTablePageProps = {
   eyebrow: string
@@ -69,6 +71,15 @@ type ManagedReportTablePageProps = {
   exportEndpoint?: string
   tableKey?: string
   afterHeader?: ReactNode
+  // Kullanici istegi (2026-10-14, Yardımlar kurumsal tur): verildiginde
+  // baslikta yol satiri + bilgi satiri gosterilir, islevsiz (her zaman
+  // pasif) "Yeni ..." dugmesi gizlenir ve arac cubugu zemini Dosya
+  // Yönetimi'nin lacivert/notr diline alinir. SADECE Yardımlar sayfalari
+  // verir - diger rapor sayfalarinin gorunumu DEGISMEZ.
+  corporateHeader?: {
+    kicker: string
+    subtitle?: ReactNode
+  }
   onRefresh?: () => void
   deleteConfig?: {
     endpoint: string
@@ -959,6 +970,7 @@ export function ManagedReportTablePage({
   exportEndpoint,
   tableKey,
   afterHeader,
+  corporateHeader,
   onRefresh,
   deleteConfig,
   cancelConfig,
@@ -1017,6 +1029,10 @@ export function ManagedReportTablePage({
   const [onlineEditModalOpen, setOnlineEditModalOpen] = useState(false)
   const [isSavingOnlineEdit, setIsSavingOnlineEdit] = useState(false)
   const [onlineEditForm, setOnlineEditForm] = useState<OnlineApplicationEditForm>(emptyOnlineApplicationEditForm)
+  // 2026-10-14: hata mesajı eskiden pencerenin ARKASINDAKİ sayfa durum
+  // satırına yazılıyordu - pencere açıkken görünmüyordu. Artık pencere içinde.
+  const [onlineEditError, setOnlineEditError] = useState('')
+  const [onlineEditExtraAnswers, setOnlineEditExtraAnswers] = useState('')
   const [noFileEditModalOpen, setNoFileEditModalOpen] = useState(false)
   const [isSavingNoFileEdit, setIsSavingNoFileEdit] = useState(false)
   const [noFileEditForm, setNoFileEditForm] = useState<NoFileCashApplicationEditForm>(emptyNoFileCashApplicationEditForm)
@@ -1036,6 +1052,10 @@ export function ManagedReportTablePage({
   const [cancelModalOpen, setCancelModalOpen] = useState(false)
   const [cancelDate, setCancelDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [cancelReason, setCancelReason] = useState('')
+  // 2026-10-14: "aynı bilgiyi tahkikat raporuna yaz" - iptal nedeni, günün
+  // tarihi ve "Bilgi - <dönem>" konusuyla Raporlar ve Tahkikatlar'a eklenir.
+  const [cancelWriteReport, setCancelWriteReport] = useState(false)
+  const [cancelModalError, setCancelModalError] = useState('')
   const [isImporting, setIsImporting] = useState(false)
   const [actionStatus, setActionStatus] = useState('')
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null)
@@ -1667,10 +1687,12 @@ export function ManagedReportTablePage({
 
     const id = cleanRowValue(row, 'id')
     if (!id) {
-      setActionStatus('Duzenlenecek basvuru id bilgisi bulunamadi.')
+      setActionStatus('Düzenlenecek başvurunun kayıt numarası bulunamadı.')
       return
     }
 
+    setOnlineEditError('')
+    setOnlineEditExtraAnswers(cleanRowValue(row, 'ek_cevaplar'))
     setOnlineEditForm({
       id,
       tc: cleanRowValue(row, 'tc'),
@@ -1699,8 +1721,15 @@ export function ManagedReportTablePage({
     event.preventDefault()
     if (!onlineApplicationEditConfig) return
 
+    const validationError = validateOnlineApplicationEdit(onlineEditForm)
+    if (validationError) {
+      setOnlineEditError(validationError)
+      return
+    }
+
     setIsSavingOnlineEdit(true)
     setActionStatus('')
+    setOnlineEditError('')
 
     try {
       const response = await fetch(onlineApplicationEditConfig.endpoint, {
@@ -1717,15 +1746,15 @@ export function ManagedReportTablePage({
       const payload = await response.json()
 
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Basvuru guncellenemedi.')
+        throw new Error(payload.error || 'Başvuru güncellenemedi.')
       }
 
-      setActionStatus('Basvuru bilgileri guncellendi.')
+      setActionStatus('Başvuru bilgileri güncellendi.')
       setOnlineEditModalOpen(false)
       setSelectedRowIds([])
       router.refresh()
     } catch (error) {
-      setActionStatus(error instanceof Error ? error.message : 'Basvuru guncellenemedi.')
+      setOnlineEditError(error instanceof Error ? error.message : 'Başvuru güncellenemedi.')
     } finally {
       setIsSavingOnlineEdit(false)
     }
@@ -2535,51 +2564,60 @@ export function ManagedReportTablePage({
 
     setCancelDate(new Date().toISOString().slice(0, 10))
     setCancelReason('')
+    setCancelWriteReport(false)
+    setCancelModalError('')
     setActionStatus('')
     setCancelModalOpen(true)
   }
+
+  // Tek kayıt seçiliyse, kaydedilecek iptal nedeninin önizlemesi (sunucu
+  // aynı kuralla oluşturur - bkz. app/api/requests/nakit/cancel/route.ts).
+  const cancelPreviewRow = !allFilteredSelected && selectedRows.length === 1 ? selectedRows[0] : null
+  const cancelPreviewText = cancelPreviewRow
+    ? buildCancelReason(getRowAutoRejectReason(cancelPreviewRow), cancelReason)
+    : ''
+  const cancelPreviewDonem = cancelPreviewRow && typeof cancelPreviewRow.donem === 'string' ? cancelPreviewRow.donem.trim() : ''
 
   const cancelSelectedRow = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!cancelConfig || cancelTargetCount === 0) return
 
     if (!cancelDate) {
-      setActionStatus('Iptal tarihi zorunludur.')
+      setCancelModalError('İptal tarihi zorunludur.')
       return
     }
 
     if (cancelReasonRequired && !cancelReason.trim()) {
-      setActionStatus('İptal nedeni zorunludur.')
+      setCancelModalError('İptal nedeni zorunludur.')
       return
     }
 
     setIsCancelling(true)
     setActionStatus('')
+    setCancelModalError('')
 
     try {
       let body: Record<string, unknown>
 
+      // 2026-10-14: iptal nedeni artık SUNUCUDA, her kayıt için
+      // "[otomatik red açıklaması] ------- [yazılan neden]" olarak oluşturulur
+      // (eskiden otomatik red açıklaması varsa yazılan neden yok sayılıyordu).
       if (allFilteredSelected) {
         const filters: Record<string, string> = {}
         searchParams.forEach((value, key) => { filters[key] = value })
-        body = { cancelDate, mode: 'filtered', filters, cancelReason: cancelReason.trim() }
+        body = { cancelDate, mode: 'filtered', filters, cancelReason: cancelReason.trim(), writeReport: cancelWriteReport }
       } else {
-        const items = selectedRows
-          .map((row) => {
-            const id = row.id
-            if (typeof id !== 'string' && typeof id !== 'number' && typeof id !== 'bigint') return null
-            const autoReason = getRowAutoRejectReason(row)
-            const reason = autoReason || cancelReason.trim()
-            return reason ? { id: String(id), cancelReason: reason } : null
-          })
-          .filter((item): item is { id: string; cancelReason: string } => item !== null)
+        const ids = selectedRows
+          .map((row) => row.id)
+          .filter((id): id is string | number | bigint => typeof id === 'string' || typeof id === 'number' || typeof id === 'bigint')
+          .map((id) => String(id))
 
-        if (items.length === 0) {
-          setActionStatus('Iptal edilecek kayit id bilgisi bulunamadi.')
+        if (ids.length === 0) {
+          setCancelModalError('İptal edilecek kaydın kayıt numarası bulunamadı.')
           setIsCancelling(false)
           return
         }
-        body = { cancelDate, items }
+        body = { cancelDate, mode: 'selected', ids, cancelReason: cancelReason.trim(), writeReport: cancelWriteReport }
       }
 
       const response = await fetch(cancelConfig.endpoint, {
@@ -2590,16 +2628,22 @@ export function ManagedReportTablePage({
       const payload = await response.json()
 
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Kayit iptal edilemedi.')
+        throw new Error(payload.error || 'Kayıt iptal edilemedi.')
       }
 
-      setActionStatus(`${payload.updatedCount ?? cancelTargetCount} müracaat iptal edildi.`)
+      const parts = [`${payload.updatedCount ?? cancelTargetCount} müracaat iptal edildi.`]
+      if (cancelWriteReport) {
+        parts.push(`${payload.reportCount ?? 0} kayda tahkikat raporu eklendi.`)
+        if (payload.noFileCount) parts.push(`${payload.noFileCount} müracaatın dosyası olmadığı için rapor eklenemedi.`)
+      }
+      if (payload.missingReasonCount) parts.push(`${payload.missingReasonCount} kayıt iptal nedeni olmadığı için iptal edilmedi.`)
+      setActionStatus(parts.join(' '))
       setSelectedRowIds([])
       setAllFilteredSelectedScope('')
       setCancelModalOpen(false)
       router.refresh()
     } catch (error) {
-      setActionStatus(error instanceof Error ? error.message : 'Kayit iptal edilemedi.')
+      setCancelModalError(error instanceof Error ? error.message : 'Kayıt iptal edilemedi.')
     } finally {
       setIsCancelling(false)
     }
@@ -2618,9 +2662,17 @@ export function ManagedReportTablePage({
         eyebrow={eyebrow}
         title={title}
         description={`${firstRecord}-${lastRecord} arası kayıtlar gösteriliyor.`}
+        kicker={corporateHeader?.kicker}
+        subtitle={corporateHeader ? (
+          corporateHeader.subtitle ?? (
+            <>
+              {totalCount.toLocaleString('tr-TR')} kayıt · {firstRecord.toLocaleString('tr-TR')}–{lastRecord.toLocaleString('tr-TR')} arası gösteriliyor
+            </>
+          )
+        ) : undefined}
         actions={
           <div className="flex flex-wrap gap-2">
-            {newButtonLabel && (
+            {newButtonLabel && !corporateHeader && (
               <button
                 type="button"
                 className={`${reportHeaderGhostButton} opacity-70`}
@@ -2672,7 +2724,11 @@ export function ManagedReportTablePage({
         </div>
       )}
 
-      <div className={`flex flex-col gap-4 border bg-white p-4 print:hidden ${organizedToolbar ? 'rounded-2xl border-sky-200 bg-gradient-to-br from-sky-50/80 via-white to-emerald-50/60 shadow-[0_14px_35px_rgba(0,118,182,0.10)]' : 'rounded-lg border-slate-200 shadow-sm md:flex-row md:items-center md:justify-between'}`}>
+      <div className={`flex flex-col gap-4 border bg-white p-4 print:hidden ${organizedToolbar
+        ? corporateHeader
+          ? 'rounded-xl border-slate-200 border-t-[3px] border-t-[#1E2A38] shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)]'
+          : 'rounded-2xl border-sky-200 bg-gradient-to-br from-sky-50/80 via-white to-emerald-50/60 shadow-[0_14px_35px_rgba(0,118,182,0.10)]'
+        : 'rounded-lg border-slate-200 shadow-sm md:flex-row md:items-center md:justify-between'}`}>
         <form onSubmit={handleSearch} className={`flex w-full gap-2 ${organizedToolbar ? '' : 'md:w-auto'}`}>
           {organizedToolbar ? (
             <div className="relative min-w-0 flex-1">
@@ -3337,7 +3393,7 @@ export function ManagedReportTablePage({
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white transition group-hover:bg-rose-700">
                 <ContextActionIcon type="cancel" />
               </span>
-              <span className="min-w-0 flex-1">{cancelTargetCount > 1 ? 'Toplu İptal Et' : 'Iptal Et'}</span>
+              <span className="min-w-0 flex-1">{cancelTargetCount > 1 ? 'Toplu İptal Et' : 'İptal Et'}</span>
               <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-black text-rose-700">{cancelTargetCount || 1}</span>
             </button>
           )}
@@ -3513,10 +3569,16 @@ export function ManagedReportTablePage({
                 Sureci/Adres), (3) alan/yazi boyutlari kucultuldu
                 (16px -> 12-13px, py-2 -> py-1.5).
             */}
-            <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-[#0076b6] via-[#0090c8] to-[#6fb744] px-5 py-3.5 text-white">
+            {/* 2026-10-14: kurumsal başlık - lacivert degrade + altın alt
+                çizgi (Dosya Yönetimi / Online Başvuru Formları ile aynı dil;
+                eskiden mavi-yeşil gökkuşağı degradesiydi). */}
+            <div className="flex items-center justify-between gap-3 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-5 py-3.5 text-white">
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-wide text-white/80">Online Başvuru</p>
-                <h2 className="mt-0.5 truncate text-base font-black text-white">Başvuru Bilgilerini Düzenle</h2>
+                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-white/70">Online Başvuru</p>
+                <h2 className="mt-0.5 truncate text-[17px] font-bold text-white">
+                  Başvuru Bilgilerini Düzenle
+                  {onlineEditForm.fullName && <span className="font-semibold text-white/75"> — {onlineEditForm.fullName}</span>}
+                </h2>
               </div>
               <button
                 type="button"
@@ -3735,8 +3797,26 @@ export function ManagedReportTablePage({
                   />
                 </EditModalField>
               </EditModalSection>
+
+              {/* Formdaki tabloda kendi sütunu olmayan sorulara verilen
+                  cevaplar (yalnızca görüntüleme) - bkz. app/online/page.tsx
+                  buildExtraAnswersText. */}
+              {onlineEditExtraAnswers && (
+                <EditModalSection title="Formdaki Diğer Cevaplar" tone="sky">
+                  <div className="col-span-full space-y-1 rounded-md border border-slate-200 bg-white px-3 py-2">
+                    {onlineEditExtraAnswers.split(' · ').map((item) => (
+                      <p key={item} className="text-[13px] font-semibold text-slate-700">{item}</p>
+                    ))}
+                  </div>
+                </EditModalSection>
+              )}
             </div>
 
+            {onlineEditError && (
+              <div className="border-t border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-700" role="alert">
+                {onlineEditError}
+              </div>
+            )}
             <div className="flex justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
               <button
                 type="button"
@@ -3749,7 +3829,7 @@ export function ManagedReportTablePage({
               <button
                 type="submit"
                 disabled={isSavingOnlineEdit}
-                className="rounded-lg bg-[#0076b6] px-4 py-2 text-xs font-black text-white hover:bg-[#00649b] disabled:cursor-wait disabled:opacity-60"
+                className="rounded-lg bg-[#0E7C86] px-5 py-2 text-xs font-black text-white hover:bg-[#0A5F67] disabled:cursor-wait disabled:opacity-60"
               >
                 {isSavingOnlineEdit ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
@@ -4426,15 +4506,14 @@ export function ManagedReportTablePage({
               </div>
             </div>
 
-            <div className="space-y-4 px-6 py-5">
-              {allFilteredSelected ? (
+            <div className="max-h-[65vh] space-y-4 overflow-y-auto px-6 py-5">
+              {(allFilteredSelected || cancelAutoReasonCount > 0) && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] font-bold text-amber-800">
-                  ⚠️ Bu kayıtlardan &quot;Otomatik Red&quot; aşamasında olanlar için aşağıdaki metin yerine kaydın kendi otomatik red açıklaması iptal nedeni olarak kullanılacak. Diğer tüm kayıtlar için aşağıdaki metin kullanılacak.
-                </div>
-              ) : cancelAutoReasonCount > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] font-bold text-amber-800">
-                  ⚠️ {cancelAutoReasonCount} kayıt &quot;Otomatik Red&quot; aşamasında - bunlar için aşağıdaki metin yerine kaydın kendi otomatik red açıklaması iptal nedeni olarak kullanılacak.
-                  {cancelManualReasonCount > 0 && ` Kalan ${cancelManualReasonCount} kayıt için aşağıdaki metin kullanılacak.`}
+                  {allFilteredSelected
+                    ? '“Otomatik Red” aşamasındaki kayıtlarda, kaydın otomatik red açıklaması ile aşağıya yazdığınız neden'
+                    : `${cancelAutoReasonCount} kayıt “Otomatik Red” aşamasında. Bu kayıtlarda otomatik red açıklaması ile aşağıya yazdığınız neden`}
+                  {' '}<span className="whitespace-nowrap font-black">“{CANCEL_REASON_SEPARATOR.trim()}”</span> ile ayrılarak birlikte kaydedilir.
+                  {!allFilteredSelected && cancelManualReasonCount > 0 && ` Diğer ${cancelManualReasonCount} kayıt için yalnızca yazdığınız neden kullanılır.`}
                 </div>
               )}
 
@@ -4451,27 +4530,51 @@ export function ManagedReportTablePage({
 
               <label className="block">
                 <span className="mb-1 block text-[13px] font-black uppercase tracking-wide text-slate-600">
-                  İptal Nedeni {!cancelReasonRequired && <span className="normal-case text-slate-400">(bu seçimde kullanılmayacak)</span>}
+                  İptal Nedeni {!cancelReasonRequired && <span className="normal-case text-slate-400">(isteğe bağlı - otomatik red açıklamasına eklenir)</span>}
                 </span>
                 <textarea
                   value={cancelReason}
                   onChange={(event) => setCancelReason(event.target.value)}
                   required={cancelReasonRequired}
-                  disabled={!cancelReasonRequired}
-                  maxLength={100}
+                  maxLength={380}
                   rows={4}
-                  placeholder={!cancelReasonRequired ? 'Tüm seçili kayıtlar otomatik red açıklamasını kullanacak.' : 'Örn: Belge eksikliği, hak sahibi vazgeçti, vb.'}
-                  className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-[15px] font-bold text-slate-950 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-100 disabled:bg-slate-50 disabled:text-slate-400"
+                  placeholder="Örn: Belge eksikliği, hak sahibi vazgeçti, vb."
+                  className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-[15px] font-bold text-slate-950 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-100"
                 />
+                <span className="mt-0.5 block text-right text-[12px] font-semibold text-slate-400">{cancelReason.length}/380</span>
               </label>
 
-              {actionStatus && (
-                <div className={`rounded-lg border px-4 py-2.5 text-sm font-bold ${
-                  actionStatus.includes('iptal edildi')
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : 'border-rose-200 bg-rose-50 text-rose-700'
-                }`}>
-                  {actionStatus}
+              {cancelPreviewText && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[12px] font-black uppercase tracking-wide text-slate-500">Kaydedilecek iptal açıklaması</p>
+                  <p className="mt-1 whitespace-pre-wrap text-[14px] font-semibold leading-relaxed text-slate-800">{cancelPreviewText}</p>
+                </div>
+              )}
+
+              {/* 2026-10-14: "açılan pencerede aynı bilgiyi tahkikat raporuna
+                  yaz" - dosyası olan her iptal edilen müracaat için Raporlar
+                  ve Tahkikatlar'a günün tarihi + "Bilgi - <dönem>" konusuyla
+                  aynı metin eklenir. */}
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#0E7C86]/30 bg-[#0E7C86]/5 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={cancelWriteReport}
+                  onChange={(event) => setCancelWriteReport(event.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-[#0E7C86]"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-black text-[#0A5F67]">Tahkikat raporuna da yaz</span>
+                  <span className="mt-0.5 block text-[13px] font-semibold text-slate-600">
+                    İptal açıklaması, bugünün tarihi ve
+                    {' '}<span className="font-black">“Bilgi - {cancelPreviewDonem || 'Dönem'}”</span>{' '}
+                    konu başlığıyla dosyanın Raporlar ve Tahkikatlar alanına eklenir. Dosyası olmayan müracaatlara eklenemez.
+                  </span>
+                </span>
+              </label>
+
+              {cancelModalError && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-bold text-rose-700" role="alert">
+                  {cancelModalError}
                 </div>
               )}
             </div>

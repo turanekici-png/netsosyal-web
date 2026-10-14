@@ -1,9 +1,24 @@
 import { NextResponse } from 'next/server'
 import { requireApiAccess } from '@/lib/apiAuth'
 import { getSqlMonitorPool } from '@/lib/services/sqlMonitor.service'
-import { buildMappedFilterCondition, prepareSqlSearchTerm } from '@/lib/utils'
+import {
+  amountSql,
+  buildOnlineApplicationsWhere,
+  ensureOnlineApplicationsAuditTrigger,
+  fullNameSql,
+  hasActiveOnlineFilter,
+  ibanSql,
+  incomeSql,
+  periodSql,
+  phoneSql,
+  propertySql,
+  vehicleModelYearSql,
+  vehicleStatusSql,
+} from '@/lib/onlineApplications/listQuery'
 import { getAuditMetaFromRequest, withAuditedPoolWrite } from '@/lib/db/auditContext'
 import { OTOMATIK_RED_STAGE } from '@/lib/services/cashAutoReject.service'
+import { ensureCashReasonColumnWidth } from '@/lib/services/cashReasonColumn'
+import { mulkiyetDurumuEtiketleri } from '@/lib/services/mulkiyetDurumu.service'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,48 +56,6 @@ type TransferPayload = {
   filters?: Record<string, string>
 }
 
-const fullNameSql = `
-  COALESCE(
-    NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(t.ad, ''), NULLIF(t.soyad, ''))), ''),
-    NULLIF(t.answers->>'fullName', ''),
-    NULLIF(t.answers->>'f_name', '')
-  )
-`
-
-const phoneSql = `COALESCE(NULLIF(t.answers->>'phone', ''), NULLIF(t.answers->>'f_phone', ''), NULLIF(t.answers->>'telefon', ''))`
-const incomeSql = `COALESCE(NULLIF(t.answers->>'income', ''), NULLIF(t.answers->>'f_income', ''))`
-const vehicleStatusSql = `COALESCE(NULLIF(t.answers->>'vehicleStatus', ''), NULLIF(t.answers->>'f_1783585922150', ''))`
-const vehicleModelYearSql = `COALESCE(NULLIF(t.answers->>'vehicleModelYear', ''), NULLIF(t.answers->>'f_1783665438908', ''))`
-const ibanSql = `COALESCE(NULLIF(t.answers->>'iban', ''), NULLIF(t.answers->>'f_1783668607481', ''))`
-const propertySql = `COALESCE(NULLIF(t.answers->>'propertyInfo', ''), NULLIF(t.answers->>'property', ''), NULLIF(t.answers->>'mulkiyet', ''), NULLIF(t.answers->>'mulkiyetBilgisi', ''))`
-const amountSql = `COALESCE(NULLIF(t.answers->>'amount', ''), NULLIF(t.answers->>'miktar', ''), NULLIF(t.answers->>'assistanceAmount', ''), NULLIF(t.answers->>'yardimMiktari', ''), NULLIF(t.answers->>'yardim_miktari', ''), NULLIF(t.answers->>'f_amount', ''))`
-const periodSql = `COALESCE(NULLIF(t.donem, ''), NULLIF(t.answers->>'period', ''), NULLIF(t.answers->>'donem', ''))`
-
-const FILTER_COLUMN_MAP: Record<string, string> = {
-  id: 't.id',
-  basvuru_tarihi: 't.created_at',
-  tc: 't.tckimlikno',
-  ad_soyad: fullNameSql,
-  dogum_tarihi: 't.dogumtarihi',
-  telefon: phoneSql,
-  aylik_gelir: incomeSql,
-  arac_durumu: vehicleStatusSql,
-  arac_modeli: vehicleModelYearSql,
-  iban: ibanSql,
-  miktar: amountSql,
-  mulkiyet_bilgisi: propertySql,
-  yardim_turu: 't.yardim_turu',
-  mahalle: 't.mahalleadi',
-  adres: 't.adres',
-  durum: 't.status',
-  donem: periodSql,
-  etiket: 't.etiket',
-  asama: 't.asama',
-  aciklama: 't.aciklama',
-  basvuru_yili: 't.basvuru_yili',
-  donem_grubu: 't.donem_grubu',
-}
-
 function normalizeIds(ids: TransferPayload['ids']) {
   if (!Array.isArray(ids)) return []
 
@@ -95,10 +68,6 @@ function normalizeIds(ids: TransferPayload['ids']) {
   )
 }
 
-function hasActiveFilter(filters: Record<string, string>) {
-  return Boolean(String(filters.search || '').trim()) || Object.entries(filters).some(([key, value]) => key.startsWith('f_') && value)
-}
-
 export async function POST(request: Request) {
   const accessDenied = await requireApiAccess({ action: 'online.forms.manage', page: '/online' })
   if (accessDenied) return accessDenied
@@ -109,11 +78,11 @@ export async function POST(request: Request) {
   const filters = payload.filters || {}
 
   if (mode === 'selected' && ids.length === 0) {
-    return NextResponse.json({ success: false, error: 'Aktarilacak kayit secilmedi.' }, { status: 400 })
+    return NextResponse.json({ success: false, error: 'Aktarılacak kayıt seçilmedi.' }, { status: 400 })
   }
 
-  if (mode === 'filtered' && !hasActiveFilter(filters)) {
-    return NextResponse.json({ success: false, error: 'Filtreli aktarim icin once arama veya filtre uygulayin.' }, { status: 400 })
+  if (mode === 'filtered' && !hasActiveOnlineFilter(filters)) {
+    return NextResponse.json({ success: false, error: 'Filtreli aktarım için önce arama veya filtre uygulayın.' }, { status: 400 })
   }
 
   const params: Array<string | string[]> = []
@@ -123,34 +92,23 @@ export async function POST(request: Request) {
     params.push(ids)
     whereCondition = `t.id::text = ANY($${params.length}::text[])`
   } else {
-    const safeSearchTerm = prepareSqlSearchTerm(String(filters.search || '').trim())
-    const filterCondition = buildMappedFilterCondition(filters, FILTER_COLUMN_MAP)
-    const searchCondition = safeSearchTerm
-      ? ` AND (
-          t.tckimlikno ILIKE '%${safeSearchTerm}%'
-          OR ${fullNameSql} ILIKE '%${safeSearchTerm}%'
-          OR ${phoneSql} ILIKE '%${safeSearchTerm}%'
-          OR ${incomeSql} ILIKE '%${safeSearchTerm}%'
-          OR ${vehicleStatusSql} ILIKE '%${safeSearchTerm}%'
-          OR ${vehicleModelYearSql} ILIKE '%${safeSearchTerm}%'
-          OR ${ibanSql} ILIKE '%${safeSearchTerm}%'
-          OR ${amountSql} ILIKE '%${safeSearchTerm}%'
-          OR ${propertySql} ILIKE '%${safeSearchTerm}%'
-          OR t.yardim_turu ILIKE '%${safeSearchTerm}%'
-          OR t.mahalleadi ILIKE '%${safeSearchTerm}%'
-          OR t.adres ILIKE '%${safeSearchTerm}%'
-          OR t.status ILIKE '%${safeSearchTerm}%'
-          OR t.aciklama ILIKE '%${safeSearchTerm}%'
-          OR t.answers::text ILIKE '%${safeSearchTerm}%'
-        )`
-      : ''
-
-    whereCondition = `1=1 ${filterCondition} ${searchCondition}`
+    // 2026-10-14: listenin KENDİ arama/filtre koşulu (bkz.
+    // lib/onlineApplications/listQuery.ts) - eskiden burada ayrı, Türkçe-
+    // duyarsız olmayan bir arama vardı; "Filtrelenenleri Aktar" ekranda
+    // görünenden farklı kayıtları aktarabiliyordu.
+    whereCondition = buildOnlineApplicationsWhere(filters)
   }
 
   try {
+    // Mülkiyet kodu -> ad eslemesi Hazır Değerler'den (bkz. mulkiyetDurumu.service)
+    params.push(JSON.stringify(await mulkiyetDurumuEtiketleri()))
+    const mulkiyetParam = params.length
     const pool = getSqlMonitorPool()
     await ensureYrdAyninaktiAdresColumn(pool)
+    await ensureOnlineApplicationsAuditTrigger(pool)
+    // durumuaciklama 100 -> 500 (bkz. lib/services/cashReasonColumn.ts);
+    // otomatik red açıklaması artık kesilmeden aktarılır.
+    const reasonMaxLength = await ensureCashReasonColumnWidth()
     const result = await withAuditedPoolWrite(pool, (client) => client.query(
       `
         WITH candidates AS (
@@ -180,15 +138,9 @@ export async function POST(request: Request) {
           SELECT
             c.*,
             b.dosyaid,
-            CASE
-              WHEN NULLIF(c.mulkiyet_bilgisi, '') IS NOT NULL THEN c.mulkiyet_bilgisi
-              WHEN d.mulkiyetdurumu = 1 THEN 'Kendi Evi'
-              WHEN d.mulkiyetdurumu = 2 THEN 'Kira'
-              WHEN d.mulkiyetdurumu IN (3, 4) THEN 'Yakınının Evi'
-              WHEN d.mulkiyetdurumu = 5 THEN 'Lojman'
-              WHEN d.mulkiyetdurumu = 6 THEN 'Diğer'
-              ELSE NULL
-            END AS resolved_mulkiyet_bilgisi,
+            -- 2026-10-14: kod karsiligi Hazır Değerler > mulkiyetdurumu listesinden
+            -- (koda gomulu eski eslesme 3/5/6'da yeni listeyle celisiyordu)
+            COALESCE(NULLIF(c.mulkiyet_bilgisi, ''), ($${mulkiyetParam}::jsonb ->> d.mulkiyetdurumu::text)) AS resolved_mulkiyet_bilgisi,
             NULLIF(REGEXP_REPLACE(COALESCE(c.aylik_gelir, ''), '[^0-9]', '', 'g'), '')::int AS resolved_aylik_gelir,
             CASE
               WHEN c.arac_modeli IS NOT NULL THEN CONCAT('Evet - ', REGEXP_REPLACE(c.arac_modeli, '[^0-9]', '', 'g'))
@@ -274,7 +226,7 @@ export async function POST(request: Request) {
             -- mesaji YERINE yazilir - boylece personel listede aktarim
             -- sonrasi da NEDEN reddedildigini gorebilir.
             CASE
-              WHEN s.asama = '${OTOMATIK_RED_STAGE}' AND NULLIF(s.aciklama, '') IS NOT NULL THEN LEFT(s.aciklama, 100)
+              WHEN s.asama = '${OTOMATIK_RED_STAGE}' AND NULLIF(s.aciklama, '') IS NOT NULL THEN LEFT(s.aciklama, ${reasonMaxLength})
               ELSE 'Online basvurudan aktarildi'
             END,
             LEFT(s.donem, 50),
@@ -356,7 +308,7 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Kayitlar nakit muracaatlara aktarilamadi.' },
+      { success: false, error: error instanceof Error ? error.message : 'Kayıtlar nakit müracaatlara aktarılamadı.' },
       { status: 500 },
     )
   }

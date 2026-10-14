@@ -435,8 +435,9 @@ export default function BeneficiaryPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="dy-dosyalar space-y-6">
       <ReportPageHeader
+        className="dy-page-hero"
         eyebrow="Birey Yönetimi"
         title="Tüm Bireyler"
         description={`${firstRecord}-${lastRecord} arası kayıtlar gösteriliyor.`}
@@ -494,7 +495,7 @@ export default function BeneficiaryPage() {
           )}
         </form>
 
-        <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 [&>button]:min-h-11 [&>button]:rounded-xl [&>button]:shadow-sm [&>span]:flex [&>span]:min-h-11 [&>span]:items-center [&>span]:justify-center [&>span]:rounded-xl">
+        <div className="ns-arac-cubugu grid w-full grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 [&>button]:min-h-11 [&>button]:rounded-xl [&>button]:shadow-sm [&>span]:flex [&>span]:min-h-11 [&>span]:items-center [&>span]:justify-center [&>span]:rounded-xl">
           <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[15px] font-black text-slate-600">
             Seçili: {selectedRowIds.length} / Filtre Sonucu: {totalCount}
           </span>
@@ -628,7 +629,7 @@ export default function BeneficiaryPage() {
                 disabled={!canGoPrevious}
                 className="rounded border border-slate-200 bg-white px-3 py-1.5 text-[15px] font-extrabold transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
               >
-                Onceki
+                Önceki
               </button>
               <button
                 type="button"

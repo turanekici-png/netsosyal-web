@@ -83,6 +83,33 @@ export function AppShell({
     revealTimerRef.current = setTimeout(() => setSidebarRevealed(false), 200)
   }, [])
   useEffect(() => () => { if (revealTimerRef.current) clearTimeout(revealTimerRef.current) }, [])
+  // Kullanici istegi (2026-10-14): ust baslik cubugu ("Sosyal Yardım Yönetim
+  // Sistemi" + İşlemler) surekli gorunmesin - masaustunde (lg+) otomatik
+  // gizlenir, fare ekranin ust kenarina gelince kayarak acilir. Varsayilan
+  // ACIK; header'daki dugmeyle kapatilabilir (tarayiciya ozel tercih).
+  const [headerAutoHide, setHeaderAutoHide] = useState(true)
+  const [headerRevealed, setHeaderRevealed] = useState(false)
+  const headerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    try { setHeaderAutoHide(localStorage.getItem('netsosyal:header-autohide') !== '0') } catch { /* yoksay */ }
+  }, [])
+  const toggleHeaderAutoHide = useCallback(() => {
+    setHeaderAutoHide((prev) => {
+      const next = !prev
+      try { localStorage.setItem('netsosyal:header-autohide', next ? '1' : '0') } catch { /* yoksay */ }
+      if (!next) setHeaderRevealed(false)
+      return next
+    })
+  }, [])
+  const openHeaderReveal = useCallback(() => {
+    if (headerTimerRef.current) { clearTimeout(headerTimerRef.current); headerTimerRef.current = null }
+    setHeaderRevealed(true)
+  }, [])
+  const closeHeaderReveal = useCallback(() => {
+    if (headerTimerRef.current) clearTimeout(headerTimerRef.current)
+    headerTimerRef.current = setTimeout(() => setHeaderRevealed(false), 350)
+  }, [])
+  useEffect(() => () => { if (headerTimerRef.current) clearTimeout(headerTimerRef.current) }, [])
   const [permissionConfig, setPermissionConfig] = useState<UserPermissionConfig | null>(null)
   const [permissionStatus, setPermissionStatus] = useState<'loading' | 'ready'>('loading')
   const [accessBlockedMessage, setAccessBlockedMessage] = useState('')
@@ -246,13 +273,37 @@ export function AppShell({
             </Suspense>
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
+          {/* Ust kenar tetik seridi (sadece masaustu + otomatik gizle acikken):
+              ince turkuaz cizgi "burada bir menu var" ipucu verir. */}
+          {headerAutoHide && (
+            <div
+              className="absolute inset-x-0 top-0 z-[61] hidden h-2.5 lg:block"
+              onMouseEnter={openHeaderReveal}
+              onClick={openHeaderReveal}
+              aria-hidden
+            >
+              <div className="mx-auto h-[3px] w-40 rounded-b-full bg-[#0E7C86]/45" />
+            </div>
+          )}
+          {/* NOT: gizleme transform ile DEGIL "top" ile yapilir - Header icinde
+              fixed konumlu pencereler (Profilim, Takvim) var; transform onlari
+              bu kutuya hapsederdi. Mobilde (lg alti) her zaman gorunur. */}
+          <div
+            className={headerAutoHide ? 'lg:absolute lg:inset-x-0 lg:z-[60] lg:shadow-[0_8px_24px_rgba(16,30,43,0.12)] lg:transition-[top] lg:duration-200 lg:ease-out' : ''}
+            style={headerAutoHide ? { top: headerRevealed ? 0 : -96 } : undefined}
+            onMouseEnter={headerAutoHide ? openHeaderReveal : undefined}
+            onMouseLeave={headerAutoHide ? closeHeaderReveal : undefined}
+          >
           <Header
             onMenuClick={() => setIsMobileSidebarOpen(true)}
             sidebarAutoHide={sidebarAutoHide}
             onToggleSidebarAutoHide={toggleSidebarAutoHide}
+            headerAutoHide={headerAutoHide}
+            onToggleHeaderAutoHide={toggleHeaderAutoHide}
             permissionConfig={permissionConfig}
           />
+          </div>
           {/* Kullanici istegi (14 Eylul 2026, 12. tur): "yetkisi kapali olan
               sayfanin ... sekmesi de ... gorunmesin" - "Ana Sayfa" sekmesi
               eskiden HER ZAMAN sabit gorunuyordu (sidebar'daki "Ana Sayfa"
@@ -260,7 +311,7 @@ export function AppShell({
               hardcoded oldugu icin kacıyordu). AppShell zaten permissionConfig'i
               yukledigi icin ayri bir sorgu yapmadan buraya iletiliyor. */}
           <WorkspaceTabs canAccessDashboard={hasPageAccess(permissionConfig, '/dashboard')} />
-          <main className="dy-main-safe relative flex-1 overflow-y-auto overflow-x-hidden px-2 pb-6 pt-3 sm:px-4 sm:pb-8 sm:pt-4 md:px-6 md:pb-10 md:pt-6">
+          <main className="dy-main-safe relative flex-1 overflow-y-auto overflow-x-hidden px-2 pb-6 pt-2 sm:px-4 sm:pb-8 sm:pt-2 md:px-6 md:pb-10 md:pt-2.5">
             {/* NOT: onceki "max-w-[1600px]" sabit tavan, genis/buyuk
                 monitorlerde (ör. 1920px ve uzeri) icerik alaninin ekranin
                 tamamini doldurmayip kenarda BOS ALAN birakmasina yol

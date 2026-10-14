@@ -37,6 +37,33 @@ export async function PUT(request: Request) {
       )
     }
 
+    // 2026-10-14: kodsuz satir engeli - adi yazilmis ama kodu (id) bos satir
+    // sessizce ise yaramiyordu (orn. "Parçalanmış Aile" kodsuz kaydedilmisti;
+    // tahkikat/raporlar kodla calisir). Ayni listede tekrar eden kod da
+    // reddedilir. Adi bos, kodu dolu satirlara izin verilir ("Yardım
+    // Kriterleri" kodu anahtar olarak kullanir).
+    const hatalar: string[] = []
+    for (const [kategori, liste] of Object.entries(values as Record<string, unknown>)) {
+      if (!Array.isArray(liste)) continue
+      const baslik = String((titles as Record<string, unknown>)[kategori] ?? kategori)
+      const gorulen = new Set<string>()
+      for (const satir of liste as Array<{ id?: unknown; name?: unknown }>) {
+        const id = String(satir?.id ?? '').trim()
+        const ad = String(satir?.name ?? '').trim()
+        if (ad && !id) hatalar.push(`"${baslik}" listesinde "${ad}" satırının kodu boş.`)
+        if (id) {
+          if (gorulen.has(id)) hatalar.push(`"${baslik}" listesinde ${id} kodu birden fazla kez kullanılmış.`)
+          gorulen.add(id)
+        }
+      }
+    }
+    if (hatalar.length > 0) {
+      return NextResponse.json(
+        { success: false, error: `Kaydedilemedi: ${hatalar.slice(0, 5).join(' ')}${hatalar.length > 5 ? ` (+${hatalar.length - 5} sorun daha)` : ''} Kodu girip tekrar kaydedin.` },
+        { status: 400 }
+      )
+    }
+
     const data = await predefinedValuesService.save(values, titles)
 
     return NextResponse.json({

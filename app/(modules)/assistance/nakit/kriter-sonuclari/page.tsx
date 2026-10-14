@@ -128,12 +128,14 @@ function KriterSonuclariContent() {
 
   return (
     <div className="space-y-5 text-slate-950">
-      <div className="rounded-md border border-rose-300 bg-gradient-to-r from-rose-700 via-rose-600 to-orange-600 px-5 py-4 text-white shadow-sm">
+      {/* Kurumsal rapor basligi (2026-10-13): diger rapor sayfalarindaki
+          ReportPageHeader ile ayni koyu lacivert zemin ve baslik olcusu. */}
+      <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-4 py-3 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)] md:px-5 md:py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[13px] font-black uppercase tracking-wide text-white/90">Nakit Yardımı Müracaatları</p>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Kriter Sonuçları Raporu</h1>
-            <p className="mt-1 text-sm font-bold text-white/85">
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/70">Nakit Yardımı Müracaatları</p>
+            <h1 className="mt-1 text-[18px] font-semibold uppercase leading-tight tracking-wide md:text-[26px]">Kriter Sonuçları Raporu</h1>
+            <p className="mt-1 text-sm font-semibold text-white/80">
               Aşağıdaki kriterleri aşan müracaatlar &quot;Uygun Değil&quot; yapılmak üzere listelendi. Onay vermeden hiçbir kayıt değişmez.
             </p>
           </div>

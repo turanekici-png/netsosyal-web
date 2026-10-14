@@ -312,9 +312,9 @@ function StatCard({
   }`
   const content = (
     <>
-      <p className="text-[13px] font-extrabold uppercase tracking-wide opacity-80">{title}</p>
+      <p className="truncate text-[15.5px] font-extrabold uppercase tracking-wide opacity-80">{title}</p>
       <div className={`mt-1 font-black text-slate-950 ${compact ? 'text-2xl' : 'text-3xl'}`}>{value}</div>
-      <p className={`${compact ? 'mt-0.5 text-xs' : 'mt-1 text-sm'} font-bold opacity-80`}>{detail}</p>
+      <p className={`${compact ? 'mt-0.5 text-[14px]' : 'mt-1 text-[15px]'} font-bold opacity-80`}>{detail}</p>
     </>
   )
 
@@ -386,8 +386,8 @@ function SummaryPairCard({
   return (
     <div className="flex h-full min-h-[250px] w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className={`dashboard-drag-handle flex items-center justify-between gap-1.5 bg-gradient-to-r px-3 py-3 text-white ${palette.header}`}>
-        <p className="min-w-0 truncate text-[13.5px] font-black uppercase tracking-wide">{title}</p>
-        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-black ${palette.chip}`}>%{percent}</span>
+        <p className="min-w-0 truncate text-[16.5px] font-black uppercase tracking-wide">{title}</p>
+        <span className={`shrink-0 rounded-full px-2 py-1 text-[17px] font-black ${palette.chip}`}>%{percent}</span>
       </div>
       <div className="flex flex-1 flex-col p-2.5">
         <div className="grid flex-1 grid-cols-1 grid-rows-2 gap-2">
@@ -396,20 +396,20 @@ function SummaryPairCard({
             onClick={onPrimaryClick}
             className={`flex min-h-[64px] flex-col justify-center rounded-lg border px-2 py-2 text-center transition hover:shadow-sm ${palette.box}`}
           >
-            <p className={`truncate text-[10px] font-black uppercase leading-tight tracking-wide ${palette.boxLabel}`}>{primaryLabel}</p>
-            <div className={`mt-1 truncate text-[19px] font-black leading-none ${palette.value}`}>{primaryValue}</div>
+            <p className={`truncate text-[17.5px] font-black uppercase leading-tight tracking-wide ${palette.boxLabel}`}>{primaryLabel}</p>
+            <div className={`mt-1 truncate text-[31px] font-black leading-none ${palette.value}`}>{primaryValue}</div>
           </button>
           <button
             type="button"
             onClick={onSecondaryClick}
             className={`flex min-h-[64px] flex-col justify-center rounded-lg border px-2 py-2 text-center transition hover:shadow-sm ${palette.box}`}
           >
-            <p className={`truncate text-[10px] font-black uppercase leading-tight tracking-wide ${palette.boxLabel}`}>{secondaryLabel}</p>
-            <div className={`mt-1 truncate text-[19px] font-black leading-none ${palette.value}`}>{secondaryValue}</div>
+            <p className={`truncate text-[17.5px] font-black uppercase leading-tight tracking-wide ${palette.boxLabel}`}>{secondaryLabel}</p>
+            <div className={`mt-1 truncate text-[31px] font-black leading-none ${palette.value}`}>{secondaryValue}</div>
           </button>
         </div>
         <div className="mt-auto rounded-lg border border-slate-100 bg-slate-50 p-3">
-          <div className="mb-1.5 flex items-center justify-between gap-3 text-xs font-bold text-slate-600">
+          <div className="mb-1.5 flex items-center justify-between gap-3 text-[15px] font-bold text-slate-600">
             <span className="truncate">{ratioLabel}</span>
             <span className="shrink-0 text-slate-900">%{percent}</span>
           </div>
@@ -511,7 +511,7 @@ function Section({ title, children, fitWidth = false }: { title: string; childre
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className={`h-8 w-2 rounded-full bg-gradient-to-b shadow-sm ${tone.stripe}`} />
-            <h2 className={`truncate text-[16px] font-black uppercase tracking-wide drop-shadow-sm ${tone.title}`}>
+            <h2 className={`truncate text-[18px] font-black uppercase tracking-wide drop-shadow-sm ${tone.title}`}>
               {title}
             </h2>
           </div>
@@ -590,9 +590,9 @@ function SummaryListPanel({
               cagirandan geliyor (baska yerde kullanilabilir), sadece burada
               gosterilmiyor. */}
           <div className="min-w-0">
-            <h2 className="line-clamp-2 text-[16px] font-black uppercase leading-4 tracking-wide" title={detail}>{title}</h2>
+            <h2 className="line-clamp-2 text-[17px] font-black uppercase leading-4 tracking-wide" title={detail}>{title}</h2>
           </div>
-          <span className={`shrink-0 rounded-full px-3.5 py-2 text-base font-black leading-none ${toneClass.badge}`}>
+          <span className={`shrink-0 rounded-full px-3.5 py-2 text-[19px] font-black leading-none ${toneClass.badge}`}>
             {formatNumber(total)}
           </span>
         </div>
@@ -607,23 +607,23 @@ function SummaryListPanel({
           kaydirilabiliyor (overflow-y-auto). */}
       <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-0.5 overflow-y-auto p-2">
         {isLoading ? (
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-            Yukleniyor...
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[15px] font-bold text-slate-500">
+            Yükleniyor...
           </div>
         ) : data.length === 0 ? (
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-500">
-            Kayit bulunamadi.
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[15px] font-bold text-slate-500">
+            Kayıt bulunamadı.
           </div>
         ) : (
           data.map((item) => {
             const content = (
               <>
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <div className={`inline-flex max-w-full shrink-0 rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wide ${toneClass.label}`}>
+                  <div className={`inline-flex max-w-full shrink-0 rounded-full px-2.5 py-1 text-[16.5px] font-black uppercase tracking-wide ${toneClass.label}`}>
                     <span className="truncate">{item.label}</span>
                   </div>
                 </div>
-                <div className={`flex h-7 min-w-[60px] shrink-0 items-center justify-center rounded-md px-2 text-sm font-black leading-none ${toneClass.value}`}>
+                <div className={`flex h-9 min-w-[64px] shrink-0 items-center justify-center rounded-md px-2 text-[19px] font-black leading-none ${toneClass.value}`}>
                   {formatNumber(item.value)}
                 </div>
               </>
@@ -682,36 +682,36 @@ function CashPeriodAidReportPanel({
       <div className="dashboard-drag-handle border-b border-emerald-700 bg-gradient-to-r from-emerald-800 via-teal-700 to-cyan-600 px-3 py-3 text-white sm:px-4">
         <div className="grid gap-3 min-[1180px]:grid-cols-[minmax(190px,1fr)_minmax(250px,auto)_minmax(230px,auto)] min-[1180px]:items-end">
           <div className="min-w-0">
-            <h3 className="text-[16px] font-black uppercase leading-4 tracking-wide text-white drop-shadow-sm">
+            <h3 className="text-[24px] font-black uppercase leading-4 tracking-wide text-white drop-shadow-sm">
               <span className="line-clamp-2">Yıl / Dönem / Yardım Türü Ödeme Raporu</span>
             </h3>
-            <p className="mt-0.5 truncate text-xs font-bold text-slate-500">yrd_ayninakti durumu 6 kayitlari</p>
+            <p className="mt-0.5 truncate text-[15px] font-bold text-white/80">Nakit Yardım Listesi'ndeki kayıtlar</p>
           </div>
           <div className="grid min-w-0 grid-cols-2 items-end gap-2">
-            <label className="min-w-0 text-[10px] font-black uppercase text-slate-500">
-              Yil
+            <label className="min-w-0 text-[16px] font-black uppercase text-slate-500">
+              Yıl
               <select
                 value={selectedYear}
                 onChange={(event) => {
                   setSelectedYear(event.target.value)
                   setSelectedPeriod('all')
                 }}
-                className="mt-1 h-10 w-full min-w-0 rounded-md border border-emerald-200 bg-white px-2 text-xs font-black text-slate-950 outline-none focus:border-emerald-500 sm:h-9 sm:min-w-[112px]"
+                className="mt-1 h-10 w-full min-w-0 rounded-md border border-emerald-200 bg-white px-2 text-[15px] font-black text-slate-950 outline-none focus:border-emerald-500 sm:h-9 sm:min-w-[112px]"
               >
-                <option value="all">Tum Yillar</option>
+                <option value="all">Tüm Yıllar</option>
                 {yearOptions.map((year) => (
                   <option key={year} value={year}>{year}</option>
                 ))}
               </select>
             </label>
-            <label className="min-w-0 text-[10px] font-black uppercase text-slate-500">
+            <label className="min-w-0 text-[16px] font-black uppercase text-slate-500">
               Donem
               <select
                 value={selectedPeriod}
                 onChange={(event) => setSelectedPeriod(event.target.value)}
-                className="mt-1 h-10 w-full min-w-0 rounded-md border border-emerald-200 bg-white px-2 text-xs font-black text-slate-950 outline-none focus:border-emerald-500 sm:h-9 sm:min-w-[132px]"
+                className="mt-1 h-10 w-full min-w-0 rounded-md border border-emerald-200 bg-white px-2 text-[15px] font-black text-slate-950 outline-none focus:border-emerald-500 sm:h-9 sm:min-w-[132px]"
               >
-                <option value="all">Tum Donemler</option>
+                <option value="all">Tüm Dönemler</option>
                 {periodOptionsForYear.map((period) => (
                   <option key={period} value={period}>{period}</option>
                 ))}
@@ -720,12 +720,12 @@ function CashPeriodAidReportPanel({
           </div>
           <div className="grid grid-cols-[minmax(82px,0.8fr)_minmax(132px,1.2fr)] gap-2 text-right">
             <div className="rounded-md border border-emerald-200 bg-gradient-to-br from-emerald-500 to-teal-600 px-2.5 py-1.5 text-white shadow-sm shadow-emerald-200/70">
-              <div className="text-[10px] font-black uppercase text-emerald-50">Kişi</div>
-              <div className="whitespace-nowrap text-sm font-black tabular-nums">{formatNumber(totalPeople)}</div>
+              <div className="text-[16px] font-black uppercase text-emerald-50">Kişi</div>
+              <div className="whitespace-nowrap text-[17px] font-black tabular-nums">{formatNumber(totalPeople)}</div>
             </div>
             <div className="rounded-md border border-sky-200 bg-gradient-to-br from-[#0076b6] to-[#20a4d8] px-2.5 py-1.5 text-white shadow-sm shadow-sky-200/70">
-              <div className="text-[10px] font-black uppercase text-sky-50">Toplam</div>
-              <div className="whitespace-nowrap text-[13px] font-black tabular-nums">{formatMoney(totalAmount)}</div>
+              <div className="text-[16px] font-black uppercase text-sky-50">Toplam</div>
+              <div className="whitespace-nowrap text-[20px] font-black tabular-nums">{formatMoney(totalAmount)}</div>
             </div>
           </div>
         </div>
@@ -733,9 +733,9 @@ function CashPeriodAidReportPanel({
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-auto p-2.5 [scrollbar-width:thin]">
        <div className="min-w-[560px] space-y-2">
         {isLoading ? (
-          <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-500">Yukleniyor...</div>
+          <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-[17px] font-bold text-slate-500">Yükleniyor...</div>
         ) : filteredData.length === 0 ? (
-          <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-500">Durumu 6 olan nakit yardimi kaydi bulunamadi.</div>
+          <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-[17px] font-bold text-slate-500">Yardım listesinde nakit yardımı kaydı bulunamadı.</div>
         ) : (
           filteredData.map((item) => (
             <button
@@ -745,24 +745,24 @@ function CashPeriodAidReportPanel({
               className="grid min-h-[52px] w-full grid-cols-[52px_minmax(140px,1.05fr)_minmax(120px,0.85fr)_56px_96px] items-center gap-2 rounded-md border border-emerald-100 bg-white/90 px-2.5 py-2 text-left transition hover:border-emerald-400 hover:bg-white hover:shadow-sm"
             >
               <div>
-                <div className="text-[10px] font-black uppercase text-slate-400">Yil</div>
-                <div className="text-sm font-black text-slate-950">{item.year}</div>
+                <div className="text-[16px] font-black uppercase text-slate-400">Yıl</div>
+                <div className="text-[17px] font-black text-slate-950">{item.year}</div>
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase text-slate-400">Donem</div>
-                <div className="truncate text-sm font-black leading-snug text-slate-950">{item.period}</div>
+                <div className="text-[16px] font-black uppercase text-slate-400">Dönem</div>
+                <div className="truncate text-[17px] font-black leading-snug text-slate-950">{item.period}</div>
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase text-slate-400">Yardım Türü</div>
-                <div className="truncate text-sm font-black uppercase leading-snug tracking-wide text-emerald-900">{item.type}</div>
+                <div className="text-[16px] font-black uppercase text-slate-400">Yardım Türü</div>
+                <div className="truncate text-[17px] font-black uppercase leading-snug tracking-wide text-emerald-900">{item.type}</div>
               </div>
               <div className="text-right">
-                <div className="text-[10px] font-black uppercase text-slate-400">Kişi</div>
-                <div className="text-sm font-black text-slate-950">{formatNumber(item.people)}</div>
+                <div className="text-[16px] font-black uppercase text-slate-400">Kişi</div>
+                <div className="text-[17px] font-black text-slate-950">{formatNumber(item.people)}</div>
               </div>
               <div className="text-right">
-                <div className="text-[10px] font-black uppercase text-slate-400">Tutar</div>
-                <div className="text-sm font-black text-emerald-800">{formatMoney(item.amount)}</div>
+                <div className="text-[16px] font-black uppercase text-slate-400">Tutar</div>
+                <div className="text-[17px] font-black text-emerald-800">{formatMoney(item.amount)}</div>
               </div>
             </button>
           ))
@@ -795,19 +795,19 @@ function AidPaymentPeriodPanel({
         <div className="grid gap-3">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_126px] sm:items-end">
             <div className="min-w-0">
-              <h3 className="text-[16px] font-black uppercase tracking-wide text-white drop-shadow-sm">
+              <h3 className="text-[24px] font-black uppercase tracking-wide text-white drop-shadow-sm">
                 <span className="line-clamp-2 leading-4">Yardım Türü Ödeme Raporu</span>
               </h3>
-              <p className="mt-0.5 text-xs font-bold text-slate-500">Secilen tur icin yillik toplam</p>
+              <p className="mt-0.5 text-[15px] font-bold text-slate-500">Seçilen tür için yıllık toplam</p>
             </div>
-            <label className="w-[126px] shrink-0 text-[10px] font-black uppercase text-slate-500">
-              Yil
+            <label className="w-[126px] shrink-0 text-[16px] font-black uppercase text-slate-500">
+              Yıl
               <select
                 value={selectedYear}
                 onChange={(event) => setSelectedYear(event.target.value)}
-                className="mt-1 h-8 w-full rounded-md border border-sky-200 bg-white px-2 text-xs font-black text-slate-950 outline-none focus:border-[#0076b6]"
+                className="mt-1 h-8 w-full rounded-md border border-sky-200 bg-white px-2 text-[15px] font-black text-slate-950 outline-none focus:border-[#0076b6]"
               >
-                <option value="all">Tum Yillar</option>
+                <option value="all">Tüm Yıllar</option>
                 {yearOptions.map((year) => (
                   <option key={year} value={year}>{year}</option>
                 ))}
@@ -932,8 +932,8 @@ function KurbanReportPanel({
         <div className="dashboard-drag-handle border-b border-amber-700 bg-gradient-to-r from-amber-800 via-orange-700 to-yellow-600 px-4 py-3 text-white">
           <div className="flex flex-col gap-3">
             <div className="min-w-0">
-              <h3 className="text-sm font-black uppercase tracking-wide text-white">Kurban Raporu</h3>
-              <p className="mt-0.5 text-xs font-bold text-slate-500">Tarih, tur, cins ve adet bilgileri</p>
+              <h3 className="text-[17px] font-black uppercase tracking-wide text-white">Kurban Raporu</h3>
+              <p className="mt-0.5 text-[15px] font-bold text-slate-500">Tarih, tur, cins ve adet bilgileri</p>
             </div>
             <div className="grid gap-2 min-[520px]:grid-cols-[minmax(0,1fr)_auto] min-[520px]:items-end">
               <PeriodFilters
@@ -952,20 +952,20 @@ function KurbanReportPanel({
           </div>
         </div>
         {isLoading ? (
-          <div className="p-3 text-sm font-bold text-slate-500">Yukleniyor...</div>
+          <div className="p-3 text-[17px] font-bold text-slate-500">Yükleniyor...</div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto bg-white p-3">
             <PeriodCountGroup
               title="Kesilen Kurban"
               data={kurbanRows}
               total={kurbanTotal}
-              emptyText="Kurban kaydi bulunamadi."
+              emptyText="Kurban kaydı bulunamadı."
               action={
                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => onKurbanListClick({ year: selectedYear, period: selectedPeriod })}
-                    className="rounded-md bg-[#0076b6] px-3 py-2 text-[11px] font-black uppercase text-white shadow-sm ring-1 ring-sky-600/20 hover:bg-[#00649b]"
+                    className="rounded-md bg-[#0076b6] px-3 py-2 text-[17px] font-black uppercase text-white shadow-sm ring-1 ring-sky-600/20 hover:bg-[#00649b]"
                   >
                     Listele
                   </button>
@@ -975,7 +975,7 @@ function KurbanReportPanel({
                       setKurbanStatus('')
                       setKurbanModalOpen(true)
                     }}
-                    className="w-max whitespace-nowrap rounded-md bg-blue-600 px-4 py-2 text-[11px] font-black uppercase text-white shadow-sm ring-1 ring-blue-500/30 hover:bg-blue-700"
+                    className="w-max whitespace-nowrap rounded-md bg-blue-600 px-4 py-2 text-[17px] font-black uppercase text-white shadow-sm ring-1 ring-blue-500/30 hover:bg-blue-700"
                   >
                     Kurban Sayısı Giriniz
                   </button>
@@ -989,26 +989,26 @@ function KurbanReportPanel({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
           <form onSubmit={saveKurbanCount} className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-2xl">
             <div className="mb-4">
-              <p className="text-xs font-black uppercase text-amber-700">Kurban Sayisi Gir</p>
-              <h2 className="mt-1 text-lg font-black text-slate-950">Yeni kurban kaydi</h2>
+              <p className="text-[15px] font-black uppercase text-amber-700">Kurban Sayisi Gir</p>
+              <h2 className="mt-1 text-[21px] font-black text-slate-950">Yeni kurban kaydı</h2>
             </div>
             <div className="space-y-3">
               <label className="block">
-                <span className="mb-1 block text-xs font-black uppercase text-slate-600">Tarih</span>
+                <span className="mb-1 block text-[15px] font-black uppercase text-slate-600">Tarih</span>
                 <input
                   type="date"
                   value={kurbanForm.tarih}
                   onChange={(event) => setKurbanForm((current) => ({ ...current, tarih: event.target.value }))}
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm font-bold outline-none focus:border-amber-500"
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-[17px] font-bold outline-none focus:border-amber-500"
                   required
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-black uppercase text-slate-600">Kurban Turu</span>
+                <span className="mb-1 block text-[15px] font-black uppercase text-slate-600">Kurban Turu</span>
                 <select
                   value={kurbanForm.kurbanTuru}
                   onChange={(event) => setKurbanForm((current) => ({ ...current, kurbanTuru: event.target.value }))}
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm font-bold outline-none focus:border-amber-500"
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-[17px] font-bold outline-none focus:border-amber-500"
                   required
                 >
                   <option value="Vekaleten Kurban Kesimi">Vekaleten Kurban Kesimi</option>
@@ -1016,11 +1016,11 @@ function KurbanReportPanel({
                 </select>
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-black uppercase text-slate-600">Kurban Cinsi</span>
+                <span className="mb-1 block text-[15px] font-black uppercase text-slate-600">Kurban Cinsi</span>
                 <select
                   value={kurbanForm.kurbanCinsi}
                   onChange={(event) => setKurbanForm((current) => ({ ...current, kurbanCinsi: event.target.value }))}
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm font-bold outline-none focus:border-amber-500"
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-[17px] font-bold outline-none focus:border-amber-500"
                   required
                 >
                   <option value="Küçük Baş Kurban">Küçük Baş Kurban</option>
@@ -1028,31 +1028,31 @@ function KurbanReportPanel({
                 </select>
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-black uppercase text-slate-600">Adet</span>
+                <span className="mb-1 block text-[15px] font-black uppercase text-slate-600">Adet</span>
                 <input
                   type="number"
                   min="1"
                   step="1"
                   value={kurbanForm.adet}
                   onChange={(event) => setKurbanForm((current) => ({ ...current, adet: event.target.value }))}
-                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm font-bold outline-none focus:border-amber-500"
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-[17px] font-bold outline-none focus:border-amber-500"
                   required
                 />
               </label>
             </div>
-            {kurbanStatus && <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{kurbanStatus}</div>}
+            {kurbanStatus && <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[15px] font-bold text-rose-700">{kurbanStatus}</div>}
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setKurbanModalOpen(false)}
-                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[15px] font-black text-slate-700 hover:bg-slate-50"
               >
                 Vazgec
               </button>
               <button
                 type="submit"
                 disabled={isSavingKurban}
-                className="rounded-md bg-amber-700 px-4 py-2 text-xs font-black text-white hover:bg-amber-800 disabled:pointer-events-none disabled:opacity-50"
+                className="rounded-md bg-amber-700 px-4 py-2 text-[15px] font-black text-white hover:bg-amber-800 disabled:pointer-events-none disabled:opacity-50"
               >
                 {isSavingKurban ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
@@ -1077,8 +1077,8 @@ function AcezeReportPanel({ data, isLoading }: { data: AidCountPeriodDatum[]; is
       <div className="dashboard-drag-handle border-b border-emerald-700 bg-gradient-to-r from-emerald-800 via-teal-700 to-lime-600 px-4 py-3 text-white">
         <div className="flex flex-col gap-3">
           <div className="min-w-0">
-            <h3 className="text-sm font-black uppercase tracking-wide text-white">Aceze Yardımı Raporu</h3>
-            <p className="mt-0.5 text-xs font-bold text-slate-500">Yillik toplam sayi ozeti</p>
+            <h3 className="text-[17px] font-black uppercase tracking-wide text-white">Aceze Yardımı Raporu</h3>
+            <p className="mt-0.5 text-[15px] font-bold text-slate-500">Yillik toplam sayi ozeti</p>
           </div>
           <div className="grid gap-2 min-[520px]:grid-cols-[minmax(0,1fr)_auto] min-[520px]:items-end">
             <PeriodFilters
@@ -1097,14 +1097,14 @@ function AcezeReportPanel({ data, isLoading }: { data: AidCountPeriodDatum[]; is
         </div>
       </div>
       {isLoading ? (
-        <div className="p-3 text-sm font-bold text-slate-500">Yukleniyor...</div>
+        <div className="p-3 text-[17px] font-bold text-slate-500">Yükleniyor...</div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto bg-white p-3">
           <PeriodCountGroup
-            title="Aceze Yardimi"
+            title="Aceze Yardımı"
             data={acezeRows}
             total={acezeTotal}
-            emptyText="Aceze kaydi bulunamadi."
+            emptyText="Aceze kaydı bulunamadı."
             tone="emerald"
             groupByYear
           />
@@ -1131,27 +1131,27 @@ function PeriodFilters({
 }) {
   return (
     <div className="grid grid-cols-2 gap-2">
-      <label className="text-[10px] font-black uppercase text-slate-500">
-        Yil
+      <label className="text-[16px] font-black uppercase text-slate-500">
+        Yıl
         <select
           value={selectedYear}
           onChange={(event) => onYearChange(event.target.value)}
-          className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs font-black text-slate-950 outline-none focus:border-[#0076b6]"
+          className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[15px] font-black text-slate-950 outline-none focus:border-[#0076b6]"
         >
-          <option value="all">Tum Yillar</option>
+          <option value="all">Tüm Yıllar</option>
           {yearOptions.map((year) => (
             <option key={year} value={year}>{year}</option>
           ))}
         </select>
       </label>
-      <label className="text-[10px] font-black uppercase text-slate-500">
+      <label className="text-[16px] font-black uppercase text-slate-500">
         Ay
         <select
           value={selectedPeriod}
           onChange={(event) => onPeriodChange(event.target.value)}
-          className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-xs font-black text-slate-950 outline-none focus:border-[#0076b6]"
+          className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2 text-[15px] font-black text-slate-950 outline-none focus:border-[#0076b6]"
         >
-          <option value="all">Tum Aylar</option>
+          <option value="all">Tüm Aylar</option>
           {periodOptions.map((period) => (
             <option key={period} value={period}>{period}</option>
           ))}
@@ -1164,8 +1164,8 @@ function PeriodFilters({
 function SmallTotal({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-[92px] rounded-md border border-emerald-200 bg-gradient-to-br from-white via-emerald-50 to-sky-50 px-3 py-2 shadow-sm">
-      <div className="text-[9px] font-black uppercase text-emerald-700">{label}</div>
-      <div className="mt-0.5 truncate text-sm font-black text-[#005f95]">{value}</div>
+      <div className="text-[14.5px] font-black uppercase text-emerald-700">{label}</div>
+      <div className="mt-0.5 truncate text-[17px] font-black text-[#005f95]">{value}</div>
     </div>
   )
 }
@@ -1191,8 +1191,8 @@ function PeriodPaymentRows({
   const [selectedType, setSelectedType] = useState(paymentGroups[0]?.type ?? 'Gida')
   const selectedGroup = paymentGroups.find((group) => group.type === selectedType) ?? paymentGroups[0]
 
-  if (isLoading) return <div className="p-3 text-sm font-bold text-slate-500">Yukleniyor...</div>
-  if (data.length === 0) return <div className="p-3 text-sm font-bold text-slate-500">Odeme kaydi bulunamadi.</div>
+  if (isLoading) return <div className="p-3 text-[17px] font-bold text-slate-500">Yükleniyor...</div>
+  if (data.length === 0) return <div className="p-3 text-[17px] font-bold text-slate-500">Ödeme kaydı bulunamadı.</div>
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white">
@@ -1216,14 +1216,14 @@ function PeriodPaymentRows({
                   : 'text-slate-600 hover:bg-white/90 hover:shadow-sm'
               }`}
             >
-              <div className="line-clamp-2 min-h-[28px] text-[11px] font-black uppercase leading-[14px]">{group.title}</div>
-              <div className="mt-1 grid grid-cols-[1fr_auto] items-center gap-2 text-[10px] font-extrabold">
+              <div className="line-clamp-2 min-h-[28px] text-[17px] font-black uppercase leading-[14px]">{group.title}</div>
+              <div className="mt-1 grid grid-cols-[1fr_auto] items-center gap-2 text-[16px] font-extrabold">
                 <span className="text-slate-500">{formatNumber(groupCount)} kayit</span>
                 <span className={isSelected ? 'text-emerald-700' : 'text-slate-400'}>{formatMoney(groupAmount)}</span>
               </div>
               {/* Kullanici istegi: kartan odenen tutarin yaninda GERCEKTEN
                   fatura kesilen (alisveris) tutar da gorunsun. */}
-              <div className="mt-0.5 grid grid-cols-[1fr_auto] items-center gap-2 text-[10px] font-extrabold">
+              <div className="mt-0.5 grid grid-cols-[1fr_auto] items-center gap-2 text-[16px] font-extrabold">
                 <span className="text-slate-400">Alışveriş</span>
                 <span className={isSelected ? 'text-amber-700' : 'text-slate-400'}>{formatMoney(groupShoppingAmount)}</span>
               </div>
@@ -1275,29 +1275,29 @@ function PeriodPaymentGroup({
     <section className="w-full min-w-0 max-w-full overflow-hidden rounded-md border border-sky-200 bg-white shadow-sm">
       <div className="border-b border-sky-700 bg-gradient-to-r from-[#005f95] via-[#0076b6] to-emerald-600 px-3 py-2 text-white">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-          <h4 className="min-w-0 text-[12px] font-black uppercase leading-snug text-white drop-shadow-sm">{title}</h4>
+          <h4 className="min-w-0 text-[19px] font-black uppercase leading-snug text-white drop-shadow-sm">{title}</h4>
           <div className="grid grid-cols-3 gap-1.5 text-right">
             <div className="rounded border border-sky-200 bg-gradient-to-br from-[#0076b6] to-[#20a4d8] px-2 py-1 text-white shadow-sm">
-              <div className="text-[9px] font-black uppercase text-sky-50">Sayi</div>
-              <div className="text-xs font-black">{formatNumber(totalCount)}</div>
+              <div className="text-[14.5px] font-black uppercase text-sky-50">Sayı</div>
+              <div className="text-[15px] font-black">{formatNumber(totalCount)}</div>
             </div>
             <div className="rounded border border-emerald-200 bg-gradient-to-br from-emerald-500 to-teal-600 px-2 py-1 text-white shadow-sm">
-              <div className="text-[9px] font-black uppercase text-emerald-50">Miktar</div>
-              <div className="text-xs font-black">{formatMoney(totalAmount)}</div>
+              <div className="text-[14.5px] font-black uppercase text-emerald-50">Miktar</div>
+              <div className="text-[15px] font-black">{formatMoney(totalAmount)}</div>
             </div>
             <div className="rounded border border-amber-200 bg-gradient-to-br from-amber-500 to-orange-600 px-2 py-1 text-white shadow-sm">
-              <div className="text-[9px] font-black uppercase text-amber-50">Alışveriş</div>
-              <div className="text-xs font-black">{formatMoney(totalShoppingAmount)}</div>
+              <div className="text-[14.5px] font-black uppercase text-amber-50">Alışveriş</div>
+              <div className="text-[15px] font-black">{formatMoney(totalShoppingAmount)}</div>
             </div>
           </div>
         </div>
       </div>
       {yearlyData.length === 0 ? (
-        <div className="px-3 py-2 text-xs font-bold text-slate-500">Bu yardim turu icin odeme kaydi bulunamadi.</div>
+        <div className="px-3 py-2 text-[15px] font-bold text-slate-500">Bu yardım türü için ödeme kaydı bulunamadı.</div>
       ) : (
         <div>
-          <div className="grid grid-cols-[44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 border-b border-sky-100 bg-sky-50/70 px-2 py-2 text-[9px] font-black uppercase text-[#005f95] sm:grid-cols-[70px_minmax(90px,1fr)_minmax(90px,1fr)_minmax(90px,1fr)] sm:gap-2 sm:px-3">
-            <div className="self-center">Yil</div>
+          <div className="grid grid-cols-[44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 border-b border-sky-100 bg-sky-50/70 px-2 py-2 text-[14.5px] font-black uppercase text-[#005f95] sm:grid-cols-[70px_minmax(90px,1fr)_minmax(90px,1fr)_minmax(90px,1fr)] sm:gap-2 sm:px-3">
+            <div className="self-center">Yıl</div>
             <div className="self-center text-right">Yardım Sayısı</div>
             <div className="self-center text-right">Toplam Miktar</div>
             <div className="self-center text-right">Alışveriş Miktarı</div>
@@ -1310,17 +1310,17 @@ function PeriodPaymentGroup({
               className="grid min-h-[52px] w-full min-w-0 grid-cols-[44px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-1.5 border-b border-sky-50 px-2 py-2.5 text-left transition last:border-b-0 hover:bg-slate-50 sm:grid-cols-[70px_minmax(90px,1fr)_minmax(90px,1fr)_minmax(90px,1fr)] sm:gap-2 sm:px-3"
             >
               <div>
-                <div className="text-sm font-black leading-tight text-slate-950">{item.year}</div>
+                <div className="text-[17px] font-black leading-tight text-slate-950">{item.year}</div>
               </div>
               <div className="text-right">
-                <div className="text-[9px] font-black uppercase text-slate-400">{countLabel}</div>
-                <div className="text-sm font-black text-slate-950">{formatNumber(item.count)}</div>
+                <div className="text-[14.5px] font-black uppercase text-slate-400">{countLabel}</div>
+                <div className="text-[17px] font-black text-slate-950">{formatNumber(item.count)}</div>
               </div>
               <div className="text-right">
-                <div className="break-words text-[11px] font-black text-emerald-800 sm:text-[13px]">{formatMoney(item.amount)}</div>
+                <div className="break-words text-[17px] font-black text-emerald-800 sm:text-[20px]">{formatMoney(item.amount)}</div>
               </div>
               <div className="text-right">
-                <div className="break-words text-[11px] font-black text-amber-700 sm:text-[13px]">{formatMoney(item.shoppingAmount)}</div>
+                <div className="break-words text-[17px] font-black text-amber-700 sm:text-[20px]">{formatMoney(item.shoppingAmount)}</div>
               </div>
             </button>
           ))}
@@ -1375,29 +1375,29 @@ function PeriodCountGroup({
     <section className={`overflow-hidden rounded-md border bg-white ${toneClass.border}`}>
       <div className={`flex items-center justify-between gap-2 border-b px-3 py-2 ${toneClass.header}`}>
         <div className="min-w-0">
-          <div className={`whitespace-normal break-words text-[12px] font-black uppercase leading-snug ${toneClass.title}`}>{title}</div>
-          <div className="mt-0.5 text-[10px] font-extrabold uppercase text-white/75">Toplam: {formatNumber(total)}</div>
+          <div className={`whitespace-normal break-words text-[19px] font-black uppercase leading-snug ${toneClass.title}`}>{title}</div>
+          <div className="mt-0.5 text-[16px] font-extrabold uppercase text-white/75">Toplam: {formatNumber(total)}</div>
         </div>
         {action}
       </div>
       {rows.length === 0 ? (
-        <div className="px-3 py-3 text-xs font-bold text-slate-500">{emptyText}</div>
+        <div className="px-3 py-3 text-[15px] font-bold text-slate-500">{emptyText}</div>
       ) : (
         <div>
-          <div className="grid grid-cols-[76px_minmax(0,1fr)_76px] gap-2 border-b border-slate-100 bg-white px-3 py-2 text-[9px] font-black uppercase text-slate-400">
-            <div>Donem</div>
+          <div className="grid grid-cols-[76px_minmax(0,1fr)_76px] gap-2 border-b border-slate-100 bg-white px-3 py-2 text-[14.5px] font-black uppercase text-slate-400">
+            <div>Dönem</div>
             <div>Tur</div>
-            <div className="text-right">Sayi</div>
+            <div className="text-right">Sayı</div>
           </div>
           {rows.map((item) => (
             <div key={`${item.year}:${item.period}:${item.type}`} className={`grid min-h-[52px] grid-cols-[76px_minmax(0,1fr)_76px] items-center gap-2 border-b px-3 py-2 transition last:border-b-0 ${toneClass.row}`}>
               <div>
-                <div className="text-[10px] font-black uppercase text-slate-400">{item.year}</div>
-                <div className="text-xs font-black text-slate-950">{item.period}</div>
+                <div className="text-[16px] font-black uppercase text-slate-400">{item.year}</div>
+                <div className="text-[15px] font-black text-slate-950">{item.period}</div>
               </div>
-              <div className={`min-w-0 whitespace-normal break-words text-[13px] font-black uppercase leading-snug ${toneClass.title}`}>{item.type}</div>
+              <div className={`min-w-0 whitespace-normal break-words text-[20px] font-black uppercase leading-snug ${toneClass.title}`}>{item.type}</div>
               <div className="text-right">
-                <div className="text-sm font-black text-slate-950">{formatNumber(item.count)}</div>
+                <div className="text-[17px] font-black text-slate-950">{formatNumber(item.count)}</div>
               </div>
             </div>
           ))}
@@ -1411,15 +1411,15 @@ function HorizontalBars({ data, color = '#0076b6' }: { data: ChartDatum[]; color
   const maxValue = Math.max(...data.map((item) => item.value), 1)
 
   if (data.length === 0) {
-    return <div className="py-10 text-center text-sm font-bold text-slate-500">Veri bulunamadi</div>
+    return <div className="py-10 text-center text-[17px] font-bold text-slate-500">Veri bulunamadı</div>
   }
 
   return (
     <div className="space-y-3">
       {data.map((item) => (
         <div key={item.label}>
-          <div className="mb-1 flex items-center justify-between gap-3 text-sm font-bold">
-            <span className="truncate rounded-full bg-sky-50 px-2 py-0.5 text-[12px] font-black uppercase tracking-wide text-[#005f95] ring-1 ring-sky-200">{item.label}</span>
+          <div className="mb-1 flex items-center justify-between gap-3 text-[17px] font-bold">
+            <span className="truncate rounded-full bg-sky-50 px-2 py-0.5 text-[19px] font-black uppercase tracking-wide text-[#005f95] ring-1 ring-sky-200">{item.label}</span>
             <span className="text-slate-950">{formatNumber(item.value)}</span>
           </div>
           <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
@@ -1513,8 +1513,8 @@ function AssistanceMovementArc({
           yazi/dolguya). */}
       <div className="mb-3 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-slate-200 bg-slate-50 p-2.5">
         <div className="min-w-0">
-          <p className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#005f95] ring-1 ring-sky-200">Tarih Araligi</p>
-          <p className="mt-0.5 text-[10px] font-bold text-slate-500">Bu araliga gore guncellenir</p>
+          <p className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[16px] font-black uppercase tracking-wide text-[#005f95] ring-1 ring-sky-200">Tarih Araligi</p>
+          <p className="mt-0.5 text-[16px] font-bold text-slate-500">Bu araliga gore guncellenir</p>
         </div>
         {totalsByGroup.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -1533,37 +1533,37 @@ function AssistanceMovementArc({
                   }`}
                 >
                   <span className="h-2 w-2 shrink-0 rounded-full bg-[#00b884]" />
-                  <span className="max-w-[90px] truncate text-[11px] font-black" title={item.group}>{item.group}</span>
-                  <span className="text-xs font-black">{formatMoney(item.total)}</span>
+                  <span className="max-w-[90px] truncate text-[17px] font-black" title={item.group}>{item.group}</span>
+                  <span className="text-[15px] font-black">{formatMoney(item.total)}</span>
                 </button>
               )
             })}
           </div>
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <label className="text-[10px] font-black uppercase text-slate-500">
+          <label className="text-[16px] font-black uppercase text-slate-500">
             Baslangic
             <input
               type="date"
               value={startDate}
               onChange={(event) => onDateRangeChange({ startDate: event.target.value, endDate })}
-              className="mt-0.5 block w-[128px] rounded-md border border-slate-300 bg-white px-1.5 py-1 text-xs font-bold text-slate-900 outline-none focus:border-[#0076b6]"
+              className="mt-0.5 block w-[128px] rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[15px] font-bold text-slate-900 outline-none focus:border-[#0076b6]"
             />
           </label>
-          <label className="text-[10px] font-black uppercase text-slate-500">
+          <label className="text-[16px] font-black uppercase text-slate-500">
             Bitis
             <input
               type="date"
               value={endDate}
               onChange={(event) => onDateRangeChange({ startDate, endDate: event.target.value })}
-              className="mt-0.5 block w-[128px] rounded-md border border-slate-300 bg-white px-1.5 py-1 text-xs font-bold text-slate-900 outline-none focus:border-[#0076b6]"
+              className="mt-0.5 block w-[128px] rounded-md border border-slate-300 bg-white px-1.5 py-1 text-[15px] font-bold text-slate-900 outline-none focus:border-[#0076b6]"
             />
           </label>
         </div>
       </div>
 
       {data.length === 0 ? (
-        <div className="py-12 text-center text-sm font-bold text-slate-500">Secilen tarih araligi icin yardim hareketi bulunamadi</div>
+        <div className="py-12 text-center text-[17px] font-bold text-slate-500">Seçilen tarih aralığı için yardım hareketi bulunamadı</div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
       {/* Kullanici istegi: bu kutunun icindeki "Günlük ... Dağıtımı" baslik
@@ -1583,7 +1583,7 @@ function AssistanceMovementArc({
             return (
               <g key={tick}>
                 <line x1={paddingLeft} x2={chartWidth - paddingRight} y1={y} y2={y} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="3 3" />
-                <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="fill-slate-400 text-[10px] font-semibold">
+                <text x={paddingLeft - 8} y={y + 3} textAnchor="end" className="fill-slate-400 text-[16px] font-semibold">
                   {formatNumber(tick)}
                 </text>
               </g>
@@ -1614,7 +1614,7 @@ function AssistanceMovementArc({
               y={bottomY + 20}
               textAnchor="end"
               transform={`rotate(-45 ${paddingLeft + index * xStep} ${bottomY + 20})`}
-              className="fill-slate-400 text-[9px] font-semibold"
+              className="fill-slate-400 text-[14.5px] font-semibold"
             >
               {day.label}
             </text>
@@ -1631,8 +1631,8 @@ function AssistanceMovementArc({
 function RequestedDocumentsList({ data, onOpenFile }: { data: RequestedDocument[]; onOpenFile: (item: RequestedDocument) => void }) {
   if (data.length === 0) {
     return (
-      <div className="py-10 text-center text-sm font-bold text-slate-500">
-        Istenen evrak kaydi bulunamadi.
+      <div className="py-10 text-center text-[17px] font-bold text-slate-500">
+        İstenen evrak kaydı bulunamadı.
       </div>
     )
   }
@@ -1642,11 +1642,11 @@ function RequestedDocumentsList({ data, onOpenFile }: { data: RequestedDocument[
   return (
     <div className="h-full max-w-full overflow-auto">
       <div className="min-w-[450px] sm:min-w-0">
-        <div className={`grid ${compactColumns} gap-1.5 border-b border-sky-100 bg-gradient-to-r from-sky-50 to-emerald-50 px-2 py-2 text-[10px] font-black uppercase tracking-wide text-[#005f95]`}>
+        <div className={`grid ${compactColumns} gap-1.5 border-b border-sky-100 bg-gradient-to-r from-sky-50 to-emerald-50 px-2 py-2 text-[16px] font-black uppercase tracking-wide text-[#005f95]`}>
           <div className="rounded bg-white/80 px-1.5 py-1 ring-1 ring-sky-100">Tarih</div>
           <div className="rounded bg-white/80 px-1.5 py-1 ring-1 ring-sky-100">Dosya No</div>
           <div className="rounded bg-white/80 px-1.5 py-1 ring-1 ring-sky-100">Dosya Sahibi</div>
-          <div className="rounded bg-white/80 px-1.5 py-1 ring-1 ring-sky-100">Istenen Belge</div>
+          <div className="rounded bg-white/80 px-1.5 py-1 ring-1 ring-sky-100">İstenen Belge</div>
           <div className="rounded bg-white/80 px-1.5 py-1 ring-1 ring-sky-100">Isteyen</div>
         </div>
         <div className="divide-y divide-slate-100">
@@ -1655,7 +1655,7 @@ function RequestedDocumentsList({ data, onOpenFile }: { data: RequestedDocument[
               key={item.id}
               type="button"
               onClick={() => onOpenFile(item)}
-              className={`grid w-full ${compactColumns} gap-1.5 px-2 py-2 text-left text-[11px] font-bold text-slate-700 transition hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#0076b6]`}
+              className={`grid w-full ${compactColumns} gap-1.5 px-2 py-2 text-left text-[17px] font-bold text-slate-700 transition hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#0076b6]`}
               title="Dosyayi ac"
             >
               <span className="whitespace-nowrap font-black text-[#005f95]">{formatDate(item.requestedDate)}</span>
@@ -1737,14 +1737,14 @@ function AssistanceAlertCard({
       <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${toneClass.accent}`} />
       <div className={`dashboard-drag-handle ${compact ? '-mx-3 -mt-3' : '-mx-4 -mt-4'} flex min-h-[52px] items-center justify-between gap-3 bg-gradient-to-r px-4 py-2.5 ${toneClass.header}`}>
         <div className="flex min-w-0 items-center gap-3">
-          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-black ring-1 ${toneClass.iconClass}`}>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[21px] font-black ring-1 ${toneClass.iconClass}`}>
             {toneClass.icon}
           </span>
           {/* Kullanici istegi (Eylul 2026): baslik altindaki aciklama satiri
               (detail) kaldirildi - basliklar daralsin diye; ipucu olarak
               title attribute'unda kaldi. */}
           <div className="min-w-0 flex-1" title={detail}>
-            <p className={`inline-flex max-w-full text-[11px] font-black uppercase tracking-wide ${toneClass.title}`}>
+            <p className={`inline-flex max-w-full text-[17px] font-black uppercase tracking-wide ${toneClass.title}`}>
               <span className="line-clamp-2 leading-4">{title}</span>
             </p>
           </div>
@@ -1755,8 +1755,8 @@ function AssistanceAlertCard({
       </div>
       <div className={`${compact ? 'mt-3 overflow-y-auto pr-1' : 'mt-4 overflow-hidden'} grid flex-1 auto-rows-fr gap-1`}>
         {breakdown.length === 0 ? (
-          <div className="rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-xs font-extrabold text-slate-500">
-            Kayit yok
+          <div className="rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-[15px] font-extrabold text-slate-500">
+            Kayıt yok
           </div>
         ) : (
           breakdown.map((group) => (
@@ -1769,8 +1769,8 @@ function AssistanceAlertCard({
               }}
               className={`flex min-h-[38px] w-full flex-1 items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-left transition hover:bg-white hover:shadow-sm ${toneClass.chip}`}
             >
-              <div className="min-w-0 truncate text-xs font-black uppercase text-slate-600 dark:text-slate-300">{group.type}</div>
-              <div className={`min-w-[42px] shrink-0 text-right font-black text-slate-950 ${compact ? 'text-lg' : 'text-xl'}`}>{formatNumber(group.items.length)}</div>
+              <div className="min-w-0 truncate text-[15px] font-black uppercase text-slate-600 dark:text-slate-300">{group.type}</div>
+              <div className={`min-w-[42px] shrink-0 text-right font-black text-slate-950 ${compact ? 'text-[21px]' : 'text-xl'}`}>{formatNumber(group.items.length)}</div>
             </button>
           ))
         )}
@@ -1785,20 +1785,20 @@ function AssistanceAlertList({ title, data }: { title: string; data: AssistanceA
   return (
     <Section title={title}>
       {data.length === 0 ? (
-        <div className="py-10 text-center text-sm font-bold text-slate-500">Bu kritere uygun yardim kaydi bulunamadi.</div>
+        <div className="py-10 text-center text-[17px] font-bold text-slate-500">Bu kritere uygun yardım kaydı bulunamadı.</div>
       ) : (
         <div className="space-y-4">
           {groupedData.map((group) => (
             <div key={group.type} className="overflow-hidden rounded-md border border-slate-200">
               <div className="flex items-center justify-between bg-slate-50 px-3 py-2">
-                <h3 className="text-sm font-extrabold text-[#005f95]">{group.type}</h3>
-                <span className="rounded-full bg-white px-2 py-1 text-xs font-extrabold text-slate-600">
+                <h3 className="text-[17px] font-extrabold text-[#005f95]">{group.type}</h3>
+                <span className="rounded-full bg-white px-2 py-1 text-[15px] font-extrabold text-slate-600">
                   {formatNumber(group.items.length)} kayit
                 </span>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[820px] border-collapse text-left text-sm">
-                  <thead className="bg-white text-xs font-extrabold uppercase text-slate-600">
+                <table className="w-full min-w-[820px] border-collapse text-left text-[17px]">
+                  <thead className="bg-white text-[15px] font-extrabold uppercase text-slate-600">
                     <tr>
                       <th className="border-b border-slate-200 px-3 py-2">Dosya No</th>
                       <th className="border-b border-slate-200 px-3 py-2">Kişi</th>
@@ -1819,7 +1819,7 @@ function AssistanceAlertList({ title, data }: { title: string; data: AssistanceA
                         <td className="border-b border-slate-100 px-3 py-2 font-bold">{formatDate(item.endDate)}</td>
                         <td className="border-b border-slate-100 px-3 py-2 font-bold">{item.amount}</td>
                         <td className="border-b border-slate-100 px-3 py-2 font-bold">
-                          <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${getAssistanceStatusBadgeClass(item.statusCode, item.statusVariant)}`}>
+                          <span className={`inline-flex rounded-full border px-3 py-1 text-[17px] font-black ${getAssistanceStatusBadgeClass(item.statusCode, item.statusVariant)}`}>
                             {item.status}
                           </span>
                         </td>
@@ -1850,13 +1850,13 @@ function ActiveTenderSummaryPanel({ data, isLoading, onOpenReport }: { data: Act
       className="group flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-[0_16px_38px_rgba(109,40,217,0.12)] ring-1 ring-violet-100 transition hover:border-violet-300 hover:shadow-[0_20px_44px_rgba(109,40,217,0.18)]"
     >
       <div className="dashboard-drag-handle flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-violet-800 via-purple-700 to-indigo-600 px-5 py-3 text-white">
-        <div><h2 className="text-sm font-black uppercase tracking-wide">İçinde Bulunulan İhale Dönemi Özeti</h2><p className="mt-0.5 text-xs font-bold text-violet-100">Ekmek, Hazır Yemek ve Kahvaltı teslimat gerçekleşmeleri · detaylı rapor için tıklayın</p></div>
+        <div><h2 className="text-[17px] font-black uppercase tracking-wide">İçinde Bulunulan İhale Dönemi Özeti</h2><p className="mt-0.5 text-[15px] font-bold text-violet-100">Ekmek, Hazır Yemek ve Kahvaltı teslimat gerçekleşmeleri · detaylı rapor için tıklayın</p></div>
         <div className="flex items-center gap-2">
-          {(periodStart || periodEnd) && <span className="rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-black">{formatDate(periodStart)} – {formatDate(periodEnd)}</span>}
-          <span className="rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-black transition group-hover:bg-white/25">Rapor →</span>
+          {(periodStart || periodEnd) && <span className="rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-[15px] font-black">{formatDate(periodStart)} – {formatDate(periodEnd)}</span>}
+          <span className="rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-[15px] font-black transition group-hover:bg-white/25">Rapor →</span>
         </div>
       </div>
-      <div className="flex-1 overflow-auto">{isLoading ? <div className="p-6 text-center text-sm font-bold text-slate-500">Aktif ihale dönemi yükleniyor...</div> : data.length === 0 ? <div className="p-6 text-center text-sm font-bold text-slate-500">İçinde bulunulan tarihe ait aktif ihale dönemi bulunamadı.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-violet-50 text-left text-[11px] font-black uppercase text-violet-800"><tr><th className="p-3">Yıl</th><th className="p-3">İhale Türü</th><th className="p-3 text-right">İhale Miktarı</th><th className="p-3 text-right">Teslim</th><th className="p-3 text-right">Kalan</th><th className="p-3 text-right">Gerçekleşme</th></tr></thead><tbody>{data.map((item, index) => <tr key={`${item.year}-${item.type}-${index}`} className="border-t border-violet-100 hover:bg-violet-50/50"><td className="p-3 font-black">{item.year}</td><td className="p-3 font-black text-violet-800">{typeLabels[item.type] || item.type}</td><td className="p-3 text-right font-black">{formatNumber(item.tenderAmount)}</td><td className="p-3 text-right font-black text-emerald-700">{formatNumber(item.deliveredAmount)}</td><td className="p-3 text-right font-black text-rose-700">{formatNumber(item.remainingAmount)}</td><td className="p-3"><div className="flex items-center justify-end gap-2"><div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-500" style={{ width: `${Math.min(100, item.progress)}%` }} /></div><span className="min-w-[58px] text-right font-black">%{item.progress.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span></div></td></tr>)}</tbody></table></div>}</div>
+      <div className="flex-1 overflow-auto">{isLoading ? <div className="p-6 text-center text-[17px] font-bold text-slate-500">Aktif ihale dönemi yükleniyor...</div> : data.length === 0 ? <div className="p-6 text-center text-[17px] font-bold text-slate-500">İçinde bulunulan tarihe ait aktif ihale dönemi bulunamadı.</div> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-[17px]"><thead className="bg-violet-50 text-left text-[17px] font-black uppercase text-violet-800"><tr><th className="p-3">Yıl</th><th className="p-3">İhale Türü</th><th className="p-3 text-right">İhale Miktarı</th><th className="p-3 text-right">Teslim</th><th className="p-3 text-right">Kalan</th><th className="p-3 text-right">Gerçekleşme</th></tr></thead><tbody>{data.map((item, index) => <tr key={`${item.year}-${item.type}-${index}`} className="border-t border-violet-100 hover:bg-violet-50/50"><td className="p-3 font-black">{item.year}</td><td className="p-3 font-black text-violet-800">{typeLabels[item.type] || item.type}</td><td className="p-3 text-right font-black">{formatNumber(item.tenderAmount)}</td><td className="p-3 text-right font-black text-emerald-700">{formatNumber(item.deliveredAmount)}</td><td className="p-3 text-right font-black text-rose-700">{formatNumber(item.remainingAmount)}</td><td className="p-3"><div className="flex items-center justify-end gap-2"><div className="h-2 w-24 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-500" style={{ width: `${Math.min(100, item.progress)}%` }} /></div><span className="min-w-[58px] text-right font-black">%{item.progress.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span></div></td></tr>)}</tbody></table></div>}</div>
     </section>
   )
 }
@@ -1917,26 +1917,26 @@ function FuneralMealsPanel({ onOpenReport }: { onOpenReport: () => void }) {
     >
       <div className="dashboard-drag-handle flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-orange-700 via-amber-600 to-yellow-600 px-5 py-3 text-white">
         <div>
-          <h2 className="text-sm font-black uppercase tracking-wide">Cenaze Yemekleri</h2>
-          <p className="mt-0.5 text-xs font-bold text-orange-100">{currentYear} yılı özeti · detaylı rapor için tıklayın</p>
+          <h2 className="text-[17px] font-black uppercase tracking-wide">Cenaze Yemekleri</h2>
+          <p className="mt-0.5 text-[15px] font-bold text-orange-100">{currentYear} yılı özeti · detaylı rapor için tıklayın</p>
         </div>
-        <span className="rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-black transition group-hover:bg-white/25">
+        <span className="rounded-lg border border-white/25 bg-white/15 px-3 py-1.5 text-[15px] font-black transition group-hover:bg-white/25">
           Rapor →
         </span>
       </div>
 
       {isLoading ? (
-        <div className="flex flex-1 items-center justify-center p-6 text-center text-sm font-bold text-slate-500">Yükleniyor...</div>
+        <div className="flex flex-1 items-center justify-center p-6 text-center text-[17px] font-bold text-slate-500">Yükleniyor...</div>
       ) : loadError ? (
-        <div className="flex flex-1 items-center justify-center p-6 text-center text-sm font-bold text-rose-600">{loadError}</div>
+        <div className="flex flex-1 items-center justify-center p-6 text-center text-[17px] font-bold text-rose-600">{loadError}</div>
       ) : (
         <div className="grid flex-1 grid-cols-2 items-center gap-4 p-6">
           <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4 text-center">
-            <p className="text-[11px] font-black uppercase tracking-wide text-orange-600">Yemek Miktarı</p>
+            <p className="text-[17px] font-black uppercase tracking-wide text-orange-600">Yemek Miktarı</p>
             <p className="mt-2 text-3xl font-black text-slate-900">{formatNumber(currentYearTotal.miktar)}</p>
           </div>
           <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4 text-center">
-            <p className="text-[11px] font-black uppercase tracking-wide text-orange-600">Ödenen Tutar</p>
+            <p className="text-[17px] font-black uppercase tracking-wide text-orange-600">Ödenen Tutar</p>
             <p className="mt-2 text-3xl font-black text-emerald-700">{formatMoney(currentYearTotal.tutar)}</p>
           </div>
         </div>
@@ -2063,21 +2063,21 @@ function UserDailyPerformancePanel({
       <button
         type="button"
         onClick={onViewAll}
-        title="Tum kullanicilarin genel performans listesini yeni sekmede ac"
+        title="Tüm kullanıcıların genel performans listesini yeni sekmede aç"
         className="dashboard-drag-handle group flex w-full shrink-0 items-center justify-between gap-3 border-b border-emerald-700 bg-gradient-to-r from-emerald-800 via-teal-700 to-cyan-600 px-4 py-3 text-left transition hover:from-emerald-900 hover:via-teal-800 hover:to-cyan-700"
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-8 w-2 shrink-0 rounded-full bg-gradient-to-b from-emerald-300 via-teal-200 to-cyan-200 shadow-sm" />
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-black uppercase tracking-wide text-white drop-shadow-sm">
+            <h2 className="truncate text-[17px] font-black uppercase tracking-wide text-white drop-shadow-sm">
               Kullanici Gunluk Islem Performansi
             </h2>
-            <p className="mt-0.5 truncate text-xs font-bold text-white/75">
+            <p className="mt-0.5 truncate text-[15px] font-bold text-white/75">
               En cok islem yapan ilk 10 kullanici - {rangeMeta.label.toLocaleLowerCase('tr-TR')}
             </p>
           </div>
         </div>
-        <span className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/30 bg-white/15 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-white shadow-sm transition group-hover:bg-white/25">
+        <span className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/30 bg-white/15 px-3 py-2 text-[17px] font-black uppercase tracking-wide text-white shadow-sm transition group-hover:bg-white/25">
           Genel Liste
           <svg viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
             <path fillRule="evenodd" clipRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" />
@@ -2102,7 +2102,7 @@ function UserDailyPerformancePanel({
                 event.stopPropagation()
                 setRange(option.key)
               }}
-              className={`flex-1 rounded-md px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide transition ${
+              className={`flex-1 rounded-md px-2.5 py-1.5 text-[17px] font-black uppercase tracking-wide transition ${
                 range === option.key
                   ? 'bg-gradient-to-r from-emerald-700 to-teal-600 text-white shadow-sm'
                   : 'text-emerald-700 hover:bg-emerald-50'
@@ -2114,20 +2114,20 @@ function UserDailyPerformancePanel({
         </div>
 
         <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
-          <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+          <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
             İşlem Yapan: {formatNumber(activeCount)} kullanıcı
           </span>
-          <span className="rounded-full bg-sky-50 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-[#005f95] ring-1 ring-sky-200">
+          <span className="rounded-full bg-sky-50 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-[#005f95] ring-1 ring-sky-200">
             {rangeMeta.badgeLabel} Toplam İşlem: {formatNumber(totalCount)}
           </span>
         </div>
 
         {error ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{error}</div>
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-[17px] font-bold text-rose-700">{error}</div>
         ) : isLoading ? (
-          <div className="py-10 text-center text-sm font-bold text-slate-500">Personel performans verileri yukleniyor...</div>
+          <div className="py-10 text-center text-[17px] font-bold text-slate-500">Personel performans verileri yukleniyor...</div>
         ) : topUsers.length === 0 ? (
-          <div className="py-10 text-center text-sm font-bold text-slate-500">{rangeMeta.label} icin islem kaydi bulunamadi.</div>
+          <div className="py-10 text-center text-[17px] font-bold text-slate-500">{rangeMeta.label} için işlem kaydı bulunamadı.</div>
         ) : (
           <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
             {topUsers.map((item, index) => {
@@ -2157,16 +2157,16 @@ function UserDailyPerformancePanel({
                     onClick={() => toggleUserDetail(item.userName)}
                     className="flex w-full items-center gap-3 px-3 py-2.5 text-left"
                   >
-                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ring-2 ${performanceRankStyles[index] || 'bg-slate-100 text-slate-500 ring-slate-200'}`}>
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[15px] font-black ring-2 ${performanceRankStyles[index] || 'bg-slate-100 text-slate-500 ring-slate-200'}`}>
                       {index + 1}
                     </span>
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#0076b6] to-[#00b884] text-xs font-black text-white shadow-sm ring-1 ring-sky-200">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#0076b6] to-[#00b884] text-[15px] font-black text-white shadow-sm ring-1 ring-sky-200">
                       {initials || '-'}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
-                        <span className="truncate text-sm font-black text-slate-950">{item.userName}</span>
-                        <span className="shrink-0 text-[10px] font-bold text-slate-400">
+                        <span className="truncate text-[17px] font-black text-slate-950">{item.userName}</span>
+                        <span className="shrink-0 text-[16px] font-bold text-slate-400">
                           Son islem: {item.lastActivity ? new Date(item.lastActivity).toLocaleString('tr-TR') : '-'}
                         </span>
                       </span>
@@ -2175,8 +2175,8 @@ function UserDailyPerformancePanel({
                       </span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block text-[9px] font-black uppercase text-slate-400">{rangeMeta.label}</span>
-                      <span className={`block text-lg font-black leading-tight ${value > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <span className="block text-[14.5px] font-black uppercase text-slate-400">{rangeMeta.label}</span>
+                      <span className={`block text-[21px] font-black leading-tight ${value > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
                         {formatNumber(value)}
                       </span>
                     </span>
@@ -2192,9 +2192,9 @@ function UserDailyPerformancePanel({
                   {isExpanded && (
                     <div className="border-t border-emerald-100 bg-emerald-50/50 px-3 py-3">
                       {isDetailLoading ? (
-                        <div className="py-4 text-center text-xs font-bold text-slate-500">Detaylar yükleniyor...</div>
+                        <div className="py-4 text-center text-[15px] font-bold text-slate-500">Detaylar yükleniyor...</div>
                       ) : detailError ? (
-                        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{detailError}</div>
+                        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[15px] font-bold text-rose-700">{detailError}</div>
                       ) : detail ? (
                         <div className="space-y-2.5">
                           {detail.operationSummary.length > 0 && (
@@ -2202,7 +2202,7 @@ function UserDailyPerformancePanel({
                               {detail.operationSummary.slice(0, 6).map((summary) => (
                                 <span
                                   key={summary.label}
-                                  className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-emerald-800 ring-1 ring-emerald-200"
+                                  className="rounded-full bg-white px-2.5 py-1 text-[16px] font-black text-emerald-800 ring-1 ring-emerald-200"
                                 >
                                   {summary.label}: {formatNumber(summary.count)}
                                 </span>
@@ -2214,7 +2214,7 @@ function UserDailyPerformancePanel({
                               {detail.operations.slice(0, 5).map((op, opIndex) => (
                                 <li
                                   key={`${op.recordId}-${opIndex}`}
-                                  className="truncate rounded-md bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 ring-1 ring-slate-100"
+                                  className="truncate rounded-md bg-white px-2.5 py-1.5 text-[17px] font-semibold text-slate-700 ring-1 ring-slate-100"
                                   title={op.description}
                                 >
                                   <span className="text-slate-400">
@@ -2225,12 +2225,12 @@ function UserDailyPerformancePanel({
                               ))}
                             </ul>
                           ) : (
-                            <p className="text-xs font-bold text-slate-500">Bu aralık için işlem kaydı yok.</p>
+                            <p className="text-[15px] font-bold text-slate-500">Bu aralık için işlem kaydı yok.</p>
                           )}
                           <button
                             type="button"
                             onClick={() => onOpenFullReport(item.userName, range)}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-[11px] font-black uppercase text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-[17px] font-black uppercase text-emerald-700 shadow-sm transition hover:bg-emerald-100"
                           >
                             Tam Raporu Yeni Sekmede Aç
                             <svg viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
@@ -2310,10 +2310,10 @@ function InvestigationStaffPerformancePanel({
       <div className="dashboard-drag-handle flex w-full shrink-0 items-center gap-3 border-b border-violet-800 bg-gradient-to-r from-violet-800 via-fuchsia-700 to-pink-600 px-4 py-3 text-left">
         <span className="h-8 w-2 shrink-0 rounded-full bg-gradient-to-b from-violet-300 via-fuchsia-200 to-pink-200 shadow-sm" />
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-black uppercase tracking-wide text-white drop-shadow-sm">
+          <h2 className="truncate text-[17px] font-black uppercase tracking-wide text-white drop-shadow-sm">
             Tahkikat Personeline Gore Nakit Yardimlar
           </h2>
-          <p className="mt-0.5 truncate text-xs font-bold text-white/75">
+          <p className="mt-0.5 truncate text-[15px] font-bold text-white/75">
             Durumu 0 (yeni müracaat) kayıtların, atanan tahkikat personeline göre dağılımı
           </p>
         </div>
@@ -2321,27 +2321,27 @@ function InvestigationStaffPerformancePanel({
 
       <div className="flex min-h-0 flex-1 flex-col bg-gradient-to-br from-violet-50/70 via-white to-fuchsia-50/40 p-3 sm:p-4">
         <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
-          <span className="rounded-full bg-slate-50 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-slate-700 ring-1 ring-slate-200">
+          <span className="rounded-full bg-slate-50 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-slate-700 ring-1 ring-slate-200">
             Toplam Kayıt: {formatNumber(summary.records)}
           </span>
-          <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+          <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
             Toplam Uygun: {formatNumber(summary.suitable)}
           </span>
-          <span className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-rose-700 ring-1 ring-rose-200">
+          <span className="rounded-full bg-rose-50 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-rose-700 ring-1 ring-rose-200">
             Toplam Uygun Değil: {formatNumber(summary.unsuitable)}
           </span>
-          <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
+          <span className="rounded-full bg-amber-50 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
             Toplam İncelenecek: {formatNumber(summary.pendingReview)}
           </span>
-          <span className="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-black uppercase tracking-wide text-white ring-1 ring-slate-700">
+          <span className="rounded-full bg-slate-800 px-3 py-1.5 text-[15px] font-black uppercase tracking-wide text-white ring-1 ring-slate-700">
             Toplam Otomatik Red: {formatNumber(summary.rejected)}
           </span>
         </div>
 
         {isLoading ? (
-          <div className="py-10 text-center text-sm font-bold text-slate-500">Personel raporu hazırlanıyor...</div>
+          <div className="py-10 text-center text-[17px] font-bold text-slate-500">Personel raporu hazırlanıyor...</div>
         ) : rankedData.length === 0 ? (
-          <div className="py-10 text-center text-sm font-bold text-slate-500">Durumu 0 olan tahkikat kaydı bulunamadı.</div>
+          <div className="py-10 text-center text-[17px] font-bold text-slate-500">Durumu 0 olan tahkikat kaydı bulunamadı.</div>
         ) : (
           <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto [scrollbar-width:thin]">
            <div className="min-w-[560px] space-y-1.5">
@@ -2372,17 +2372,17 @@ function InvestigationStaffPerformancePanel({
                   onClick={() => onStaffClick(item.label)}
                   className={`flex w-full items-center gap-3 rounded-xl border bg-white/90 px-3 py-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${styles.ring}`}
                 >
-                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ring-2 ${rank !== null ? (performanceRankStyles[rank - 1] || 'bg-slate-100 text-slate-500 ring-slate-200') : 'bg-slate-50 ring-slate-100'}`}>
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[15px] font-black ring-2 ${rank !== null ? (performanceRankStyles[rank - 1] || 'bg-slate-100 text-slate-500 ring-slate-200') : 'bg-slate-50 ring-slate-100'}`}>
                     {rank !== null ? rank : ''}
                   </span>
-                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${styles.avatar} text-xs font-black text-white shadow-sm ring-1 ring-white`}>
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${styles.avatar} text-[15px] font-black text-white shadow-sm ring-1 ring-white`}>
                     {initials || '-'}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-black text-slate-950">{item.label}</span>
+                      <span className="truncate text-[18px] font-black text-slate-950">{item.label}</span>
                       {tone !== 'neutral' && (
-                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black uppercase ${styles.badge}`}>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[16px] font-black uppercase ${styles.badge}`}>
                           {tone === 'suitable' ? 'Uygundur' : tone === 'rejected' ? 'Otomatik Red' : 'Uygun Değil'}
                         </span>
                       )}
@@ -2399,27 +2399,27 @@ function InvestigationStaffPerformancePanel({
                       plan) dolu renkli - Uygun Degil kirmizi, Uygundur
                       yesil, Otomatik Red koyu/siyaha yakin. */}
                   <span className="grid shrink-0 grid-cols-4 gap-2.5 text-right">
-                    <span className="min-w-[52px]">
-                      <span className="block truncate text-[9px] font-black uppercase text-amber-500">İncelenecek</span>
-                      <span className="block text-sm font-bold leading-tight text-amber-700">
+                    <span className="min-w-[56px]">
+                      <span className="block truncate text-[15px] font-black uppercase text-amber-500">İncelenecek</span>
+                      <span className="block text-[18px] font-bold leading-tight text-amber-700">
                         {incelenecekCount !== null ? formatNumber(incelenecekCount) : '-'}
                       </span>
                     </span>
-                    <span className="min-w-[52px] rounded-lg bg-rose-600 px-1.5 py-1 shadow-sm">
-                      <span className="block truncate text-[9px] font-black uppercase text-rose-100">Uygun Değil</span>
-                      <span className="block text-sm font-black leading-tight text-white">
+                    <span className="min-w-[56px] rounded-lg bg-rose-600 px-1.5 py-1 shadow-sm">
+                      <span className="block truncate text-[15px] font-black uppercase text-rose-100">Uygun Değil</span>
+                      <span className="block text-[18px] font-black leading-tight text-white">
                         {uygunDegilCount !== null ? formatNumber(uygunDegilCount) : '-'}
                       </span>
                     </span>
-                    <span className="min-w-[52px] rounded-lg bg-emerald-600 px-1.5 py-1 shadow-sm">
-                      <span className="block truncate text-[9px] font-black uppercase text-emerald-100">Uygundur</span>
-                      <span className="block text-sm font-black leading-tight text-white">
+                    <span className="min-w-[56px] rounded-lg bg-emerald-600 px-1.5 py-1 shadow-sm">
+                      <span className="block truncate text-[15px] font-black uppercase text-emerald-100">Uygundur</span>
+                      <span className="block text-[18px] font-black leading-tight text-white">
                         {uygundurCount !== null ? formatNumber(uygundurCount) : '-'}
                       </span>
                     </span>
-                    <span className="min-w-[52px] rounded-lg bg-slate-800 px-1.5 py-1 shadow-sm">
-                      <span className="block truncate text-[9px] font-black uppercase text-slate-300">Otomatik Red</span>
-                      <span className="block text-sm font-black leading-tight text-white">
+                    <span className="min-w-[56px] rounded-lg bg-slate-800 px-1.5 py-1 shadow-sm">
+                      <span className="block truncate text-[15px] font-black uppercase text-slate-300">Otomatik Red</span>
+                      <span className="block text-[18px] font-black leading-tight text-white">
                         {otomatikRedCount !== null ? formatNumber(otomatikRedCount) : '-'}
                       </span>
                     </span>
@@ -2465,14 +2465,21 @@ const DASHBOARD_ROW_H = 30
 // kullanicinin duzenini elle ayarla, app_settings'ten dashboard_layout_<id>
 // value.layouts.lg degerini oku ve buraya yapistir (bkz. [[dashboard-default-layout]]).
 const DASHBOARD_DEFAULT_LAYOUT: Layout = [
-  { i: 'file-summary', x: 0, y: 0, w: 4, h: 34, minW: 4 },
-  { i: 'beneficiary-summary', x: 4, y: 0, w: 4, h: 34, minW: 4 },
-  { i: 'assistance-file-reports', x: 15, y: 0, w: 6, h: 34, minW: 6 },
-  { i: 'file-status-summary', x: 8, y: 0, w: 7, h: 34, minW: 6 },
-  { i: 'recent-start-alerts', x: 21, y: 0, w: 6, h: 34, minW: 6 },
-  { i: 'ending-soon-alerts', x: 27, y: 0, w: 6, h: 35, minW: 6 },
+  // Kullanici istegi (2026-10-12): "Dosya Ozeti"/"Birey Ozeti" (eskiden w:4)
+  // komsularina (w:6/7) gore gozle BELIRGIN SEKILDE dar/kucuk duruyordu -
+  // hepsi AYNI genislige (w:6) getirildi, tutarlilik icin "file-status-
+  // summary" (eskiden tek basina w:7) de 6'ya indirildi. Bu satir zaten tam
+  // 48 sutunu (COLS.lg) dolduruyordu, bosluk YOKTU - farki karsilamak icin
+  // "requested-documents" w:15 -> w:12'ye kisildi (6x6=36 + 12 = 48, tam
+  // oturuyor).
+  { i: 'file-summary', x: 0, y: 0, w: 6, h: 34, minW: 4 },
+  { i: 'beneficiary-summary', x: 6, y: 0, w: 6, h: 34, minW: 4 },
+  { i: 'assistance-file-reports', x: 18, y: 0, w: 6, h: 34, minW: 6 },
+  { i: 'file-status-summary', x: 12, y: 0, w: 6, h: 34, minW: 6 },
+  { i: 'recent-start-alerts', x: 24, y: 0, w: 6, h: 34, minW: 6 },
+  { i: 'ending-soon-alerts', x: 30, y: 0, w: 6, h: 35, minW: 6 },
   { i: 'investigation-staff', x: 0, y: 34, w: 24, h: 67, minW: 8 },
-  { i: 'requested-documents', x: 33, y: 0, w: 15, h: 34, minW: 8 },
+  { i: 'requested-documents', x: 36, y: 0, w: 12, h: 34, minW: 8 },
   { i: 'assistance-movements', x: 0, y: 132, w: 24, h: 50, minW: 8 },
   { i: 'user-daily-performance', x: 24, y: 132, w: 24, h: 50, minW: 8 },
   { i: 'active-tender-summary', x: 0, y: 101, w: 24, h: 31, minW: 8 },
@@ -2743,7 +2750,7 @@ export default function DashboardPage() {
       mobileHalf: true,
       node: (
         <SummaryPairCard
-          title="Dosya Ozeti"
+          title="Dosya Özeti"
           primaryLabel="Toplam Dosya"
           primaryValue={isLoading ? '...' : formatNumber(data.totals.files)}
           primaryRawValue={data.totals.files}
@@ -2763,7 +2770,7 @@ export default function DashboardPage() {
       mobileHalf: true,
       node: (
         <SummaryPairCard
-          title="Birey Ozeti"
+          title="Birey Özeti"
           primaryLabel="Toplam Birey"
           primaryValue={isLoading ? '...' : formatNumber(data.totals.beneficiaries)}
           primaryRawValue={data.totals.beneficiaries}
@@ -2783,8 +2790,8 @@ export default function DashboardPage() {
       node: (
         <SummaryListPanel
           fill
-          title="Yardim Alan Dosya Raporlari"
-          detail="Dosya durumu yardim aliyor olanlar"
+          title="Yardım Alan Dosya Raporları"
+          detail="Dosya durumu yardım alıyor olanlar"
           data={data.assistanceFileReports}
           isLoading={isLoading}
           onItemClick={(item) => openAssistanceFileReportTab(item.label)}
@@ -2798,7 +2805,7 @@ export default function DashboardPage() {
         <SummaryListPanel
           fill
           title="Dosya Durum Bilgisi"
-          detail="Hazir degerlerdeki durum karsiliklari"
+          detail="Hazır değerlerdeki durum karşılıkları"
           data={data.fileStatusSummary}
           isLoading={isLoading}
           tone="green"
@@ -2815,9 +2822,9 @@ export default function DashboardPage() {
         <AssistanceAlertCard
           compact
           fill
-          title="Son 10 Gunde Baslayan Yardimlar"
+          title="Son 10 Günde Başlayan Yardımlar"
           count={data.assistanceAlerts.recentStarts.length}
-          detail="Baslangic tarihi son 10 gun icinde"
+          detail="Başlangıç tarihi son 10 gün içinde"
           active={false}
           onClick={() => openAssistanceAlertTab('recentStarts')}
           onTypeClick={(type) => openAssistanceAlertTab('recentStarts', type)}
@@ -2835,9 +2842,9 @@ export default function DashboardPage() {
         <AssistanceAlertCard
           compact
           fill
-          title="Bitisine 10 Gun Kalan Yardimlar"
+          title="Bitişine 10 Gün Kalan Yardımlar"
           count={data.assistanceAlerts.endingSoon.length}
-          detail="Bitis tarihi 10 gun icinde"
+          detail="Bitiş tarihi 10 gün içinde"
           active={false}
           onClick={() => openAssistanceAlertTab('endingSoon')}
           onTypeClick={(type) => openAssistanceAlertTab('endingSoon', type)}
@@ -2862,9 +2869,9 @@ export default function DashboardPage() {
       id: 'requested-documents',
       title: `Belge Kayıtları (${formatNumber(data.totals.documents)})`,
       node: (
-        <Section title={`Belge Kayitlari (${formatNumber(data.totals.documents)})`}>
+        <Section title={`Belge Kayıtları (${formatNumber(data.totals.documents)})`}>
           {isLoading ? (
-            <div className="py-10 text-center text-sm font-bold text-slate-500">Belgeler yukleniyor...</div>
+            <div className="py-10 text-center text-[17px] font-bold text-slate-500">Belgeler yukleniyor...</div>
           ) : (
             <RequestedDocumentsList data={data.requestedDocuments} onOpenFile={openRequestedDocumentFile} />
           )}
@@ -2876,7 +2883,7 @@ export default function DashboardPage() {
       title: 'Yardım Hareketleri',
       fullReportPath: '/reports/yardim-hareketleri',
       node: (
-        <Section title="Yardim Hareketleri">
+        <Section title="Yardım Hareketleri">
           <AssistanceMovementArc
             data={data.dailyAssistanceMovements}
             startDate={movementStartDate}
@@ -2920,7 +2927,9 @@ export default function DashboardPage() {
     },
     {
       id: 'cash-period-aid-report',
-      title: 'Durumu 6 Nakit Yardımı Dönem Raporu',
+      // 2026-10-13: "Durumu 6" ic kodu kullaniciya anlamsizdi - durumu=6 =
+      // Nakit Yardim Listesi'ndeki (yardim almaya hak kazanmis) kayitlar.
+      title: 'Nakit Yardımı Dönem Raporu (Yardım Listesi)',
       node: (
         <CashPeriodAidReportPanel
           data={data.cashPeriodAidReports}
@@ -2959,17 +2968,28 @@ export default function DashboardPage() {
   return (
     <div className="dy-dashboard w-full min-w-0 max-w-full space-y-2 overflow-x-hidden rounded-2xl bg-gradient-to-br from-sky-50/80 via-white to-emerald-50/70 p-1.5 text-slate-950 sm:space-y-5 sm:rounded-3xl sm:p-3">
       <div className="dy-dashboard-hero relative w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-white bg-gradient-to-r from-[#004f7c] via-[#0076b6] to-[#36a852] px-3 py-2 text-white shadow-[0_10px_30px_rgba(0,118,182,0.22)] ring-1 ring-sky-200 sm:rounded-2xl sm:px-5 sm:py-3">
-        <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-[#f59e0b] via-[#22c55e] to-[#38bdf8] sm:w-2" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.24),transparent_34%)]" />
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="relative">
-            <h1 className="break-words text-[16px] font-black leading-tight tracking-normal text-white drop-shadow-sm sm:text-2xl md:text-[28px]">Ana Sayfa Rapor Paneli</h1>
+        {/* Kurumsal sade baslik (2026-10-13, kullanici istegi "profesyonel,
+            kurumsal, kullanisli ve anlasilir"): gokkusagi sol serit ve parlama
+            kaldirildi, 40px baslik diger sayfalarla ayni olcege (20/26px)
+            indi; bugunun tarihi ve kutularin nasil kullanilacagi eklendi. */}
+        <div className="relative flex flex-col gap-1.5 lg:flex-row lg:items-end lg:justify-between lg:gap-4">
+          <div className="min-w-0">
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/70">Sosyal Hizmetler Müdürlüğü</p>
+            <h1 className="mt-0.5 break-words text-[20px] font-semibold uppercase leading-tight tracking-wide text-white md:text-[26px]">Ana Sayfa Rapor Paneli</h1>
+          </div>
+          <div className="min-w-0 text-left lg:text-right">
+            <p className="text-[14px] font-bold text-white" suppressHydrationWarning>
+              {new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' })}
+            </p>
+            <p className="text-[12.5px] font-semibold text-white/75">
+              Kutudaki satırlara tıklayarak ilgili listeye, köşedeki ⤢ simgesiyle tam rapora geçebilirsiniz.
+            </p>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-[17px] font-bold text-rose-700">
           {error}
         </div>
       )}

@@ -15,15 +15,15 @@ export default function HazirYemekAlmayanlarPage({
     <AssistanceListPage
       searchParams={searchParams}
       config={{
-        title: 'Hazir Yemek Almayanlar Listesi',
-        newButtonLabel: 'Yeni Hazir Yemek',
+        title: 'Hazır Yemek Almayanlar Listesi',
+        newButtonLabel: 'Yeni Hazır Yemek',
         routePath: '/assistance/hazir-yemek/yardim-almayanlar',
         tableName: 'yrd_haziryemek',
         tableId: 'yrd_haziryemek_almayanlar',
         whereClause: 't.durumu != 0 AND t.durumu != 2',
         searchColumns: ['t.muracaateden', 't.aciklama', 't.etiket', 'd.dosyano'],
-        searchPlaceholder: 'Muracaat eden, etiket, dosya no veya aciklama ara',
-        emptyMessage: 'Goruntulenecek hazir yemek kaydi bulunamadi.',
+        searchPlaceholder: 'Müracaat eden, etiket, dosya no veya açıklama ara',
+        emptyMessage: 'Görüntülenecek hazır yemek kaydı bulunamadı.',
         excludedColumns: [
           'dosyaid', 'kullaniciid', 'ilkkullaniciid', 'islemtarihi', 'ilkislemtarihi',
           'donemadi', 'dnm_durumu', 'donemint', 'donemstr',

@@ -1,5 +1,7 @@
 ﻿import { ManagedReportTablePage } from '@/components/shared/ManagedReportTablePage'
 import { AssistanceModeTabs } from '../_components/AssistanceModeTabs'
+import { AssistanceStatStrip, type AssistanceStatItem } from '../_components/AssistanceStatStrip'
+import { formatAssistanceDateTime, getAssistanceKicker } from '../_components/assistanceModeTabsConfig'
 import { getAssistanceStatusMap } from '@/lib/services/assistanceStatusLabels.service'
 import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
 import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
@@ -28,6 +30,7 @@ const FILTER_COLUMN_MAP: Record<string, string> = {
   miktar: 't.miktar',
   durumu: 't.durumu',
   sureturu: 't.sureturu',
+  donem: 't.donem',
   durakadi: 't.durakadi',
   sorumlu_personel: "COALESCE(NULLIF(k.kullanicitamadi, ''), NULLIF(k.kullaniciadi, ''))",
   aciklama: 't.aciklama',
@@ -65,6 +68,7 @@ const COLUMN_LABELS: Record<string, string> = {
   miktar: 'Miktar',
   durumu: 'Durum',
   sureturu: 'Süre Türü',
+  donem: 'Dönem',
   durakadi: 'Durak',
   sorumlu_personel: 'Sorumlu Personel',
   aciklama: 'Açıklama',
@@ -88,6 +92,7 @@ const PREFERRED_COLUMNS = [
   'dosya_adresi',
   'bastarih',
   'bittarih',
+  'donem',
   'miktar',
   'durumu',
   'sorumlu_personel',
@@ -126,6 +131,9 @@ export default async function EkmekYardimiPage({
   let activeCount = 0
   let completedCount = 0
   let missingCardCount = 0
+  let distinctFileCount = 0
+  let totalAmount = 0
+  let lastProcessAt: Date | null = null
   let filterValueOptions: Record<string, ColumnValueOption[]> = {}
   let errorMessage: string | null = null
   let statusMap: Record<string, string> = {}
@@ -171,7 +179,10 @@ export default async function EkmekYardimiPage({
         COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE t.durumu = 1)::int AS active_count,
         COUNT(*) FILTER (WHERE t.durumu = 2)::int AS completed_count,
-        COUNT(*) FILTER (WHERE COALESCE(NULLIF(t.kartno, ''), NULLIF(d.kartno, '')) IS NULL)::int AS missing_card_count
+        COUNT(*) FILTER (WHERE COALESCE(NULLIF(t.kartno, ''), NULLIF(d.kartno, '')) IS NULL)::int AS missing_card_count,
+        COUNT(DISTINCT t.dosyaid)::int AS distinct_file_count,
+        COALESCE(SUM(t.miktar), 0)::float8 AS total_amount,
+        MAX(t.islemtarihi) AS last_process_at
       FROM yrd_ekmek t
       LEFT JOIN dosyalar d ON t.dosyaid = d.id
       LEFT JOIN kullanicilar k ON k.id::text = t.kullaniciid::text
@@ -227,6 +238,11 @@ export default async function EkmekYardimiPage({
         t.miktar,
         t.durumu,
         t.sureturu,
+        -- Kullanici istegi/hata raporu (2026-10-13): bazi eski kayitlarda
+        -- "donem" alani gercek bir sure/mevsim bilgisi yerine sadece
+        -- yardimin TURUNUN kendisini ("EKMEK YARDIMI") tasiyor - anlamsiz,
+        -- Dönem sutununda BOS gorunmesi gerekiyor.
+        CASE WHEN UPPER(TRIM(t.donem)) = 'EKMEK YARDIMI' THEN NULL ELSE t.donem END AS donem,
         t.durakadi,
         COALESCE(NULLIF(k.kullanicitamadi, ''), NULLIF(k.kullaniciadi, ''), '-') AS sorumlu_personel,
         t.aciklama,
@@ -463,6 +479,35 @@ export default async function EkmekYardimiPage({
           WHERE ${baseWhere}
 
           UNION ALL
+          SELECT 'donem',
+            CASE WHEN UPPER(TRIM(t.donem)) = 'EKMEK YARDIMI' THEN NULL ELSE NULLIF(t.donem, '') END::text,
+            CASE WHEN UPPER(TRIM(t.donem)) = 'EKMEK YARDIMI' THEN NULL ELSE NULLIF(t.donem, '') END::text
+          FROM yrd_ekmek t
+          LEFT JOIN dosyalar d ON t.dosyaid = d.id
+          LEFT JOIN kullanicilar k ON k.id::text = t.kullaniciid::text
+          LEFT JOIN LATERAL (
+            SELECT NULLIF(BTRIM(b.ceptel), '') AS ceptel
+            FROM bireyler b
+            WHERE b.dosyaid = d.id
+            ORDER BY
+              CASE
+                WHEN b.tipi = 1 THEN 0
+                WHEN b.yakinligi = 0 THEN 1
+                ELSE 2
+              END,
+              b.id ASC
+            LIMIT 1
+          ) owner_ceptel ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT durum, telefon, adisoyadi, created_at, kanal
+            FROM sms_gonderim_log
+            WHERE dosyaid = d.id::text
+            ORDER BY created_at DESC NULLS LAST
+            LIMIT 1
+          ) sm ON TRUE
+          WHERE ${baseWhere}
+
+          UNION ALL
           SELECT 'miktar', t.miktar::text, t.miktar::text
           FROM yrd_ekmek t
           LEFT JOIN dosyalar d ON t.dosyaid = d.id
@@ -584,8 +629,16 @@ export default async function EkmekYardimiPage({
       active_count?: unknown
       completed_count?: unknown
       missing_card_count?: unknown
+      distinct_file_count?: unknown
+      total_amount?: unknown
+      last_process_at?: unknown
     } | undefined
 
+    distinctFileCount = Number(counts?.distinct_file_count || 0)
+    totalAmount = Number(counts?.total_amount || 0)
+    lastProcessAt = counts?.last_process_at instanceof Date || typeof counts?.last_process_at === 'string'
+      ? new Date(counts.last_process_at as string | Date)
+      : null
     totalCount = Number(counts?.total || 0)
     activeCount = Number(counts?.active_count || 0)
     completedCount = Number(counts?.completed_count || 0)
@@ -600,11 +653,24 @@ export default async function EkmekYardimiPage({
     errorMessage = error instanceof Error ? error.message : String(error)
   }
 
+  const lastProcessText = formatAssistanceDateTime(lastProcessAt)
+  const statItems: AssistanceStatItem[] = [
+    { label: 'Kayıt', value: totalCount },
+    { label: 'Farklı Dosya', value: distinctFileCount },
+    { label: 'Toplam Miktar', value: totalAmount, format: 'decimal' },
+    { label: 'Kart No Eksik', value: missingCardCount, tone: 'warn' },
+    ...(lastProcessText ? [{ label: 'Son İşlem', value: lastProcessText }] : []),
+  ]
+
   return (
     <div className="dy-yardim-rapor-17 space-y-6">
       {errorMessage && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-600">
-          Veritabanı Hatası: {errorMessage}
+        <div role="alert" className="flex gap-3 rounded-xl border border-rose-200 border-l-4 border-l-rose-600 bg-white p-4 shadow-sm">
+          <span aria-hidden className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-sm font-black text-rose-700">!</span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900">Liste yüklenirken bir sorun oluştu.</p>
+            <p className="mt-1 break-words text-[12px] font-medium text-slate-600">{errorMessage}</p>
+          </div>
         </div>
       )}
 
@@ -647,12 +713,16 @@ export default async function EkmekYardimiPage({
         // Kullanici istegi (2026-09-30, 10. tur): sekmeler artik (Nakit
         // Yardimi ile AYNI yontemle) basligin ALTINDA - eskiden bu sayfayi
         // saran layout.tsx sekmeleri basligin USTUNDE gosteriyordu.
+        corporateHeader={{ kicker: getAssistanceKicker('/assistance/ekmek') }}
         afterHeader={(
-          <AssistanceModeTabs
-            basePath="/assistance/ekmek"
-            yardimlarLabel="Yardım Alanlar"
-            extraTabs={[{ id: 'yardim-almayanlar', label: 'Yardım Almayanlar', href: '/assistance/ekmek/yardim-almayanlar' }]}
-          />
+          <div className="space-y-3">
+            <AssistanceModeTabs
+              basePath="/assistance/ekmek"
+              yardimlarLabel="Yardım Alanlar"
+              extraTabs={[{ id: 'yardim-almayanlar', label: 'Yardım Almayanlar', href: '/assistance/ekmek/yardim-almayanlar' }]}
+            />
+            {!errorMessage && <AssistanceStatStrip items={statItems} />}
+          </div>
         )}
         // Kullanici istegi: sutun basliklarindaki "gorunurluk" onay
         // kutulari bazi sutunlarda pasifti (kullanici bunlari gizleyemiyor/

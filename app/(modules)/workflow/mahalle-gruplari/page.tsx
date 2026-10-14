@@ -235,7 +235,7 @@ export default function MahalleGruplariPage() {
 
   return (
     <div className="space-y-5 text-slate-950">
-      <div className="relative overflow-hidden rounded-lg border border-indigo-200 bg-white px-5 py-4 shadow-sm">
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-indigo-200 bg-white px-5 py-4 shadow-sm">
         <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-indigo-500 to-violet-600" />
         <p className="text-[18px] font-black uppercase tracking-wide text-indigo-700">İş Akışı</p>
         <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal text-slate-950 md:text-[34px]">Mahalle Grupları</h1>

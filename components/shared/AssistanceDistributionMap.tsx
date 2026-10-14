@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useContext } from 'react'
+import { ScaleContext } from '@/components/layout/ScaleContext'
 import { useRouter } from 'next/navigation'
 import { formatFileNo } from '@/lib/utils'
 
@@ -166,6 +167,45 @@ export function AssistanceDistributionMap({ variant = 'page' }: { variant?: 'pag
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [filterType, setFilterType] = useState<string>(ALL_CATEGORIES_ID)
   const mapContainerRef = useRef<HTMLDivElement>(null)
+  // Tam sayfa gorunumu ekrana tam sigsin (2026-10-13, kullanici istegi:
+  // "sayfa tam gorunmuyor, tum alanlar acilan ekrana sigsin"). Eskiden kok
+  // yukseklik "100vh - 96px" idi; sayfa icerigi ekran genisligine gore
+  // kucultulen (zoom) bir alanda cizildigi icin bu yukseklik de ayni oranda
+  // kuculuyor, harita ince bir seride donusuyordu. Artik kokun ekrandaki
+  // GERCEK ust konumundan ekranin altina kadar kalan alan olculur ve
+  // kucultme oranina bolunerek CSS yuksekligine cevrilir.
+  const sayfaKokRef = useRef<HTMLDivElement>(null)
+  const kabukOlcegi = useContext(ScaleContext) || 1
+  const [sayfaYuksekligi, setSayfaYuksekligi] = useState<number | null>(null)
+  useEffect(() => {
+    if (variant !== 'page') return
+    const el = sayfaKokRef.current
+    if (!el) return
+    // Kullanici istegi (2026-10-13, 2. tur): "harita alani hala dar, alta
+    // dogru ~4 cm uzatalim" - sayfa ekranin altindan ~4 cm (~150 px) daha
+    // uzun tutulur; ek yukseklik esnek harita alanina gider (alttaki liste
+    // ayni kalir), sayfa altta biraz kayar.
+    const HARITA_EK_PX = 150
+    const hesapla = () => {
+      const kapsayici = el.closest('main')
+      // Sayfa kaydirilmissa ust konum azalir - kaydirma miktari geri eklenir ki
+      // yukseklik kaydirmaya gore degismesin.
+      const ustKonum = el.getBoundingClientRect().top + (kapsayici?.scrollTop ?? 0)
+      const altBosluk = kapsayici ? parseFloat(getComputedStyle(kapsayici).paddingBottom) || 0 : 0
+      const kalan = window.innerHeight - ustKonum - altBosluk - 4 + HARITA_EK_PX
+      setSayfaYuksekligi(Math.max(460, Math.floor(kalan / kabukOlcegi)))
+    }
+    hesapla()
+    window.addEventListener('resize', hesapla)
+    window.visualViewport?.addEventListener('resize', hesapla)
+    const gozlemci = new ResizeObserver(hesapla)
+    if (el.parentElement) gozlemci.observe(el.parentElement)
+    return () => {
+      window.removeEventListener('resize', hesapla)
+      window.visualViewport?.removeEventListener('resize', hesapla)
+      gozlemci.disconnect()
+    }
+  }, [variant, kabukOlcegi])
   const mapRef = useRef<LeafletMap | null>(null)
   const markersRef = useRef<LeafletMarker[]>([])
 
@@ -500,12 +540,17 @@ export function AssistanceDistributionMap({ variant = 'page' }: { variant?: 'pag
   }
 
   return (
-    <div className="flex h-[calc(100vh-96px)] flex-col space-y-3">
-      <div className="flex shrink-0 items-center gap-3 overflow-hidden rounded-xl border border-white bg-gradient-to-r from-[#d32f2f] via-[#e53935] to-[#ff5252] px-4 py-2.5 text-white shadow-[0_10px_28px_rgba(211,47,47,0.18)] ring-1 ring-slate-200">
+    <div
+      ref={sayfaKokRef}
+      className="flex flex-col space-y-3"
+      style={{ height: sayfaYuksekligi ? `${sayfaYuksekligi}px` : 'calc(100vh + 54px)' }}
+    >
+      {/* Kurumsal baslik (2026-10-13): kirmizi degrade yerine diger sayfalarla ayni lacivert */}
+      <div className="flex shrink-0 items-center gap-3 overflow-hidden rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-4 py-2.5 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15 text-lg ring-1 ring-white/30">🗺️</div>
         <div className="min-w-0">
-          <h1 className="text-base font-black leading-tight">Yardım Dağılım Haritası</h1>
-          <p className="truncate text-[11px] font-semibold text-white/85">
+          <h1 className="text-[18px] font-semibold uppercase leading-tight tracking-wide">Yardım Dağılım Haritası</h1>
+          <p className="truncate text-[13px] font-semibold text-white/75">
             İl genelinde, şu an aktif olarak yardım almakta olan tüm dosyaların konumları - türüne göre renklendirilmiş.
           </p>
         </div>
@@ -572,14 +617,14 @@ export function AssistanceDistributionMap({ variant = 'page' }: { variant?: 'pag
         </div>
 
         <div className="flex-1 flex flex-col gap-3 overflow-hidden">
-          <div className="flex-1 relative rounded-xl border-2 border-slate-200 shadow-inner overflow-hidden z-0">
+          <div className="relative z-0 min-h-[240px] flex-1 overflow-hidden rounded-xl border-2 border-slate-200 shadow-inner">
              {mapPane}
              {!loading && geocoding && <div className="absolute left-3 top-3 z-10 rounded border border-red-100 bg-white/95 px-3 py-1.5 text-[11px] font-black text-red-700 shadow-sm">Adres koordinatları kaydediliyor...</div>}
              {!loading && geocodeMessage && <div className="absolute left-3 top-12 z-10 max-w-sm rounded border border-amber-200 bg-amber-50/95 px-3 py-2 text-[11px] font-bold text-amber-800 shadow-sm">{geocodeMessage}</div>}
              {!loading && !geocoding && filteredData.length > 0 && geocodedCount === 0 && <div className="absolute inset-x-3 top-3 z-10 rounded border border-amber-200 bg-amber-50/95 px-3 py-2 text-[12px] font-bold text-amber-800 shadow-sm">Kayıt var, fakat henüz veritabanına kaydedilmiş gerçek koordinat yok - &quot;Koordinatlandır&quot;a basarak işleyebilirsiniz.</div>}
           </div>
 
-          <div className="h-52 shrink-0 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
+          <div className="h-[32%] min-h-[180px] shrink-0 rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
             <div className="bg-slate-50 border-b border-slate-100 px-4 py-2 flex items-center justify-between">
               <h3 className="text-sm font-black uppercase tracking-wider text-slate-700">
                 {filterType === ALL_CATEGORIES_ID

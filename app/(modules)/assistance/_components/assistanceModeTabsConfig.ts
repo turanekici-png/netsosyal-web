@@ -52,3 +52,39 @@ export const ASSISTANCE_MODE_TABS_CONFIG: Record<string, { yardimlarLabel?: stri
 export function getAssistanceModeTabsBasePath(routePath: string) {
   return routePath.replace(/\/(muracaatlar|yardim-almayanlar|iptal-edilenler)$/, '')
 }
+
+// Kurumsal baslik (2026-10-14): "Yardım Yönetimi › <modül>" yol satiri icin
+// her modulun duzgun Turkce adi - tek yerden.
+export const ASSISTANCE_MODULE_LABELS: Record<string, string> = {
+  '/assistance/ekmek': 'Ekmek Yardımı',
+  '/assistance/gida': 'Gıda Yardımı',
+  '/assistance/giyim': 'Giyim Yardımı',
+  '/assistance/hazir-yemek': 'Hazır Yemek',
+  '/assistance/nakit': 'Nakit Yardımı',
+  '/assistance/donem-disi': 'Dönem Dışı Gıda',
+  '/assistance/destek-paketi': 'Destek Paketi',
+  '/assistance/aceze': 'Aceze Yardımı',
+}
+
+export function getAssistanceKicker(routePath: string) {
+  const label = ASSISTANCE_MODULE_LABELS[getAssistanceModeTabsBasePath(routePath)]
+  return label ? `Yardım Yönetimi  ›  ${label}` : 'Yardım Yönetimi'
+}
+
+export function formatAssistanceDateTime(value: Date | null) {
+  if (!value || Number.isNaN(value.getTime())) return null
+  // "date" tipli kolonlar (ör. yrd_destekpaketi.islemtarihi) gece yarisi
+  // olarak gelir - "00:00" yazmak yaniltici, sadece tarih gosterilir.
+  const timePart = value.toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit' })
+  if (timePart === '00:00') {
+    return value.toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul', day: '2-digit', month: '2-digit', year: 'numeric' })
+  }
+  return value.toLocaleString('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}

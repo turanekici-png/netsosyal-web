@@ -40,6 +40,8 @@ export async function register() {
     databaseBackupService.startScheduler()
     const { startCommunicationRetentionScheduler } = await import('./lib/services/communicationRetention.service')
     startCommunicationRetentionScheduler()
+    const { startFileStatusAutoSyncScheduler } = await import('./lib/services/fileStatusAutoSync.service')
+    startFileStatusAutoSyncScheduler()
 
     // Daha önce QR ile eşleştirilmiş bir WhatsApp oturumu varsa (.wwebjs_auth
     // klasöründe kayıtlı), sunucu her yeniden başladığında otomatik olarak

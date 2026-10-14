@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
-import { ensureIncelemeDegerlendirmeSchema } from '@/app/api/documents/inceleme-degerlendirme/_lib/schema'
+import { ensureSahaIncelemeSchema } from '@/app/api/documents/saha-inceleme/_lib/sablon'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,10 +16,12 @@ type UpdateWorkflowRow = {
   last_visit_info: string | null
   visit_user_name: string | null
   last_tahkikat_date: Date | string | null
-  last_tahkikat_karar: string | null
-  last_tahkikat_puan: number | null
-  last_tahkikat_maksimum_puan: number | null
-  last_tahkikat_eliminasyon: string | null
+  last_tahkikat_aciliyet: string | null
+  last_tahkikat_ziyaret_sonucu: string | null
+  last_tahkikat_on_degerlendirme: string | null
+  tc_kimlik_no: string | null
+  birth_date: string | null
+  household_count: number | null
 }
 
 function toDateTimeString(value: Date | string | null) {
@@ -45,10 +47,12 @@ export async function GET() {
     // Kullanici istegi (13 Eylul 2026, devami): "bu alanda aynı zamanda en
     // son yapılan tahkikat raporu bilgiside görünsün" - dosya artik Tahkikat
     // Formu kaydedilince (durumu=2) buraya dusuyor (bkz. app/api/documents/
-    // inceleme-degerlendirme/route.ts POST), o yuzden eski evziyareti tabanli
-    // "Son Ev Ziyareti" cogu zaman bos kaliyor - en son inceleme_degerlendirme_
-    // formu kaydi (tarih/karar/puan/eliminasyon) da ayrica cekiliyor.
-    await ensureIncelemeDegerlendirmeSchema()
+    // saha-inceleme/route.ts POST), o yuzden eski evziyareti tabanli
+    // "Son Ev Ziyareti" cogu zaman bos kaliyor - en son Tahkikat Formu kaydi
+    // da ayrica cekiliyor. 2026-10-13: form artik "Hane Ziyareti ve Sosyal
+    // İnceleme Formu" (saha_inceleme_formu) - puan/karar yerine aciliyet,
+    // ziyaret sonucu ve ön değerlendirme.
+    await ensureSahaIncelemeSchema()
 
     const rows = await prisma.$queryRaw<UpdateWorkflowRow[]>`
       SELECT
@@ -63,13 +67,19 @@ export async function GET() {
         last_visit.rapor AS last_visit_info,
         COALESCE(NULLIF(visit_user.kullanicitamadi, ''), NULLIF(visit_user.kullaniciadi, ''), '-') AS visit_user_name,
         last_tahkikat.tarih AS last_tahkikat_date,
-        last_tahkikat.karar AS last_tahkikat_karar,
-        last_tahkikat.toplam_puan AS last_tahkikat_puan,
-        last_tahkikat.maksimum_puan AS last_tahkikat_maksimum_puan,
-        last_tahkikat.eliminasyon_sonucu AS last_tahkikat_eliminasyon
+        last_tahkikat.aciliyet AS last_tahkikat_aciliyet,
+        last_tahkikat.ziyaret_sonucu AS last_tahkikat_ziyaret_sonucu,
+        last_tahkikat.on_degerlendirme AS last_tahkikat_on_degerlendirme,
+        NULLIF(BTRIM(owner.tckimlikno), '') AS tc_kimlik_no,
+        TO_CHAR(owner.dogumtarihi, 'DD.MM.YYYY') AS birth_date,
+        -- 2026-10-14: hanedeki kisi sayisi (dosya sahibi dahil, olum tarihi girilmemis bireyler)
+        (
+          SELECT COUNT(*)::int FROM bireyler hb
+          WHERE hb.dosyaid = d.id AND COALESCE(NULLIF(BTRIM(hb.olumtarihi), ''), '-') = '-'
+        ) AS household_count
       FROM dosyalar d
       LEFT JOIN LATERAL (
-        SELECT b.adisoyadi, b.adi, b.soyadi, b.ceptel, b.nfmahkoy, b.adres
+        SELECT b.adisoyadi, b.adi, b.soyadi, b.ceptel, b.nfmahkoy, b.adres, b.tckimlikno, b.dogumtarihi
         FROM bireyler b
         WHERE b.dosyaid = d.id
         ORDER BY
@@ -90,8 +100,8 @@ export async function GET() {
       ) last_visit ON true
       LEFT JOIN kullanicilar visit_user ON visit_user.id::text = last_visit.kullaniciid::text
       LEFT JOIN LATERAL (
-        SELECT f.tarih, f.karar, f.toplam_puan, f.maksimum_puan, f.eliminasyon_sonucu, f.id
-        FROM inceleme_degerlendirme_formu f
+        SELECT f.tarih, f.aciliyet, f.ziyaret_sonucu, f.on_degerlendirme, f.id
+        FROM saha_inceleme_formu f
         WHERE f.dosyaid = d.id
         ORDER BY f.tarih DESC NULLS LAST, f.id DESC
         LIMIT 1
@@ -114,10 +124,12 @@ export async function GET() {
         lastVisitInfo: toText(row.last_visit_info),
         visitUserName: toText(row.visit_user_name),
         lastTahkikatDate: toDateTimeString(row.last_tahkikat_date),
-        lastTahkikatKarar: row.last_tahkikat_karar,
-        lastTahkikatPuan: row.last_tahkikat_puan,
-        lastTahkikatMaksimumPuan: row.last_tahkikat_maksimum_puan,
-        lastTahkikatEliminasyon: row.last_tahkikat_eliminasyon,
+        lastTahkikatAciliyet: row.last_tahkikat_aciliyet,
+        lastTahkikatZiyaretSonucu: row.last_tahkikat_ziyaret_sonucu,
+        lastTahkikatOnDegerlendirme: row.last_tahkikat_on_degerlendirme,
+        tcKimlikNo: row.tc_kimlik_no ?? null,
+        birthDate: row.birth_date ?? null,
+        householdCount: row.household_count === null || row.household_count === undefined ? null : Number(row.household_count),
       })),
     })
   } catch (error) {

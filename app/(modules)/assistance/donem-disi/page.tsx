@@ -11,15 +11,15 @@ export default function DonemDisiGidaYardimiPage({
     <AssistanceListPage
       searchParams={searchParams}
       config={{
-        title: 'Donem Disi Gida Listesi',
-        newButtonLabel: 'Yeni Donem Disi Gida',
+        title: 'Dönem Dışı Gıda Listesi',
+        newButtonLabel: 'Yeni Dönem Dışı Gıda',
         routePath: '/assistance/donem-disi',
         tableName: 'yrd_ddgidadosyali',
         tableId: 'yrd_ddgidadosyali',
         whereClause: 't.durumu != 0',
         searchColumns: ['t.muracaateden', 't.aciklama', 't.nedeni', 'd.dosyano'],
-        searchPlaceholder: 'Muracaat eden, neden, dosya no veya aciklama ara',
-        emptyMessage: 'Goruntulenecek donem disi gida kaydi bulunamadi.',
+        searchPlaceholder: 'Müracaat eden, neden, dosya no veya açıklama ara',
+        emptyMessage: 'Görüntülenecek dönem dışı gıda kaydı bulunamadı.',
         excludedColumns: [
           'dosyaid', 'kullaniciid', 'ilkkullaniciid', 'islemtarihi', 'ilkislemtarihi',
           'donemadi', 'dnm_durumu', 'donemint', 'donemstr',

@@ -74,7 +74,10 @@ export default async function RootLayout({
   const forceStandalone = requestHeaders.get('x-netsosyal-unauth-notfound') === '1'
 
   return (
-    <html lang="tr" className="h-full">
+    // suppressHydrationWarning: themeInitScript <html>'e hidrasyondan ONCE
+    // "dark" sinifini ekliyor - bu bilincli fark gece modunda React'in
+    // "attributes didn't match" uyarisini (dev'de "1 Issue") tetikliyordu.
+    <html lang="tr" className="h-full" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

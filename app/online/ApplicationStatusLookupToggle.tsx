@@ -91,18 +91,18 @@ export function ApplicationStatusLookupToggle() {
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 via-white to-white px-4 py-3 shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-lg">🔍</span>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-[20px] text-white">🔍</span>
         <div>
-          <p className="text-[10px] font-black uppercase tracking-wide text-violet-700">Başvuru Sorgulama</p>
-          <p className="text-sm font-bold text-slate-700">
+          <p className="text-[15px] font-bold uppercase tracking-wide text-[#0E7C86]">Başvuru Sorgulama</p>
+          <p className="text-[19px] font-semibold text-[#1E2A38]">
             {enabled
               ? 'Vatandaşlar /onlinebasvuru sayfasından başvurularını sorgulayabilir'
               : 'Sorgulama alanı vatandaşlardan gizli'}
           </p>
           {status && (
-            <p className={`mt-0.5 text-xs font-bold ${status.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>
+            <p className={`mt-0.5 text-[16px] font-bold ${status.type === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>
               {status.message}
             </p>
           )}
@@ -116,7 +116,7 @@ export function ApplicationStatusLookupToggle() {
           onChange={() => void toggleEnabled()}
           className="peer sr-only"
         />
-        <span className="absolute inset-0 rounded-full bg-slate-300 transition peer-checked:bg-violet-600 peer-disabled:opacity-60" />
+        <span className="absolute inset-0 rounded-full bg-slate-300 transition peer-checked:bg-[#0E7C86] peer-disabled:opacity-60" />
         <span className="absolute left-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-[24px]" />
       </label>
     </div>

@@ -9,7 +9,13 @@ import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
 import { buildMultiColumnOrderBy, parseSortParam } from '@/lib/sortSpec'
 import { computeNeighborhoodPaymentWindow } from '@/lib/utils/paymentWindow'
 import { AssistanceModeTabs } from './AssistanceModeTabs'
-import { ASSISTANCE_MODE_TABS_CONFIG, getAssistanceModeTabsBasePath } from './assistanceModeTabsConfig'
+import {
+  ASSISTANCE_MODE_TABS_CONFIG,
+  formatAssistanceDateTime,
+  getAssistanceKicker,
+  getAssistanceModeTabsBasePath,
+} from './assistanceModeTabsConfig'
+import { AssistanceStatStrip, type AssistanceStatItem } from './AssistanceStatStrip'
 import { NakitApplicationsSyncButton } from '../nakit/_components/NakitApplicationsSyncButton'
 import { NakitPhoneSyncButton } from '../nakit/_components/NakitPhoneSyncButton'
 
@@ -126,18 +132,33 @@ function applyPredefinedCashLabelOptions(
   currentOptions: Record<string, ColumnValueOption[]>,
   predefinedOptions: ColumnValueOption[],
 ) {
+  // Kullanici istegi (2026-10-13): bu fonksiyon onceden gercek veriden
+  // gelen etiket degerlerini (sayilariyla) TAMAMEN Hazir Degerler'deki
+  // onceden tanimli listeyle DEGISTIRIYORDU - Hazir Degerler'e hic
+  // eklenmemis ama gercekte kullanilmis eski etiketler (ör. "ALIŞVERİŞ
+  // ÇEKİ", "2024 MART", "01 OCAK ÖDEME") filtre acilir menusunden
+  // tamamen KAYBOLUYORDU (kullanici: "sadece sayfada görünenler
+  // filtrelenebiliyor, sayfa geneli değil" - aslinda sorun sayfalama
+  // degil, bu "degistirme"ydi). Artik BIRLESTIRILIYOR: once gercek
+  // veride GORULEN tum degerler (dogru sayilariyla) korunur, sonra
+  // henuz hic kullanilmamis (sayisi 0) tanimli etiketler sona eklenir.
+  const dataOptions = currentOptions.etiket ?? []
   if (predefinedOptions.length === 0) return currentOptions
 
-  const existingCounts = new Map(
-    (currentOptions.etiket ?? []).map((option) => [option.label || option.value, option.count])
-  )
+  const birlesik = new Map<string, ColumnValueOption>()
+  for (const option of dataOptions) {
+    birlesik.set(option.label || option.value, option)
+  }
+  for (const option of predefinedOptions) {
+    const anahtar = option.label || option.value
+    if (!birlesik.has(anahtar)) birlesik.set(anahtar, option)
+  }
 
   return {
     ...currentOptions,
-    etiket: predefinedOptions.map((option) => ({
-      ...option,
-      count: existingCounts.get(option.label) ?? existingCounts.get(option.value) ?? 0,
-    })),
+    etiket: Array.from(birlesik.values()).sort(
+      (a, b) => b.count - a.count || a.label.localeCompare(b.label, 'tr')
+    ),
   }
 }
 
@@ -269,6 +290,11 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
   // Kullanici istegi: "yardım kişi sayısı, miktar gibi bazı alanların
   // toplamlarını altta gösterelim" - bkz. AdvancedTable.tsx <tfoot>.
   const columnTotals: Record<string, number> = {}
+  let distinctFileCount: number | null = null
+  let lastProcessAt: Date | null = null
+  let statHasAmount = false
+  let statHasPersonCount = false
+  let statHasCardColumn = false
   let errorMessage: string | null = null
 
   let statusMap: Record<string, string> = {}
@@ -383,6 +409,12 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
     // kolonlar icin SUM eklenir.
     const hasAmountColumn = columnNames.has('miktar')
     const hasPersonCountColumn = columnNames.has('yardimkisisayisi')
+    // Kurumsal ozet seridi (2026-10-14) icin - AYNI countQuery'de hesaplanir.
+    const hasFileIdColumn = columnNames.has('dosyaid')
+    const hasProcessDateColumn = columnNames.has('islemtarihi')
+    statHasAmount = hasAmountColumn
+    statHasPersonCount = hasPersonCountColumn
+    statHasCardColumn = hasCardColumn
 
     const countQuery = `
       SELECT
@@ -391,7 +423,9 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
         ${showSummary && hasStatusColumn ? 'COUNT(*) FILTER (WHERE t.durumu = 2)::int' : '0'} as completed_count,
         ${showSummary && hasCardColumn ? "COUNT(*) FILTER (WHERE NULLIF(t.kartno, '') IS NULL)::int" : '0'} as missing_card_count,
         ${hasAmountColumn ? 'COALESCE(SUM(t.miktar), 0)::float8' : '0'} as total_amount,
-        ${hasPersonCountColumn ? 'COALESCE(SUM(t.yardimkisisayisi), 0)::float8' : '0'} as total_person_count
+        ${hasPersonCountColumn ? 'COALESCE(SUM(t.yardimkisisayisi), 0)::float8' : '0'} as total_person_count,
+        ${hasFileIdColumn ? 'COUNT(DISTINCT t.dosyaid)::int' : 'NULL::int'} as distinct_file_count,
+        ${hasProcessDateColumn ? 'MAX(t.islemtarihi)' : 'NULL::timestamp'} as last_process_at
       FROM ${config.tableName} t
       ${countNeedsFileJoin ? 'LEFT JOIN dosyalar d ON t.dosyaid = d.id' : ''}
       ${countNeedsFileJoin ? `
@@ -542,8 +576,16 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
       missing_card_count?: unknown
       total_amount?: unknown
       total_person_count?: unknown
+      distinct_file_count?: unknown
+      last_process_at?: unknown
     } | undefined
 
+    distinctFileCount = counts?.distinct_file_count === null || counts?.distinct_file_count === undefined
+      ? null
+      : Number(counts.distinct_file_count)
+    lastProcessAt = counts?.last_process_at instanceof Date || typeof counts?.last_process_at === 'string'
+      ? new Date(counts.last_process_at as string | Date)
+      : null
     totalCount = Number(counts?.total || 0)
     activeCount = Number(counts?.active_count || 0)
     completedCount = Number(counts?.completed_count || 0)
@@ -589,14 +631,28 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
     errorMessage = error instanceof Error ? error.message : String(error)
   }
 
+  const lastProcessText = formatAssistanceDateTime(lastProcessAt)
+  const statItems: AssistanceStatItem[] = [
+    { label: 'Kayıt', value: totalCount },
+    ...(distinctFileCount !== null ? [{ label: 'Farklı Dosya', value: distinctFileCount }] : []),
+    ...(statHasAmount ? [{ label: 'Toplam Miktar', value: columnTotals.miktar ?? 0, format: 'decimal' as const }] : []),
+    ...(statHasPersonCount ? [{ label: 'Yardım Kişi Sayısı', value: columnTotals.yardimkisisayisi ?? 0 }] : []),
+    ...(statHasCardColumn ? [{ label: 'Kart No Eksik', value: missingCardCount, tone: 'warn' as const }] : []),
+    ...(lastProcessText ? [{ label: 'Son İşlem', value: lastProcessText }] : []),
+  ]
+
   return (
     <div className="dy-yardim-rapor-17 space-y-6">
       {errorMessage && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-600">
-          Veritabanı Hatası: {errorMessage}
-          <p className="mt-2 text-[11px] font-medium text-rose-500">
-            Not: <span>{config.tableName}</span> tablosu veya beklenen sütunlar veritabanında mevcut olmayabilir.
-          </p>
+        <div role="alert" className="flex gap-3 rounded-xl border border-rose-200 border-l-4 border-l-rose-600 bg-white p-4 shadow-sm">
+          <span aria-hidden className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-sm font-black text-rose-700">!</span>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900">Liste yüklenirken bir sorun oluştu.</p>
+            <p className="mt-1 break-words text-[12px] font-medium text-slate-600">{errorMessage}</p>
+            <p className="mt-1 text-[11px] font-medium text-slate-500">
+              Sayfayı yenileyin; sorun sürerse sistem yöneticisine bildirin (tablo: {config.tableName}).
+            </p>
+          </div>
         </div>
       )}
 
@@ -689,9 +745,13 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
         newButtonLabel={config.newButtonLabel}
         exportFilePrefix={config.tableId}
         exportEndpoint={`/api/assistance/list-export?table=${encodeURIComponent(config.tableName)}&scope=${encodeURIComponent(config.whereClause)}`}
-        afterHeader={modeTabsConfig ? (
-          <AssistanceModeTabs basePath={modeTabsBasePath} {...modeTabsConfig} />
-        ) : undefined}
+        corporateHeader={{ kicker: getAssistanceKicker(config.routePath) }}
+        afterHeader={(
+          <div className="space-y-3">
+            {modeTabsConfig && <AssistanceModeTabs basePath={modeTabsBasePath} {...modeTabsConfig} />}
+            {showSummary && !errorMessage && <AssistanceStatStrip items={statItems} />}
+          </div>
+        )}
         extraToolbarButtons={config.tableName === 'yrd_ayninakti' ? (
           <>
             <NakitApplicationsSyncButton />

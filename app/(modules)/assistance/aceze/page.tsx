@@ -1,8 +1,20 @@
 import Link from 'next/link'
+import { ReportPageHeader } from '@/components/shared/ReportPageHeader'
+import { getAssistanceKicker } from '../_components/assistanceModeTabsConfig'
 import { AcezeApplicationForm } from './AcezeApplicationForm'
 import { AcezeRecordsList } from './AcezeRecordsList'
 
 export const dynamic = 'force-dynamic'
+
+// Kullanici istegi (2026-10-14, Yardımlar kurumsal tur): Aceze sayfasi
+// eskiden diger yardim sayfalarindan TAMAMEN farkli bir gorunumdeydi
+// (gokmavi/yesil degrade + bulanik daireler). Artik diger yardim
+// listeleriyle AYNI dil: lacivert kurumsal baslik + AssistanceModeTabs ile
+// ayni sekme stili. Sekme baglantilari (?tab=new / ?tab=list) DEGISMEDI.
+const ACEZE_TABS = [
+  { id: 'new', label: 'Yeni Başvuru', href: '/assistance/aceze?tab=new', dot: 'bg-sky-500' },
+  { id: 'list', label: 'Aceze Yardımları', href: '/assistance/aceze?tab=list', dot: 'bg-emerald-500' },
+] as const
 
 export default async function AcezeYardimiPage({
   searchParams,
@@ -14,24 +26,36 @@ export default async function AcezeYardimiPage({
 
   return (
     <div className="min-w-0 space-y-5">
-      <div className="relative overflow-hidden rounded-2xl border border-sky-200/80 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-2 shadow-[0_12px_35px_-22px_rgba(2,132,199,0.8)]">
-        <div className="pointer-events-none absolute -right-10 -top-14 h-32 w-32 rounded-full bg-emerald-300/20 blur-2xl" />
-        <div className="pointer-events-none absolute -bottom-14 left-1/4 h-28 w-28 rounded-full bg-sky-300/25 blur-2xl" />
-        <div className="relative grid grid-cols-2 gap-2 sm:max-w-[560px]">
-        <Link
-          href="/assistance/aceze?tab=new"
-          className={`rounded-xl px-3 py-3.5 text-center text-sm font-black transition-all ${activeTab === 'new' ? 'bg-gradient-to-r from-[#006ba6] to-[#0095cf] text-white shadow-lg shadow-sky-200' : 'bg-white/70 text-slate-600 hover:-translate-y-0.5 hover:bg-white hover:text-[#005f95] hover:shadow-md'}`}
-        >
-          Yeni Başvuru
-        </Link>
-        <Link
-          href="/assistance/aceze?tab=list"
-          className={`rounded-xl px-3 py-3.5 text-center text-sm font-black transition-all ${activeTab === 'list' ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-lg shadow-emerald-200' : 'bg-white/70 text-slate-600 hover:-translate-y-0.5 hover:bg-white hover:text-emerald-700 hover:shadow-md'}`}
-        >
-          Aceze Yardımları
-        </Link>
-        </div>
-      </div>
+      <ReportPageHeader
+        eyebrow="Yardım Yönetimi"
+        kicker={getAssistanceKicker('/assistance/aceze')}
+        title={activeTab === 'new' ? 'Aceze Yardımı Başvurusu' : 'Aceze Yardımları Listesi'}
+        subtitle={activeTab === 'new'
+          ? 'Yeni aceze yardımı başvurusu oluşturun.'
+          : 'Kayıtlı aceze yardımlarını görüntüleyin, arayın ve düzenleyin.'}
+      />
+
+      <nav aria-label="Aceze sekmeleri" className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-[0_1px_2px_rgba(16,30,43,0.05)] print:hidden">
+        {ACEZE_TABS.map((tab) => {
+          const isActive = activeTab === tab.id
+          return (
+            <Link
+              key={tab.id}
+              href={tab.href}
+              aria-current={isActive ? 'page' : undefined}
+              className={[
+                'inline-flex items-center gap-2 whitespace-nowrap rounded-lg border-b-[3px] px-5 py-2 text-[16px] font-bold uppercase tracking-wide transition',
+                isActive
+                  ? 'border-b-[#D4B26A] bg-[#1E2A38] text-white shadow-sm'
+                  : 'border-b-transparent text-slate-700 hover:bg-slate-100 hover:text-[#1E2A38]',
+              ].join(' ')}
+            >
+              <span className={`h-2.5 w-2.5 rounded-full ${tab.dot} ${isActive ? 'ring-2 ring-white/70' : ''}`} />
+              {tab.label}
+            </Link>
+          )
+        })}
+      </nav>
 
       {activeTab === 'new' ? (
         <AcezeApplicationForm />

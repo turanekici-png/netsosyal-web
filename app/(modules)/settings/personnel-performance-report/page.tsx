@@ -134,7 +134,7 @@ function PersonnelPerformanceReportContent() {
   return (
     <main className="min-h-screen w-full bg-gradient-to-br from-sky-50 via-white to-emerald-50 px-3 py-5 text-slate-900 sm:px-5 lg:px-8">
       <div className="mx-auto w-full max-w-[1900px] space-y-5">
-        <div className="rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
+        <div className="ns-sayfa-baslik rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-black uppercase tracking-[0.16em] text-white/85">Personel performans raporu</p>
@@ -312,7 +312,7 @@ function PersonnelPerformanceReportContent() {
                   </span>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[920px] text-left text-sm">
+                  <table className="ns-tablo w-full min-w-[920px] text-left text-sm">
                     <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500">
                       <tr>
                         <th className="px-4 py-3">Tarih</th>

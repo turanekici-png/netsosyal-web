@@ -2,6 +2,8 @@ import { Pool } from 'pg'
 import { createUtcTypeOverrides } from '@/lib/db/pgTypeParsers'
 import { prisma } from '@/lib/db/prisma'
 import { withAuditedWrite } from '@/lib/db/auditContext'
+import { formatAutoRejectExplanation, formatTurkishLira } from '@/lib/nakitAutoRejectText'
+import { ensureCashReasonColumnWidth } from '@/lib/services/cashReasonColumn'
 import { predefinedValuesService } from '@/lib/services/predefinedValues.service'
 import { normalizePredefinedText, type PredefinedValue } from '@/lib/constants/predefinedValues'
 import {
@@ -46,20 +48,25 @@ function buildAutoRejectReasonTexts(params: {
 }): string[] {
   const { totalGelir, gelirLimit, maxVehicleYear, aracYearLimit, vergiVar, gelirAciklama, aracAciklama } = params
   const reasons: string[] = []
+  // 2026-10-14: kurumsal, tam cümleli gerekçeler. Yardım Kriterleri'ndeki
+  // açıklama notu artık hesaplanan gerekçenin YERİNE değil, SONUNA "Kriter
+  // notu" olarak eklenir (yalnızca not girilmişse) - eskiden yalnızca not
+  // (ör. "EAÜE") yazıldığı için açıklama anlaşılmıyordu.
+  const withNote = (text: string, note?: string | null) => (note?.trim() ? `${text} (Kriter notu: ${note.trim()})` : text)
   if (gelirLimit !== null && totalGelir > gelirLimit) {
-    reasons.push(
-      gelirAciklama?.trim()
-        || `Toplam gelir (${totalGelir.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) tanımlı sınırın (${gelirLimit.toLocaleString('tr-TR')}) üzerinde`,
-    )
+    reasons.push(withNote(
+      `Hanenin toplam aylık geliri ${formatTurkishLira(totalGelir)} olup dönem için belirlenen ${formatTurkishLira(gelirLimit)} üst sınırını aşmaktadır`,
+      gelirAciklama,
+    ))
   }
   if (aracYearLimit !== null && maxVehicleYear !== null && maxVehicleYear > aracYearLimit) {
-    reasons.push(
-      aracAciklama?.trim()
-        || `Araç modeli (${maxVehicleYear}) tanımlı sınırın (${aracYearLimit}) üzerinde`,
-    )
+    reasons.push(withNote(
+      `Hanede ${maxVehicleYear} model araç bulunmaktadır; dönem için belirlenen araç model yılı üst sınırı ${aracYearLimit} olarak tanımlıdır`,
+      aracAciklama,
+    ))
   }
   if (vergiVar) {
-    reasons.push('Belgelerden alınan bilgilere göre vergi mükellefiyeti kaydı bulunuyor')
+    reasons.push('Belgelerden alınan bilgilere göre hanede vergi mükellefiyeti kaydı bulunmaktadır')
   }
   return reasons
 }
@@ -525,7 +532,7 @@ export async function reevaluateCashAutoRejectForFile(
     const isCurrentlyOtomatikRed = normalizePredefinedText(row.asama || '') === normalizePredefinedText(OTOMATIK_RED_STAGE)
 
     if (reasons.length > 0) {
-      if (!isCurrentlyOtomatikRed) matches.push({ id: row.id.toString(), reason: reasons.join('; ').slice(0, 100) })
+      if (!isCurrentlyOtomatikRed) matches.push({ id: row.id.toString(), reason: formatAutoRejectExplanation(reasons) })
     } else if (isCurrentlyOtomatikRed) {
       reverts.push(row.id.toString())
     }
@@ -553,8 +560,9 @@ export async function applyCashAutoReject(
   // toplu UPDATE yeterli degil; tek transaction icinde satir satir
   // guncellenir (tipik parti boyutu - onlarca/yuzlerce kayit - bu
   // yaklasimda sorun cikarmaz).
+  const reasonMaxLength = await ensureCashReasonColumnWidth()
   const cleanMatches = matches
-    .map((match) => ({ id: String(match.id).trim(), reason: String(match.reason || '').trim().slice(0, 100) }))
+    .map((match) => ({ id: String(match.id).trim(), reason: String(match.reason || '').trim().slice(0, reasonMaxLength) }))
     .filter((match) => /^\d+$/.test(match.id))
   if (cleanMatches.length === 0) return 0
 

@@ -4,6 +4,8 @@ import { requireApiAccess, requireAuthorizedPersonnelOrAdmin } from '@/lib/apiAu
 import { resolveCashPredefinedLabels } from '@/lib/services/cashPredefinedLabels.service'
 import { requireDestructiveAuthorization } from '@/lib/security/destructiveAuthorization'
 import { getAuditMetaFromRequest, stampAuditUser, withAuditedWrite } from '@/lib/db/auditContext'
+import { CANCEL_REASON_SEPARATOR } from '@/lib/nakitAutoRejectText'
+import { ensureCashReasonColumnWidth } from '@/lib/services/cashReasonColumn'
 
 export const dynamic = 'force-dynamic'
 
@@ -298,6 +300,58 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, error: 'Geçersiz yardım tablosu.' }, { status: 400 })
     }
 
+    // Kullanici istegi (2026-10-14): Yardım Hareketleri'nden acilan ESKI/IPTAL
+    // edilmis muracaatlarin durumu, muracaat penceresinin ustunden
+    // degistirilebilsin. SADECE Beklemede (0) <-> İptal (1) arasi gecis;
+    // Ödendi (6) gibi odeme kayitlarina bagli durumlara bu yoldan ne
+    // gecilir ne de onlardan cikilir (WHERE durumu IN (0,1)). Iz icin
+    // aciklama zorunlu; durumuaciklama'ya yazilir (iptalin eski nedeni
+    // yeniden acilista bu notla degisir - "Açıklama" sutunu COALESCE'i
+    // eski iptal nedenini gostermeye devam etmesin).
+    if (updateMode === 'application-status') {
+      if (!recordId || !fileId) {
+        return NextResponse.json({ success: false, error: 'Kayıt ve dosya bilgisi zorunludur.' }, { status: 400 })
+      }
+      if (status !== 0 && status !== 1) {
+        return NextResponse.json({ success: false, error: 'Bu pencereden sadece Beklemede / İptal durumları seçilebilir.' }, { status: 400 })
+      }
+      const statusDate = cleanDateText(body.statusDate) || new Date().toISOString().slice(0, 10)
+      const note = cleanText(body.description)
+      if (!note) {
+        return NextResponse.json({ success: false, error: 'Durum değişikliği için açıklama zorunludur.' }, { status: 400 })
+      }
+
+      const columns = await getServiceRecordColumns(sourceTable)
+      const updates: Array<{ column: string; value: string | number | null }> = []
+      const pushUpdate = (column: string, value: string | number | null) => {
+        if (columns.has(column)) updates.push({ column, value })
+      }
+      pushUpdate('durumu', status)
+      pushUpdate('durumutarih', statusDate)
+      pushUpdate('durumuaciklama', note)
+      pushUpdate('islemtarihi', new Date().toISOString())
+
+      const setClause = updates
+        .map((update, index) => `${quoteIdentifier(update.column)} = $${index + 1}`)
+        .join(', ')
+      const params = updates.map((update) => update.value)
+      params.push(recordId.toString(), fileId.toString())
+
+      const updatedCount = await withAuditedWrite((tx) => tx.$executeRawUnsafe(
+        `UPDATE ${quoteIdentifier(sourceTable)}
+         SET ${setClause}
+         WHERE id = $${params.length - 1}::bigint AND dosyaid = $${params.length}::bigint
+           AND COALESCE(durumu, 0) IN (0, 1)`,
+        ...params,
+      ), getAuditMetaFromRequest(request))
+
+      if (updatedCount === 0) {
+        return NextResponse.json({ success: false, error: 'Kayıt bulunamadı ya da durumu (ör. Ödendi) bu pencereden değiştirilemez.' }, { status: 409 })
+      }
+
+      return NextResponse.json({ success: true, updatedCount })
+    }
+
     if (updateMode === 'cancel') {
       if (!recordId || !fileId) {
         return NextResponse.json({ success: false, error: 'Kayıt ve dosya bilgisi zorunludur.' }, { status: 400 })
@@ -316,15 +370,51 @@ export async function PATCH(request: Request) {
         if (columns.has(column)) updates.push({ column, value })
       }
 
+      // Kullanici istegi (2026-10-14): Dosya Yönetimi > müracaat iptal
+      // penceresinde de (1) kaydın "Otomatik Red" açıklaması ile yazılan
+      // neden "-------" ile birleştirilir (Nakit Müracaatlar listesindeki toplu
+      // iptal ile AYNI kural - bkz. app/api/requests/nakit/cancel/route.ts),
+      // (2) "Tahkikat raporuna da işle" işaretliyse aynı metin günün tarihi ve
+      // "Bilgi - <dönem>" konusuyla tahkikatraporlari'na (Raporlar ve
+      // Tahkikatlar > İnceleme) eklenir. İkisi tek transaction.
+      const reasonColumn = ['durumuaciklama', 'aciklama', 'muracaataciklama'].find((column) => columns.has(column)) || null
+      const readColumns = ['asama', 'durumuaciklama', 'donem'].filter((column) => columns.has(column))
+      const currentRows = readColumns.length > 0
+        ? await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+          `SELECT ${readColumns.map(quoteIdentifier).join(', ')} FROM ${quoteIdentifier(sourceTable)} WHERE id = $1::bigint AND dosyaid = $2::bigint LIMIT 1`,
+          recordId.toString(),
+          fileId.toString(),
+        )
+        : []
+      const current = currentRows[0] || {}
+      const currentAsama = typeof current.asama === 'string' ? current.asama.trim() : ''
+      const currentAutoReason = typeof current.durumuaciklama === 'string' ? current.durumuaciklama.trim() : ''
+      const autoReason = currentAutoReason && currentAsama.toLocaleLowerCase('tr-TR') === 'otomatik red' ? currentAutoReason : null
+      const fullReason = [autoReason, cancelReason].filter(Boolean).join(CANCEL_REASON_SEPARATOR)
+      const donem = typeof current.donem === 'string' ? current.donem.trim() : ''
+      const writeReport = body.writeReport === true
+
+      // Alanın gerçek uzunluğuna göre kesilir (aşılırsa UPDATE hata verirdi).
+      // Nakit tablosunda alan 500'e genişletilir (kullanıcı kararı).
+      let reasonMaxLength: number | null = null
+      if (reasonColumn) {
+        if (sourceTable === 'yrd_ayninakti' && reasonColumn === 'durumuaciklama') {
+          reasonMaxLength = await ensureCashReasonColumnWidth()
+        } else {
+          const lengthRows = await prisma.$queryRawUnsafe<Array<{ len: number | null }>>(
+            `SELECT character_maximum_length AS len FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+            sourceTable,
+            reasonColumn,
+          )
+          reasonMaxLength = lengthRows[0]?.len ?? null
+        }
+      }
+      const storedReason = reasonMaxLength ? fullReason.slice(0, reasonMaxLength) : fullReason
+
       pushUpdate('durumu', 1)
       pushUpdate('durumutarih', cancelDate)
-      if (columns.has('durumuaciklama')) {
-        pushUpdate('durumuaciklama', cancelReason)
-      } else if (columns.has('aciklama')) {
-        pushUpdate('aciklama', cancelReason)
-      } else if (columns.has('muracaataciklama')) {
-        pushUpdate('muracaataciklama', cancelReason)
-      }
+      if (reasonColumn) pushUpdate(reasonColumn, storedReason)
       pushUpdate('islemtarihi', new Date().toISOString())
 
       if (updates.length === 0) {
@@ -337,18 +427,33 @@ export async function PATCH(request: Request) {
       const params = updates.map((update) => update.value)
       params.push(recordId.toString(), fileId.toString())
 
-      const updatedCount = await withAuditedWrite((tx) => tx.$executeRawUnsafe(
-        `UPDATE ${quoteIdentifier(sourceTable)}
-         SET ${setClause}
-         WHERE id = $${params.length - 1}::bigint AND dosyaid = $${params.length}::bigint`,
-        ...params,
-      ), getAuditMetaFromRequest(request))
+      const result = await withAuditedWrite(async (tx) => {
+        const updatedCount = await tx.$executeRawUnsafe(
+          `UPDATE ${quoteIdentifier(sourceTable)}
+           SET ${setClause}
+           WHERE id = $${params.length - 1}::bigint AND dosyaid = $${params.length}::bigint`,
+          ...params,
+        )
+        let reportAdded = false
+        if (updatedCount > 0 && writeReport) {
+          const konu = (donem ? `Bilgi - ${donem}` : 'Bilgi').slice(0, 200)
+          await tx.$executeRawUnsafe(
+            `INSERT INTO public.tahkikatraporlari (dosyaid, tarih, konu, rapor, ilkislemtarihi, islemtarihi)
+             VALUES ($1::bigint, (NOW() AT TIME ZONE 'Europe/Istanbul')::date, $2::varchar(200), $3::text, NOW(), NOW())`,
+            fileId.toString(),
+            konu,
+            fullReason,
+          )
+          reportAdded = true
+        }
+        return { updatedCount, reportAdded }
+      }, getAuditMetaFromRequest(request))
 
-      if (updatedCount === 0) {
+      if (result.updatedCount === 0) {
         return NextResponse.json({ success: false, error: 'Güncellenecek kayıt bulunamadı.' }, { status: 404 })
       }
 
-      return NextResponse.json({ success: true, updatedCount })
+      return NextResponse.json({ success: true, updatedCount: result.updatedCount, reportAdded: result.reportAdded, cancelReason: storedReason })
     }
 
     if (updateMode === 'application-payment') {

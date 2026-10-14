@@ -21,8 +21,8 @@ type ReportType = 'guncelleme' | 'on-inceleme' | 'inceleme' | 'summary'
 // YAZMADIGI guncelleme_formu tablosunu okuyordu - yani Tahkikat ve Sonuç
 // Bekleyen (komisyon) raporlari bu ekranda HIC GORUNMUYORDU. Su an gercekte
 // kullanilan kaynaklara tasindi:
-//  - "inceleme" (Tahkikat)      -> inceleme_degerlendirme_formu (bkz. app/api/
-//                                   documents/inceleme-degerlendirme/route.ts)
+//  - "inceleme" (Tahkikat)      -> saha_inceleme_formu (2026-10-13'ten beri, bkz.
+//                                   app/api/documents/saha-inceleme/route.ts)
 //  - "guncelleme" (Sonuç Bekleyen/Komisyon Raporu) -> tahkikatraporlari (bkz.
 //                                   app/api/workflow/guncelleme/report/route.ts,
 //                                   ayni tablo Prisma "Report" modeliyle de
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (type === 'inceleme') {
-      if (!(await tableExists(pool, 'inceleme_degerlendirme_formu'))) return NextResponse.json({ success: true, data: [] })
+      if (!(await tableExists(pool, 'saha_inceleme_formu'))) return NextResponse.json({ success: true, data: [] })
 
       const clauses: string[] = []
       const values: string[] = []
@@ -149,25 +149,19 @@ export async function GET(request: NextRequest) {
       if (search) { values.push(`%${search}%`); clauses.push(`d.dosyano ILIKE $${values.length}`) }
       const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
 
-      // Tahkikat Formu v2'nin (inceleme_degerlendirme_formu) eski sistemdeki
-      // "otomatik_sonuc"/"komisyon_karari" ayrimi yok - bunlarin yerine
-      // karar/eliminasyon_sonucu ve onay_durumu kullanildi (bkz. lib/constants/
-      // incelemeDegerlendirmeForm.ts OnayDurumu etiketleri).
+      // 2026-10-13: Tahkikat Formu artik "Hane Ziyareti ve Sosyal İnceleme
+      // Formu" (saha_inceleme_formu) - puan/karar yok (kullanici istegiyle
+      // kaldirildi); yerine ziyaret sonucu, aciliyet ve ön değerlendirme.
       const result = await pool.query(
         `
           SELECT i.id::text AS id, i.dosyaid::text AS "dosyaid", d.dosyano AS "dosyaNo",
                  owner.adisoyadi AS "dosyaSahibi", d.telefon AS "telefon", ${ADRES_EXPRESSION} AS "adres",
                  COALESCE(NULLIF(i.personel, ''), ku.kullanicitamadi) AS "islemYapan",
-                 i.tarih AS "formTarihi", i.ad_soyad AS "adSoyad", i.toplam_puan AS "toplamPuan",
-                 CASE WHEN i.eliminasyon_sonucu = 'RED' THEN 'ELİMİNASYON: RED' ELSE i.karar END AS "otomatikSonuc",
-                 CASE i.onay_durumu
-                   WHEN 'beklemede' THEN 'Onay Bekliyor'
-                   WHEN 'onaylandi' THEN 'Onaylandı'
-                   WHEN 'reddedildi' THEN 'Reddedildi'
-                   ELSE 'Onay Gerekmiyor'
-                 END AS "komisyonKarari",
-                 i.personel AS "inceleyenAdSoyad", i.guncelleme_tarihi AS "islemtarihi"
-          FROM public.inceleme_degerlendirme_formu i
+                 i.tarih AS "formTarihi", i.ad_soyad AS "adSoyad",
+                 i.ziyaret_sonucu AS "ziyaretSonucu", i.aciliyet AS "aciliyet",
+                 i.oncelikli_ihtiyac AS "oncelikliIhtiyac", i.on_degerlendirme AS "onDegerlendirme",
+                 i.ozet AS "ozet", i.guncelleme_tarihi AS "islemtarihi"
+          FROM public.saha_inceleme_formu i
           LEFT JOIN dosyalar d ON d.id = i.dosyaid
           LEFT JOIN kullanicilar ku ON ku.id = i.kullaniciid
           ${OWNER_JOIN_SQL}
@@ -184,7 +178,7 @@ export async function GET(request: NextRequest) {
     const [hasGuncelleme, hasOnInceleme, hasInceleme] = await Promise.all([
       tableExists(pool, 'tahkikatraporlari'),
       tableExists(pool, 'on_inceleme_raporlari'),
-      tableExists(pool, 'inceleme_degerlendirme_formu'),
+      tableExists(pool, 'saha_inceleme_formu'),
     ])
 
     const dateClauseFor = (column: string, values: string[]) => {
@@ -229,12 +223,11 @@ export async function GET(request: NextRequest) {
       const values: string[] = []
       const whereSql = dateClauseFor('tarih', values)
       const [totalRow, sonucRows] = await Promise.all([
-        pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM public.inceleme_degerlendirme_formu ${whereSql};`, values),
+        pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM public.saha_inceleme_formu ${whereSql};`, values),
         pool.query<{ sonuc: string | null; count: string }>(
           `
-            SELECT COALESCE(NULLIF(CASE WHEN eliminasyon_sonucu = 'RED' THEN 'ELİMİNASYON: RED' ELSE karar END, ''), 'Belirtilmemiş') AS sonuc,
-                   COUNT(*)::text AS count
-            FROM public.inceleme_degerlendirme_formu ${whereSql} GROUP BY 1 ORDER BY 2 DESC;
+            SELECT COALESCE(NULLIF(aciliyet, ''), 'Aciliyet belirtilmemiş') AS sonuc, COUNT(*)::text AS count
+            FROM public.saha_inceleme_formu ${whereSql} GROUP BY 1 ORDER BY 2 DESC;
           `,
           values,
         ),

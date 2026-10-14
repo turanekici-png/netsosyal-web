@@ -49,7 +49,7 @@ export const MODULES_CONFIG = [
   { name: 'Genel Raporlar', path: '/reports/genel', icon: 'bar-chart' },
   { name: 'Yardım Hareketleri', path: '/reports/yardim-hareketleri', icon: 'bar-chart' },
   { name: 'Yardım Sayaç', path: '/reports/yardim-sayac', icon: 'bar-chart' },
-  { name: 'SMS Gönderim Raporlar', path: '/reports/sms', icon: 'bar-chart' },
+  { name: 'SMS Gönderim Raporları', path: '/reports/sms', icon: 'bar-chart' },
   { name: 'Diğer Kurumlar', path: '/reports/diger-kurumlar', icon: 'bar-chart' },
 
   { name: 'Yıllık Yardım Geçmişi', path: '/reports/yillik-yardim-gecmisi', icon: 'bar-chart' },

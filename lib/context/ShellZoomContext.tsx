@@ -107,7 +107,29 @@ export function ShellZoomProvider({ children }: { children: React.ReactNode }) {
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
       event.preventDefault()
-      adjust(event.deltaY < 0 ? SHELL_ZOOM_STEP : -SHELL_ZOOM_STEP)
+      const direction = event.deltaY < 0 ? 1 : -1
+      // Kullanici istegi (2026-10-14): "acilan pencereleri fare tekerlegiyle
+      // buyutup kucultmek istedigimde pencere degil arka plandaki sayfa
+      // buyuyor" - fare bir pencerenin USTUNDEYSE sayfa degil o pencere
+      // yakinlasir: (1) tasinabilir pencereler (data-window-zoom) kendi ic
+      // olceklerini ayarlar, (2) diger tum ortali pencerelerde (fixed inset-0
+      // katmaninin ilk cocugu = pencere paneli) CSS zoom uygulanir.
+      const target = event.target as Element | null
+      const floatingWindow = target?.closest?.('[data-window-zoom]')
+      if (floatingWindow) {
+        floatingWindow.dispatchEvent(new CustomEvent('netsosyal:window-zoom', { detail: { direction } }))
+        return
+      }
+      const overlay = target?.closest?.('.fixed.inset-0')
+      const panel = overlay?.firstElementChild
+      if (overlay && panel instanceof HTMLElement && !overlay.classList.contains('pointer-events-none')) {
+        const current = Number(panel.dataset.windowZoom || '1')
+        const next = Math.min(1.6, Math.max(0.7, +(current + direction * 0.05).toFixed(2)))
+        panel.dataset.windowZoom = String(next)
+        panel.style.zoom = next === 1 ? '' : String(next)
+        return
+      }
+      adjust(direction * SHELL_ZOOM_STEP)
     }
 
     window.addEventListener('keydown', onKeyDown, { passive: false })
