@@ -6,6 +6,13 @@ import { DashboardGrid, type DashboardWidget } from '@/components/shared/Dashboa
 import { AssistanceDistributionMap } from '@/components/shared/AssistanceDistributionMap'
 import { useCanUseAction } from '@/lib/hooks/useCanUseAction'
 import type { Layout } from 'react-grid-layout'
+import {
+  CustomSummaryBuilder,
+  CustomSummaryPanel,
+  confirmRemoveWidget,
+  useCustomSummaryWidgets,
+  type CustomSummaryWidget,
+} from './CustomSummaryWidgets'
 
 export const dynamic = 'force-dynamic'
 
@@ -237,6 +244,7 @@ function getAssistanceStatusBadgeClass(statusCode: string, variant: 'default' | 
     '2': 'border-emerald-600 bg-gradient-to-r from-emerald-500 to-green-600 text-white ring-2 ring-emerald-200 shadow-md shadow-emerald-200/70',
     '3': 'border-rose-600 bg-gradient-to-r from-rose-500 to-red-600 text-white ring-2 ring-rose-200 shadow-md shadow-rose-200/70',
     '4': 'border-sky-600 bg-gradient-to-r from-sky-500 to-blue-600 text-white ring-2 ring-sky-200 shadow-md shadow-sky-200/70',
+    '5': 'border-yellow-500 bg-yellow-400 text-yellow-950 ring-2 ring-yellow-200 shadow-md shadow-yellow-200/70',
   }
   const dgnClasses: Record<string, string> = {
     '0': 'border-amber-600 bg-gradient-to-r from-amber-500 to-orange-600 text-white ring-2 ring-amber-200 shadow-md shadow-amber-200/70',
@@ -2517,6 +2525,10 @@ export default function DashboardPage() {
   // bir "herkese acik" yanip-sonme goruntusu istenmiyor.
   const { canUseAction: canUseDashboardAction, isLoaded: isPermissionLoaded } = useCanUseAction()
   const canEditDashboardLayout = isPermissionLoaded && canUseDashboardAction('dashboard.layout')
+  // 2026-10-15: kullanicinin kendi ekledigi ozet rapor kutulari (bkz.
+  // CustomSummaryWidgets.tsx). Özel Rapor yetkisi olmayanlarda available=false.
+  const customSummaries = useCustomSummaryWidgets()
+  const [summaryBuilder, setSummaryBuilder] = useState<{ open: boolean; initial: CustomSummaryWidget | null }>({ open: false, initial: null })
 
   useEffect(() => {
     let isCancelled = false
@@ -2963,30 +2975,77 @@ export default function DashboardPage() {
       fullReportPath: '/assistance/map',
       node: <AssistanceDistributionMap variant="widget" />,
     },
+    // 2026-10-15: kullanicinin ekledigi ozet raporlar - duzende yerleri yoksa
+    // DashboardGrid onlari en alta kendiliginden yerlestirir.
+    ...customSummaries.entries.map((entry): DashboardWidget => ({
+      id: entry.widget.id,
+      title: entry.widget.title,
+      node: (
+        <CustomSummaryPanel
+          entry={entry}
+          onOpenPath={(path, title) => openReportInNewTab(title, path)}
+          onEdit={() => setSummaryBuilder({ open: true, initial: entry.widget })}
+          onDelete={async () => {
+            if (await confirmRemoveWidget(entry.widget.title)) await customSummaries.removeWidget(entry.widget.id)
+          }}
+        />
+      ),
+    })),
   ]
 
+  // Ust seritteki "Hızlı Erişim": tam raporu olan tum kutular + sik kullanilan listeler.
+  const quickAccessLinks = [
+    { title: 'Tüm Dosyalar', path: '/documents/all' },
+    { title: 'Tüm Bireyler', path: '/beneficiary' },
+    ...widgets
+      .filter((widget) => widget.fullReportPath)
+      .map((widget) => ({ title: widget.fullReportTitle || widget.title, path: widget.fullReportPath as string })),
+    { title: 'Özel Rapor Oluştur', path: '/reports/ozel' },
+  ].filter((link, index, list) => list.findIndex((other) => other.path === link.path) === index)
+
   return (
-    <div className="dy-dashboard w-full min-w-0 max-w-full space-y-2 overflow-x-hidden rounded-2xl bg-gradient-to-br from-sky-50/80 via-white to-emerald-50/70 p-1.5 text-slate-950 sm:space-y-5 sm:rounded-3xl sm:p-3">
-      <div className="dy-dashboard-hero relative w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-white bg-gradient-to-r from-[#004f7c] via-[#0076b6] to-[#36a852] px-3 py-2 text-white shadow-[0_10px_30px_rgba(0,118,182,0.22)] ring-1 ring-sky-200 sm:rounded-2xl sm:px-5 sm:py-3">
-        {/* Kurumsal sade baslik (2026-10-13, kullanici istegi "profesyonel,
-            kurumsal, kullanisli ve anlasilir"): gokkusagi sol serit ve parlama
-            kaldirildi, 40px baslik diger sayfalarla ayni olcege (20/26px)
-            indi; bugunun tarihi ve kutularin nasil kullanilacagi eklendi. */}
-        <div className="relative flex flex-col gap-1.5 lg:flex-row lg:items-end lg:justify-between lg:gap-4">
+    <div className="dy-dashboard w-full min-w-0 max-w-full space-y-2 overflow-x-hidden rounded-2xl p-1.5 text-slate-950 sm:space-y-4 sm:rounded-3xl sm:p-3">
+      {/* 2026-10-15 kullanici istegi: Dosyalar/Yardımlar ile ayni lacivert/altin
+          kurumsal baslik + "Hızlı Erişim" (tum tam raporlar tek yerde) +
+          kullanicinin kendi ozet raporunu ekleyebilecegi dugme. */}
+      <div className="dy-dashboard-hero relative w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-3 py-3 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)] sm:px-5">
+        <div className="relative flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
           <div className="min-w-0">
-            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/70">Sosyal Hizmetler Müdürlüğü</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">Sosyal Hizmetler Müdürlüğü</p>
             <h1 className="mt-0.5 break-words text-[20px] font-semibold uppercase leading-tight tracking-wide text-white md:text-[26px]">Ana Sayfa Rapor Paneli</h1>
-          </div>
-          <div className="min-w-0 text-left lg:text-right">
-            <p className="text-[14px] font-bold text-white" suppressHydrationWarning>
+            <p className="mt-1 text-[13.5px] font-medium text-slate-300" suppressHydrationWarning>
               {new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric', weekday: 'long' })}
-            </p>
-            <p className="text-[12.5px] font-semibold text-white/75">
-              Kutudaki satırlara tıklayarak ilgili listeye, köşedeki ⤢ simgesiyle tam rapora geçebilirsiniz.
+              <span className="mx-2 text-slate-500">·</span>
+              Kutudaki satırlara tıklayınca ilgili liste, köşedeki ⤢ simgesiyle tam rapor açılır.
             </p>
           </div>
+          {customSummaries.available && (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setSummaryBuilder({ open: true, initial: null })}
+                className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-white px-4 text-[14.5px] font-bold text-[#1E2A38] shadow-sm transition-colors hover:bg-[#F6F3EA]"
+              >
+                + Özet Rapor Ekle
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      <nav aria-label="Hızlı erişim" className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-[0_1px_2px_rgba(16,30,43,0.06)]">
+        <span className="mr-1 text-[12.5px] font-bold uppercase tracking-wide text-slate-500">Hızlı Erişim</span>
+        {quickAccessLinks.map((link) => (
+          <button
+            key={link.path}
+            type="button"
+            onClick={() => openReportInNewTab(link.title, link.path)}
+            className="rounded-md border border-slate-200 bg-[#F7F8FA] px-2.5 py-1 text-[13.5px] font-semibold text-[#1E2A38] transition-colors hover:border-[#1E2A38] hover:bg-[#F6F3EA]"
+          >
+            {link.title}
+          </button>
+        ))}
+      </nav>
 
       {error && (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-[17px] font-bold text-rose-700">
@@ -2995,6 +3054,17 @@ export default function DashboardPage() {
       )}
 
       <DashboardGrid widgets={widgets} defaultLayout={DASHBOARD_DEFAULT_LAYOUT} canEdit={canEditDashboardLayout} onOpenFullReport={openReportInNewTab} />
+
+      {/* Yalniz acikken render edilir - her acilis temiz bir taslakla baslar. */}
+      {summaryBuilder.open && (
+      <CustomSummaryBuilder
+        key={summaryBuilder.initial?.id ?? 'new'}
+        open={summaryBuilder.open}
+        initial={summaryBuilder.initial}
+        onClose={() => setSummaryBuilder({ open: false, initial: null })}
+        onSaved={() => void customSummaries.reload()}
+      />
+      )}
     </div>
   )
 }

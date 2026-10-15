@@ -5,6 +5,7 @@ import {
   buildDocumentsWhereClause,
   DOCUMENTS_CHAINABLE_COLUMNS,
 } from '@/lib/documents/documentsListQuery'
+import { getDocumentKodEtiketleri } from '@/lib/documents/documentKodEtiketleri'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,11 +35,12 @@ export async function GET(request: Request) {
     }
 
     const data: Record<string, ColumnOption[]> = {}
+    const etiketler = await getDocumentKodEtiketleri()
 
     await Promise.all(requestedColumns.map(async (columnKey) => {
       const expression = DOCUMENTS_CHAINABLE_COLUMNS[columnKey]
       const whereClause = buildDocumentsWhereClause(searchParams, search, columnKey)
-      const fromClause = buildDocumentsFromClause(whereClause.sql)
+      const fromClause = buildDocumentsFromClause(whereClause.sql, etiketler)
 
       const rows = await prisma.$queryRawUnsafe<OptionRow[]>(`
         SELECT NULLIF(BTRIM((${expression})::text), '') AS value, COUNT(*)::bigint AS count

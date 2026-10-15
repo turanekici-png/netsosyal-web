@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireApiAccess } from '@/lib/apiAuth'
+import { getSessionUser, requireApiAccess } from '@/lib/apiAuth'
+import { etkinKimlik } from '@/lib/auth/tahkikatEkip'
+import { performansKaydet } from '@/lib/workflow/performans'
 import { parseSessionValue, readSessionCookie } from '@/lib/auth'
 import { getAuditMetaFromRequest, withAuditedWrite } from '@/lib/db/auditContext'
 
@@ -66,6 +68,19 @@ export async function POST(request: NextRequest) {
       )
       RETURNING id;
     `, getAuditMetaFromRequest(request))
+
+    // 2026-10-15: Performans Raporu (is_akisi_performans) - konusu ne olursa
+    // olsun Sonuç Bekleyen'den yazilan komisyon raporu sayilir.
+    const kimlik = await etkinKimlik(await getSessionUser(), request.cookies)
+    await performansKaydet({
+      islemTuru: 'sonuc_bekleyen',
+      dosyaid: fileId,
+      kaynakTablo: 'tahkikatraporlari',
+      kaynakId: rows[0]?.id !== undefined ? String(rows[0].id) : null,
+      kullaniciId: kimlik.kullaniciId ?? currentUserId,
+      ekipKullaniciId: kimlik.ekipKullaniciId,
+      sonuc: title,
+    })
 
     return NextResponse.json({
       success: true,

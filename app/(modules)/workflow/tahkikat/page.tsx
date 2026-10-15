@@ -6,6 +6,9 @@ import { useTabs } from '@/lib/context/TabContext'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { useWorkflowLocks, workflowLockConfirmText, type WorkflowLock } from '@/lib/hooks/useWorkflowPresence'
 import { WORKFLOW_LOCKED_ROW_CLASS, WorkflowLockNotice } from '@/components/workflow/WorkflowLockNotice'
+import { TahkikatEkipYonetimi } from '@/components/workflow/TahkikatEkipYonetimi'
+import { useFormSekmesiAc } from '@/lib/workflow/formSekmesi'
+import { EvZiyaretiTekrarUyarisi, type EvZiyaretiTekrari } from '@/components/workflow/EvZiyaretiTekrarUyarisi'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +33,8 @@ type InvestigationFile = {
   zoneOwnerId: string | null
   zoneOwnerName: string | null
   effectiveOwnerId: string | null
+  // 2026-10-15: Sonuç Bekleyen'den "Ev Ziyareti Tekrarı" ile geri gelen dosya
+  evZiyaretiTekrari?: EvZiyaretiTekrari | null
 }
 
 // Kullanici istegi (2026-10-08): "yönetici özel olarak bir dosyayı istediği
@@ -108,7 +113,17 @@ function TahkikatTableRow({ row, index, canAssign, onOpenFile, onOpenReport, onA
   onAssign: (row: InvestigationFile) => void
 }) {
   return (
-    <tr className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} transition hover:bg-sky-50 ${lock ? WORKFLOW_LOCKED_ROW_CLASS : ''}`}>
+    <>
+    {/* 2026-10-15: tekrar ziyaret uyarisi satirin ustunde, tum genislikte;
+        uyari + dosya satiri tek blok (ns-tekrar-grup, bkz. globals.css) */}
+    {row.evZiyaretiTekrari && (
+      <tr className="ns-tekrar-grup ns-tekrar-ust">
+        <td colSpan={11}>
+          <EvZiyaretiTekrarUyarisi tekrar={row.evZiyaretiTekrari} birlesik />
+        </td>
+      </tr>
+    )}
+    <tr className={`${row.evZiyaretiTekrari ? 'ns-tekrar-grup ns-tekrar-alt' : `${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-sky-50`} transition ${lock ? WORKFLOW_LOCKED_ROW_CLASS : ''}`}>
       <td className="border-b border-slate-100 px-4 py-3">
         <button
           type="button"
@@ -189,6 +204,7 @@ function TahkikatTableRow({ row, index, canAssign, onOpenFile, onOpenReport, onA
         </div>
       </td>
     </tr>
+    </>
   )
 }
 
@@ -211,8 +227,9 @@ function TahkikatMobileCard({ row, onOpenFile, onOpenReport, lock }: {
   // mevcut. canAssign/onAssign prop'lari cagiran taraflarla uyumlu kalmasi
   // icin imzada tutuldu, burada kullanilmiyor.
   return (
-    <div className={`rounded-lg border p-3 shadow-sm ${lock ? 'border-rose-300 bg-rose-100 shadow-[inset_5px_0_0_#e11d48]' : 'border-slate-200 bg-white'}`}>
+    <div className={`rounded-lg border p-3 shadow-sm ${lock ? 'border-rose-300 bg-rose-100 shadow-[inset_5px_0_0_#e11d48]' : row.evZiyaretiTekrari ? 'border-2 border-rose-600 bg-rose-50' : 'border-slate-200 bg-white'}`}>
       {lock && <WorkflowLockNotice lock={lock} className="mb-2 mt-0" />}
+      {row.evZiyaretiTekrari && <EvZiyaretiTekrarUyarisi tekrar={row.evZiyaretiTekrari} kompakt birlesik className="mb-2" />}
       <div className="min-w-0">
         <button
           type="button"
@@ -280,7 +297,9 @@ export default function TahkikatWorkflowPage() {
   const [assignSelectedUserId, setAssignSelectedUserId] = useState('')
   const [assignStatus, setAssignStatus] = useState<'idle' | 'saving'>('idle')
   const [assignError, setAssignError] = useState('')
+  const [ekipYonetimiAcik, setEkipYonetimiAcik] = useState(false)
   const { addTab } = useTabs()
+  const formSekmesiAc = useFormSekmesiAc()
 
   async function loadRows(isCancelled?: () => boolean) {
     setStatus('loading')
@@ -472,6 +491,11 @@ export default function TahkikatWorkflowPage() {
   const openReportModal = async (row: InvestigationFile) => {
     const kilit = kilitler.get(row.fileId)
     if (kilit && !(await confirmDialog(workflowLockConfirmText(kilit), 'Yine de Aç', 'Vazgeç'))) return
+    // 2026-10-15: Tahkikat formu AYRI turuncu sekmede (bkz. lib/workflow/formSekmesi.ts)
+    if (!isPreliminaryReview && row.fileId) {
+      formSekmesiAc('tahkikat', row.fileId, row.fileNo)
+      return
+    }
     const query = new URLSearchParams()
     if (row.fileId) {
       query.set('fileId', row.fileId)
@@ -648,8 +672,18 @@ export default function TahkikatWorkflowPage() {
                 )}
               </button>
             ))}
+            {/* 2026-10-15: ekip hesaplari sabit, ekipte calisan personel
+                buradan tanimlanir (tablette ekip girisinde listelenir). */}
+            <button
+              type="button"
+              onClick={() => setEkipYonetimiAcik(true)}
+              className="ml-auto rounded-full border border-[#c9a227] bg-[#0a3a57] px-3 py-1 text-[13px] font-black text-white transition hover:bg-[#0d4f6e] lg:text-[17px]"
+            >
+              Ekip Personeli
+            </button>
           </div>
         )}
+        {ekipYonetimiAcik && <TahkikatEkipYonetimi onClose={() => setEkipYonetimiAcik(false)} />}
 
         {/* Kullanici istegi (13 Eylul 2026): "mahalleye göre gruplayalım" -
             mahalle secici chip listesi, her chip'te o mahallenin dosya

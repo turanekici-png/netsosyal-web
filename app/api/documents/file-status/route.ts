@@ -55,7 +55,13 @@ export async function POST(request: NextRequest) {
     const autoByActiveAssistance = payload.autoByActiveAssistance === true
     let status = autoByActiveAssistance ? 0 : cleanNumber(payload.status)
     const date = clean(payload.date)
-    const description = clean(payload.description)
+    // 2026-10-15 KOK NEDEN: dosyalar.durumuaciklama varchar(100) - Sonuc
+    // Bekleyen > Kaydet tum komisyon raporunu buraya yolluyordu; 100
+    // karakterden uzun raporda guncelleme "value too long" hatasiyla dusuyor,
+    // pencere kapanmiyor ve kullanici tekrar basinca rapor 2. kez yaziliyordu.
+    // Raporun tamami tahkikatraporlari'nda; burada ilk 100 karakter tutulur.
+    const tamAciklama = clean(payload.description)
+    const description = tamAciklama && tamAciklama.length > 100 ? `${tamAciklama.slice(0, 99).trimEnd()}…` : tamAciklama
 
     // Kullanici istegi (13 Eylul 2026): "aciklama alani zorunlu olmasin,
     // istenirse bos olarak kaydedilebilsin" - description artik opsiyonel

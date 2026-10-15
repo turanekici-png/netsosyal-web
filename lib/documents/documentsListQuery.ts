@@ -4,7 +4,21 @@
 // kullanmali - aksi halde "Mahalle" acilir menusundeki degerler, gercek
 // listeleme sonucuyla tutarsizlasir.
 import { buildMultiColumnOrderBy, parseSortParam } from '@/lib/sortSpec'
+import { MULTI_VALUE_FILTER_SEPARATOR } from '@/lib/utils'
 
+// 2026-10-15 kullanici istegi: "dosyalar tablosundaki tum alanlar Dosyalar
+// listesinde gorunsun, Sütun Görünürlüğü'nden ac/kapat". Kodlu alanlar
+// (aile niteligi, mulkiyet, konut/isinma turu, oncelik) Hazır Değerler'deki
+// karsiliklariyla gosterilir - eslesme koda GOMULU DEGIL, istek basina
+// buildDocumentsFromClause'a verilen etiketlerden (kod.* jsonb) okunur;
+// karsiligi olmayan kod oldugu gibi (sayi) gorunur.
+export const kodluEtiket = (kodAlani: string, sutun: string) => `COALESCE(kod.${kodAlani} ->> (${sutun})::text, (${sutun})::text)`
+export const kullaniciAdi = (alias: string, idSutunu: string) =>
+  `COALESCE(NULLIF(BTRIM(${alias}.kullanicitamadi), ''), NULLIF(BTRIM(${alias}.kullaniciadi), ''), NULLIF(${idSutunu}, 0)::text)`
+
+// Anahtar -> SQL ifadesi. Hem SELECT (bkz. buildDocumentsSelectList) hem
+// filtre hem siralama AYNI ifadeyi kullanir - etiketli alanda filtre/siralama
+// da etikete gore calisir ("Normal Aile" yazinca bulur).
 export const documentsFilterColumns: Record<string, string> = {
   dosyaId: 'd.id',
   dosyaNo: 'd.dosyano',
@@ -14,6 +28,7 @@ export const documentsFilterColumns: Record<string, string> = {
   kartNo: 'd.kartno',
   muracaatTarihi: 'd.muracaattarihi',
   telefon: 'd.telefon',
+  ceptel: 'owner.ceptel',
   mahalle: 'd.mahalleadi',
   cadde: 'd.cadde',
   sokak: 'd.sokak',
@@ -25,6 +40,64 @@ export const documentsFilterColumns: Record<string, string> = {
   aciklama: 'd.aciklama',
   olusturmaTarihi: 'd.ilkislemtarihi',
   guncellemeTarihi: 'd.islemtarihi',
+  // --- 2026-10-15: dosyalar tablosunun geri kalan TUM alanlari ---
+  durumTarihi: 'd.durumutarih',
+  durumAciklamasi: 'd.durumuaciklama',
+  vizeTarihi: 'd.vizetarihi',
+  ilkKayitTarihi: 'd.ilkkayittarihi',
+  yardimOncelikSirasi: kodluEtiket('oncelik', 'd.yaronceliksirasi'),
+  mahalleKodu: 'd.mahalleid',
+  site: 'd.site',
+  blok: 'd.blok',
+  kayitliBireySayisi: 'd.topbirey',
+  aileNiteligi: kodluEtiket('aile', 'd.aileniteligi'),
+  konutTuru: kodluEtiket('konut', 'd.konutturu'),
+  konutDurumu: 'd.konutdurumu',
+  isinmaTuru: kodluEtiket('isinma', 'd.isinmaturu'),
+  mulkiyetDurumu: kodluEtiket('mulkiyet', 'd.mulkiyetdurumu'),
+  kiraMiktari: 'd.kiramiktari',
+  toplamGelir: 'd.toplamgelir',
+  eskiAciklama: 'd."aciklama-old"',
+  kaydiAcan: kullaniciAdi('ku_ilk', 'd.ilkkullaniciid'),
+  sonIslemYapan: kullaniciAdi('ku_son', 'd.kullaniciid'),
+  konumEnlem: 'd.konum_enlem',
+  konumBoylam: 'd.konum_boylam',
+  konumKaynagi: 'd.konum_kaynagi',
+  konumDurumu: 'd.konum_durumu',
+  konumGuven: 'd.konum_guven',
+  konumAdresHash: 'd.konum_adres_hash',
+  konumHata: 'd.konum_hata',
+  konumTarihi: 'd.konum_tarihi',
+}
+
+// SELECT listesi: "id" (satir kimligi, tabloda gizli) + documentsFilterColumns'taki
+// her anahtar ayni adla. dosyaId metin olarak doner (bigint JSON'a sigmaz).
+export function buildDocumentsSelectList() {
+  const alanlar = Object.entries(documentsFilterColumns).map(([anahtar, ifade]) => {
+    if (anahtar === 'dosyaId') return `d.id::text AS "dosyaId"`
+    if (anahtar === 'toplamBirey') return `COALESCE(household.toplam, 0) AS "toplamBirey"`
+    return `${ifade} AS "${anahtar}"`
+  })
+  return [`d.id::text AS "id"`, ...alanlar].join(',\n          ')
+}
+
+// Hazır Değerler'den gelen kod -> ad karsiliklari ({ "1": "Normal Aile", ... }).
+export type DocumentKodEtiketleri = {
+  aile: Record<string, string>
+  mulkiyet: Record<string, string>
+  konut: Record<string, string>
+  isinma: Record<string, string>
+  oncelik: Record<string, string>
+}
+
+export const BOS_KOD_ETIKETLERI: DocumentKodEtiketleri = { aile: {}, mulkiyet: {}, konut: {}, isinma: {}, oncelik: {} }
+
+// Etiketler SQL'e jsonb literal olarak gomulur (parametre degil) - boylece
+// filtre/siralama ifadeleri sabit kalir, $n numaralari kaymaz. Degerler
+// yonetici tarafindan girilen metinlerdir; tek tirnak cifte cevrilir
+// (standard_conforming_strings = on, bkz. lib/utils prepareSqlSearchTerm notu).
+export function jsonbLiteral(value: Record<string, string>) {
+  return `'${JSON.stringify(value ?? {}).replace(/'/g, "''")}'::jsonb`
 }
 
 export const documentsSortColumns = documentsFilterColumns
@@ -88,6 +161,14 @@ export function buildDocumentsFilterCondition(builder: WhereBuilder, column: str
   if (!cleanValue) return null
 
   switch (operator) {
+    // "▼" menusunde birden fazla deger isaretlenince (AdvancedTable) degerler
+    // MULTI_VALUE_FILTER_SEPARATOR ile birlesik gelir - onceden bu durum
+    // "icerir"e dusup hic sonuc dondurmuyordu.
+    case 'in': {
+      const values = cleanValue.split(MULTI_VALUE_FILTER_SEPARATOR).map((item) => item.trim()).filter(Boolean)
+      if (values.length === 0) return null
+      return `${normalizedColumn(column)} IN (${values.map((item) => addParam(builder, normalizeSearchTerm(item))).join(', ')})`
+    }
     case 'not_contains':
       return `${normalizedColumn(column)} NOT ILIKE ${addParam(builder, `%${normalizeSearchTerm(cleanValue)}%`)}`
     case 'eq':
@@ -192,9 +273,19 @@ export function buildDocumentsWhereClause(searchParams: URLSearchParams, search:
   return finalizeWhereClause(buildDocumentsConditions(searchParams, search, excludeColumnKey))
 }
 
-export function buildDocumentsFromClause(whereSql: string) {
+export function buildDocumentsFromClause(whereSql: string, etiketler: DocumentKodEtiketleri = BOS_KOD_ETIKETLERI) {
   return `
     FROM dosyalar d
+    CROSS JOIN (
+      SELECT
+        ${jsonbLiteral(etiketler.aile)} AS aile,
+        ${jsonbLiteral(etiketler.mulkiyet)} AS mulkiyet,
+        ${jsonbLiteral(etiketler.konut)} AS konut,
+        ${jsonbLiteral(etiketler.isinma)} AS isinma,
+        ${jsonbLiteral(etiketler.oncelik)} AS oncelik
+    ) kod
+    LEFT JOIN kullanicilar ku_ilk ON ku_ilk.id = d.ilkkullaniciid
+    LEFT JOIN kullanicilar ku_son ON ku_son.id = d.kullaniciid
     LEFT JOIN LATERAL (
       SELECT
         COALESCE(
@@ -240,4 +331,16 @@ export const DOCUMENTS_CHAINABLE_COLUMNS: Record<string, string> = {
   cadde: 'd.cadde',
   sokak: 'd.sokak',
   binaNo: 'd.binano',
+  // 2026-10-15: az sayida sabit degerli (kodlu) alanlar da secilebilir liste olarak.
+  site: 'd.site',
+  aileNiteligi: documentsFilterColumns.aileNiteligi,
+  konutTuru: documentsFilterColumns.konutTuru,
+  konutDurumu: documentsFilterColumns.konutDurumu,
+  isinmaTuru: documentsFilterColumns.isinmaTuru,
+  mulkiyetDurumu: documentsFilterColumns.mulkiyetDurumu,
+  yardimOncelikSirasi: documentsFilterColumns.yardimOncelikSirasi,
+  kaydiAcan: documentsFilterColumns.kaydiAcan,
+  sonIslemYapan: documentsFilterColumns.sonIslemYapan,
+  konumKaynagi: documentsFilterColumns.konumKaynagi,
+  konumDurumu: documentsFilterColumns.konumDurumu,
 }

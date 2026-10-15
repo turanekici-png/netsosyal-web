@@ -5,6 +5,8 @@ import { useHoldWorkflowRecord } from '@/lib/hooks/useWorkflowPresence'
 import {
   anahtarliCevap,
   bosMu,
+  eksikZorunluSorular,
+  ziyaretGerceklesmediMi,
   cevapMetni,
   ozetRaporuUret,
   ozetRaporCumleleri,
@@ -13,6 +15,7 @@ import {
   haneSutunlari,
   calisabilirMi,
   GELIR_KAYNAGI_METNI,
+  imzaDuzeni,
   type CevapDegeri,
   type Cevaplar,
   type HaneUyesi,
@@ -125,6 +128,9 @@ type Props = {
   // Verilirse form bu kayitli formu duzenleme modunda acar (Dosya Yönetimi >
   // "Tahkikat Formları" sekmesi > Düzenle).
   duzenlenecekFormId?: string | null
+  // 2026-10-15: true ise form ekrani kaplayan pencere yerine sayfa icinde
+  // (Is Akisi > Tahkikat form SEKMESI) cizilir.
+  gomulu?: boolean
 }
 
 type ApiResponse<T> = { success: boolean; data?: T; error?: string }
@@ -204,7 +210,7 @@ function sayiyaCevir(deger: string | undefined): number {
 
 export default function SahaIncelemeFormModal({
   dosyaid, open, onClose, onSaved, canDelete, dosyaBilgileri, haneUyeleri, oncekiAsamaBilgileri, digerKurumYardimlariKayitli,
-  duzenlenecekFormId,
+  duzenlenecekFormId, gomulu = false,
 }: Props) {
   // 2026-10-14: form acikken bu dosya Is Akisi > Tahkikat listesinde diger
   // kullanicilara kirmizi "X bu rapor uzerinde calisiyor" olarak gorunur.
@@ -300,6 +306,27 @@ export default function SahaIncelemeFormModal({
     }
     return sonuc
   }
+
+  // 2026-10-15: personel imzalarinin ad alani tahkikat ekip personelinden
+  // acilir liste (bkz. /api/tahkikat-ekip?secim=1): ekip hesabiyla
+  // girildiyse SADECE o ekip, degilse tum ekipler ekip adina gore gruplu.
+  // Hic ekip uyesi tanimli degilse eski serbest metin kalir.
+  const [ekipGruplari, setEkipGruplari] = useState<Array<{ ad: string; uyeler: string[] }>>([])
+  useEffect(() => {
+    if (!open) return
+    let iptal = false
+    fetch('/api/tahkikat-ekip?secim=1', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((payload) => {
+        if (iptal) return
+        const ekipler = (payload?.data?.ekipler ?? []) as Array<{ ad?: string; uyeler?: string[] }>
+        setEkipGruplari(ekipler
+          .map((e) => ({ ad: String(e.ad || ''), uyeler: (e.uyeler ?? []).map((u) => String(u).trim()).filter(Boolean) }))
+          .filter((e) => e.uyeler.length > 0))
+      })
+      .catch(() => {})
+    return () => { iptal = true }
+  }, [open])
 
   useEffect(() => {
     if (!open) {
@@ -593,6 +620,8 @@ export default function SahaIncelemeFormModal({
     [sablon, cevaplar, personelRaporu, kayitTarihi],
   )
   const ozetZiyaretSonucu = sablon ? anahtarliCevap(sablon, cevaplar, 'ziyaret_sonucu') : null
+  // 2026-10-15: Evde Bulunamadı / Tahkikat İstemedi vb. - zorunlu alanlar aranmaz
+  const ziyaretYapilmadi = ziyaretGerceklesmediMi(ozetZiyaretSonucu)
   const ozetAciliyet = sablon ? anahtarliCevap(sablon, cevaplar, 'aciliyet') : null
   const personelSorusu = sablon?.bolumler.flatMap((b) => b.sorular).find((s) => s.otomatik === 'personel')
   const formPersoneli = (personelSorusu ? cevapMetni(personelSorusu, cevaplar[String(personelSorusu.id)]) : '') || temiz(dosyaBilgileri?.personelAdi)
@@ -619,12 +648,8 @@ export default function SahaIncelemeFormModal({
 
   const handleSave = async () => {
     if (!sablon || isSaving) return
-    const eksik: number[] = []
-    for (const bolum of sablon.bolumler) {
-      for (const soru of bolum.sorular) {
-        if (soru.zorunlu && bosMu(soru, cevaplar[String(soru.id)])) eksik.push(soru.id)
-      }
-    }
+    // 2026-10-15: ziyaret yapilamadiysa (Evde Bulunamadı vb.) yalniz ziyaret sonucu aranir
+    const eksik = eksikZorunluSorular(sablon, cevaplar).map(({ soru }) => soru.id)
     if (eksik.length > 0) {
       setEksikler(eksik)
       setStatus(`${eksik.length} zorunlu alan boş. Kırmızı işaretli alanları doldurun.`)
@@ -632,6 +657,7 @@ export default function SahaIncelemeFormModal({
       return
     }
 
+    setEksikler([])
     setIsSaving(true)
     setStatus('')
     setBasariMesaji('')
@@ -942,8 +968,17 @@ export default function SahaIncelemeFormModal({
   )
 
   return (
-    <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-slate-950/70 p-2 backdrop-blur-sm md:p-4">
-      <div className="saha-form flex max-h-[96vh] w-full max-w-[1320px] flex-col overflow-hidden rounded-lg border border-slate-400/40 shadow-2xl">
+    // 2026-10-15: "gomulu" - form bir calisma alani SEKMESINDE acilir (ekrani
+    // kaplayan pencere degil); kullanici baska sekmeye gecip donebilir.
+    // Mobil/tablette (lg alti) her durumda eskisi gibi tam ekran pencere;
+    // masaustunde gomulu ise sekmenin TAMAMINI doldurur. Yukseklik, sayfaya
+    // uygulanan olcek (zoom) ile kuculmesin diye --shell-unzoom ile dengelenir.
+    <div className={gomulu
+      ? 'fixed inset-0 z-[2100] flex items-center justify-center bg-slate-950/70 p-2 backdrop-blur-sm md:p-4 lg:static lg:inset-auto lg:z-auto lg:block lg:bg-transparent lg:p-0 lg:backdrop-blur-none'
+      : 'fixed inset-0 z-[2100] flex items-center justify-center bg-slate-950/70 p-2 backdrop-blur-sm md:p-4'}>
+      <div className={`saha-form flex w-full flex-col overflow-hidden rounded-lg border border-slate-400/40 ${gomulu
+        ? 'max-h-[96vh] max-w-[1320px] shadow-2xl lg:h-[calc((100dvh-165px)*var(--shell-unzoom,1))] lg:max-h-none lg:max-w-none lg:shadow-sm'
+        : 'max-h-[96vh] max-w-[1320px] shadow-2xl'}`}>
         <div className="sf-ust">
           <div style={{ minWidth: 0 }}>
             <div className="sf-kurum">{ayarlar?.kurumBasligi || 'Belediye Sosyal Yardım Birimi'}</div>
@@ -976,6 +1011,11 @@ export default function SahaIncelemeFormModal({
         >
           {status && <div className="sf-uyari hata">{status}</div>}
           {taslakMesaji && !status && <div className="sf-uyari taslak">{taslakMesaji}</div>}
+          {ziyaretYapilmadi && (
+            <div className="sf-uyari taslak">
+              Ziyaret sonucu “{ozetZiyaretSonucu}” seçildi: diğer zorunlu alanları doldurmadan kaydedebilirsiniz. Dosya Sonuç Bekleyen’e bu bilgiyle düşer.
+            </div>
+          )}
 
           {kaydedilenFormId && (
             <div className="sf-uyari ok">
@@ -1053,11 +1093,36 @@ export default function SahaIncelemeFormModal({
                       // Kullanici istegi (2026-10-13, 3. tur): imzalar YAN YANA -
                       // solda basvuru sahibi, sagda personel (renk tonuyla ayrik);
                       // personel adi-soyadi, personel imzasinin kutusunda ustte.
-                      const imzalar = bolum.sorular.filter((s) => s.tur === 'imza')
-                      const personelImza = imzalar.find((s) => /personel/i.test(s.soruMetni))
-                      const personelAd = personelImza ? bolum.sorular.find((s) => s.tur !== 'imza' && (s.otomatik === 'personel' || /^personel ad/i.test(s.soruMetni))) : undefined
-                      const sirali = [...imzalar.filter((s) => s !== personelImza), ...(personelImza ? [personelImza] : [])]
-                      const satirlar = bolum.sorular.filter((s) => s.tur !== 'imza' && s !== personelAd)
+                      // 2026-10-15: birden fazla personel imzasi - her birinin
+                      // ustunde kendi ad alani (ortak duzen: imzaDuzeni).
+                      const duzen = imzaDuzeni(bolum.sorular)
+                      const sirali = duzen.siraliImzalar
+                      const satirlar = duzen.satirlar
+                      // Ekip personelinden secim: ekip uyeleri + (listede yoksa) mevcut deger
+                      const personelAdAlani = (adSoru: Soru) => {
+                        if (ekipGruplari.length === 0) return soruAlani(adSoru)
+                        const mevcut = String(cevaplar[String(adSoru.id)] ?? '').trim()
+                        const listede = ekipGruplari.some((g) => g.uyeler.includes(mevcut))
+                        const tekEkip = ekipGruplari.length === 1
+                        return (
+                          <select
+                            value={mevcut}
+                            onChange={(e) => setCevap(adSoru, e.target.value)}
+                            className="sf-input"
+                          >
+                            <option value="">— Personel seçin —</option>
+                            {mevcut && !listede && <option value={mevcut}>{mevcut}</option>}
+                            {tekEkip
+                              ? ekipGruplari[0].uyeler.map((ad) => <option key={ad} value={ad}>{ad}</option>)
+                              : ekipGruplari.map((g) => (
+                                <optgroup key={g.ad} label={g.ad}>
+                                  {g.uyeler.map((ad) => <option key={`${g.ad}-${ad}`} value={ad}>{ad}</option>)}
+                                </optgroup>
+                              ))}
+                          </select>
+                        )
+                      }
+                      const basvuruImzalari = sirali.filter((s) => !duzen.personelImzasiMi(s))
                       return (
                         <>
                           {satirlar.map((soru) => (
@@ -1069,7 +1134,7 @@ export default function SahaIncelemeFormModal({
                               <div className="sf-etiket">
                                 <span>
                                   {soru.soruMetni}
-                                  {soru.zorunlu && <span className="sf-zorunlu"> *</span>}
+                                  {soru.zorunlu && (!ziyaretYapilmadi || soru.anahtar === 'ziyaret_sonucu') && <span className="sf-zorunlu"> *</span>}
                                   {soru.ipucu && <span className="sf-ipucu">{soru.ipucu}</span>}
                                 </span>
                               </div>
@@ -1078,31 +1143,49 @@ export default function SahaIncelemeFormModal({
                           ))}
                           {bolum.id === ilkImzaBolumId && personelRaporuPaneli}
                           {sirali.length > 0 && (
-                            <div className="sf-imzalar">
-                              {sirali.map((soru) => {
-                                const personelMi = soru === personelImza
-                                return (
-                                  <div key={soru.id} id={`saha-soru-${soru.id}`} className={`sf-imza-kart ${personelMi ? 'ton-personel' : 'ton-basvuru'}${eksikler.includes(soru.id) ? ' sf-eksik' : ''}`}>
-                                    <div className="sf-imza-kart-bas">
-                                      <span className="ikon">✍</span>
-                                      <span>
-                                        {soru.soruMetni}
-                                        {soru.zorunlu && <span className="sf-zorunlu"> *</span>}
-                                        {soru.ipucu && <span className="sf-ipucu">{soru.ipucu}</span>}
-                                      </span>
-                                    </div>
-                                    <div className="sf-imza-kart-govde">
-                                      {personelMi && personelAd && (
-                                        <label className="sf-imza-ad" id={`saha-soru-${personelAd.id}`}>
-                                          <span>{personelAd.soruMetni}{personelAd.zorunlu && <span className="sf-zorunlu"> *</span>}</span>
-                                          {soruAlani(personelAd)}
-                                        </label>
-                                      )}
-                                      {soruAlani(soru)}
-                                    </div>
+                            <div className={`sf-imzalar${duzen.ciftler.length > 1 ? ' sf-imzalar-ekip' : ''}`}>
+                              {basvuruImzalari.map((soru) => (
+                                <div key={soru.id} id={`saha-soru-${soru.id}`} className={`sf-imza-kart ton-basvuru${eksikler.includes(soru.id) ? ' sf-eksik' : ''}`}>
+                                  <div className="sf-imza-kart-bas">
+                                    <span className="ikon">✍</span>
+                                    <span>
+                                      {soru.soruMetni}
+                                      {soru.zorunlu && (!ziyaretYapilmadi || soru.anahtar === 'ziyaret_sonucu') && <span className="sf-zorunlu"> *</span>}
+                                      {soru.ipucu && <span className="sf-ipucu">{soru.ipucu}</span>}
+                                    </span>
                                   </div>
-                                )
-                              })}
+                                  <div className="sf-imza-kart-govde">{soruAlani(soru)}</div>
+                                </div>
+                              ))}
+                              {/* 2026-10-15: personel imzalari TEK kartta yan yana -
+                                  her birinin ustunde ekip personelinden secilen ad. */}
+                              {duzen.ciftler.length > 0 && (
+                                <div className="sf-imza-kart ton-personel">
+                                  <div className="sf-imza-kart-bas">
+                                    <span className="ikon">✍</span>
+                                    <span>
+                                      {duzen.ciftler.length > 1 ? 'Personel imzaları' : duzen.ciftler[0].imza.soruMetni}
+                                      {duzen.ciftler[0].imza.zorunlu && !ziyaretYapilmadi && <span className="sf-zorunlu"> *</span>}
+                                      {duzen.ciftler.length > 1 && <span className="sf-ipucu">Ziyarete katılan personel adını listeden seçip imzalasın; ikinci personel isteğe bağlıdır.</span>}
+                                    </span>
+                                  </div>
+                                  <div className="sf-imza-kart-govde sf-imza-ciftler">
+                                    {duzen.ciftler.map(({ imza, ad }, i) => (
+                                      <div key={imza.id} id={`saha-soru-${imza.id}`} className={`sf-imza-cift${eksikler.includes(imza.id) || (ad && eksikler.includes(ad.id)) ? ' sf-eksik' : ''}`}>
+                                        {ad ? (
+                                          <label className="sf-imza-ad" id={`saha-soru-${ad.id}`}>
+                                            <span>{duzen.ciftler.length > 1 ? `${i + 1}. Personel` : ad.soruMetni}{ad.zorunlu && !ziyaretYapilmadi && <span className="sf-zorunlu"> *</span>}</span>
+                                            {personelAdAlani(ad)}
+                                          </label>
+                                        ) : (
+                                          <span className="sf-imza-cift-baslik">{imza.soruMetni}</span>
+                                        )}
+                                        {soruAlani(imza)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </>

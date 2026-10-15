@@ -13,6 +13,14 @@ import { AssistanceStatStrip, type AssistanceStatItem } from '../../assistance/_
 import { NakitApplicationsSyncButton } from '../../assistance/nakit/_components/NakitApplicationsSyncButton'
 import { NakitAutoRejectButton } from '../../assistance/nakit/_components/NakitAutoRejectButton'
 import { NakitPhoneSyncButton } from '../../assistance/nakit/_components/NakitPhoneSyncButton'
+import {
+  ASSISTANCE_ALWAYS_EXCLUDED,
+  ASSISTANCE_COLUMN_GROUPS,
+  ASSISTANCE_COLUMN_LABELS,
+  ASSISTANCE_USER_COLUMNS_SELECT,
+  ASSISTANCE_USER_COLUMN_SQL,
+  assistanceHiddenColumns,
+} from '@/lib/assistance/assistanceColumns'
 
 type SearchParams = { page?: string; search?: string } & Record<string, string>
 type ColumnInfo = { column_name: string }
@@ -379,6 +387,7 @@ export async function AssistanceRequestListPage({
         son_mesaj_alici: 'sm.telefon',
       } : {}),
       ...(needsGulkartJoin ? { gulkart: 'gk.kartno' } : {}),
+      ...ASSISTANCE_USER_COLUMN_SQL,
     }
     const orderByClause = buildMultiColumnOrderBy(
       parseSortParam((params.sort || '').trim()),
@@ -399,7 +408,8 @@ export async function AssistanceRequestListPage({
         NULLIF(TRIM(CONCAT_WS(' - ', NULLIF(TRIM(sm.adisoyadi), ''), NULLIF(TRIM(sm.telefon), ''))), '') AS son_mesaj_alici,
         ` : ''}
         ${needsGulkartJoin ? 'gk.kartno AS gulkart,' : ''}
-        t.*
+        t.*,
+        ${ASSISTANCE_USER_COLUMNS_SELECT}
       FROM ${config.tableName} t
       LEFT JOIN dosyalar d ON t.dosyaid = d.id
       ${needsMessageLogJoin ? `
@@ -688,12 +698,17 @@ export async function AssistanceRequestListPage({
         emptyMessage={config.emptyMessage}
         statusMap={statusMap}
         assistanceStatusVariant={dgnAssistanceTables.has(config.tableName) ? 'dgn' : 'default'}
-        excludedColumns={config.excludedColumns}
+        // 2026-10-15: eski excludedColumns artik "gizli baslar" (Sütun
+        // Görünürlüğü'nden acilir) - bkz. lib/assistance/assistanceColumns.ts.
+        excludedColumns={ASSISTANCE_ALWAYS_EXCLUDED}
+        defaultHiddenColumns={assistanceHiddenColumns(config.excludedColumns)}
+        columnGroups={ASSISTANCE_COLUMN_GROUPS}
         // Kullanici istegi: hicbir sutun artik zorla gorunur/kilitli degil -
         // eskiden bazi sutunlarin "gorunurluk" onay kutusu pasifti, kullanici
         // sayfa tasarimini (sutun ekleme/kaldirma) ozgurce yapamiyordu.
         columnReorderingControls={config.routePath.startsWith('/assistance/nakit')}
         columnLabels={{
+          ...ASSISTANCE_COLUMN_LABELS,
           inceleme_puani: 'İnceleme Puanı',
           dosya_durumu: 'Dosya Durumu',
           // Kullanici istegi (2026-09-28): online basvurudan aktarilan

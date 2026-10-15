@@ -88,15 +88,15 @@ function SummaryReportsContent() {
   }, [kind, requestedTitle])
 
   return (
-    <div className="space-y-5 text-slate-950">
-      <div className="rounded-md border border-[#9bd36f] bg-gradient-to-r from-[#0076b6] to-[#6fb744] px-5 py-4 text-white shadow-sm">
+    <div className="ns-kurumsal-pencere space-y-5 text-slate-950">
+      <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-5 py-4 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[15px] font-black uppercase tracking-wide text-white/90">Ana Sayfa Ozet Raporu</p>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">{title}</h1>
-            <p className="mt-1 text-sm font-bold text-white/85">Kart degerinden acilan kayit listesi</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">Ana Sayfa Ozet Raporu</p>
+            <h1 className="mt-1 text-[20px] font-semibold uppercase leading-tight tracking-wide md:text-[26px]">{title}</h1>
+            <p className="mt-1 text-[13.5px] font-medium text-slate-300">Kart degerinden acilan kayit listesi</p>
           </div>
-          <div className="rounded-md border border-white/30 bg-white/15 px-4 py-2 text-sm font-bold">
+          <div className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-[14px] font-bold">
             Toplam: {isLoading ? '...' : formatNumber(records.length)}
           </div>
         </div>
@@ -117,15 +117,16 @@ function SummaryReportsContent() {
           Bu kritere uygun kayit bulunamadi.
         </div>
       ) : (
-        <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)]">
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
-            <h2 className="text-base font-extrabold text-[#005f95]">{title}</h2>
+            <h2 className="text-[16px] font-bold text-[#1E2A38]">{title}</h2>
             <span className="rounded-full bg-white px-3 py-1 text-[14px] font-extrabold text-slate-600">
               {formatNumber(records.length)} kayit
             </span>
           </div>
           <div className="p-4">
             <AdvancedTable
+              corporate
               data={records as unknown as Record<string, unknown>[]}
               tableId={`dashboard_summary_${kind}`}
               excludedColumns={['id']}

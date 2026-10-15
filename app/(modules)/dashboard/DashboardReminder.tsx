@@ -203,23 +203,30 @@ export function DashboardReminder({ open: controlledOpen, onOpenChange, showTrig
     await load()
   }
 
+  // 2026-10-15 kullanici istegi: kurumsal (lacivert/altin) ve biraz daha
+  // kucuk/derli toplu pencere. Islevler (kaydet/tamamla/sil/ertele/paylas) AYNI.
   const reminderRow = (item: Reminder) => {
     const due = !item.tamamlandi && new Date(item.hatirlatma_tarihi).getTime() <= Date.now()
     return (
-      <div key={item.id} className={`rounded-xl border p-3 transition ${item.tamamlandi ? 'border-slate-200 bg-slate-50 opacity-65' : due ? 'border-rose-300 bg-rose-50 shadow-sm' : 'border-sky-200 bg-white shadow-sm'}`}>
-        <div className="flex items-start gap-3">
-          <button type="button" onClick={() => void update(item.id, !item.tamamlandi)} className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs ${item.tamamlandi ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white'}`}>{item.tamamlandi ? '✓' : ''}</button>
+      <div key={item.id} className={`rounded-lg border border-l-[3px] px-3 py-2 transition ${item.tamamlandi ? 'border-slate-200 border-l-slate-300 bg-slate-50 opacity-65' : due ? 'border-rose-200 border-l-rose-500 bg-rose-50/60' : 'border-[#D5DDE2] border-l-[#1E2A38] bg-white'}`}>
+        <div className="flex items-start gap-2.5">
+          <button type="button" onClick={() => void update(item.id, !item.tamamlandi)} title={item.tamamlandi ? 'Tamamlanmadı olarak işaretle' : 'Tamamlandı olarak işaretle'} className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border text-[11px] ${item.tamamlandi ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white hover:border-[#1E2A38]'}`}>{item.tamamlandi ? '✓' : ''}</button>
           <div className="min-w-0 flex-1">
-            <p className={`break-words text-sm font-black text-slate-900 ${item.tamamlandi ? 'line-through' : ''}`}>{item.baslik}</p>
-            <p className={`mt-0.5 text-[11px] font-black ${due ? 'text-rose-700' : 'text-sky-700'}`}>{new Date(item.hatirlatma_tarihi).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })}</p>
-            {item.olusturan_kullanici && <p className="mt-0.5 text-[10px] font-bold text-slate-400">Oluşturan: {item.olusturan_kullanici}</p>}
-            {item.not_metni && <p className="mt-1.5 whitespace-pre-wrap text-xs font-semibold leading-5 text-slate-600">{item.not_metni}</p>}
+            <p className={`break-words text-[13.5px] font-bold text-[#1E2A38] ${item.tamamlandi ? 'line-through' : ''}`}>{item.baslik}</p>
+            <p className={`mt-0.5 text-[11.5px] font-semibold ${due ? 'text-rose-700' : 'text-[#8A6D2B]'}`}>{new Date(item.hatirlatma_tarihi).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })}{due ? ' · gecikti' : ''}</p>
+            {item.olusturan_kullanici && <p className="mt-0.5 text-[11px] font-medium text-slate-400">Oluşturan: {item.olusturan_kullanici}</p>}
+            {item.not_metni && <p className="mt-1 whitespace-pre-wrap text-[12.5px] font-medium leading-5 text-slate-600">{item.not_metni}</p>}
           </div>
-          <button type="button" onClick={() => void remove(item.id)} className="rounded-md px-2 py-1 text-[10px] font-black text-rose-600 hover:bg-rose-100">Sil</button>
+          <button type="button" onClick={() => void remove(item.id)} className="rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold text-slate-400 hover:bg-rose-50 hover:text-rose-600">Sil</button>
         </div>
       </div>
     )
   }
+
+  const filteredSharingUsers = sharingUsers.filter((user) => user.name.toLocaleLowerCase('tr-TR').includes(userFilter.trim().toLocaleLowerCase('tr-TR')))
+  const LABEL = 'grid gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-600'
+  const INPUT = 'h-10 rounded-lg border border-slate-300 bg-white px-3 text-[13.5px] font-semibold normal-case tracking-normal text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10'
+  const PANEL_TITLE = 'text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#8A6D2B]'
 
   return <>
     {showTrigger && <div className="order-2 flex justify-end md:order-none">
@@ -230,22 +237,43 @@ export function DashboardReminder({ open: controlledOpen, onOpenChange, showTrig
     </div>}
 
     {open && mounted ? createPortal(
-      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-2 backdrop-blur-[2px] sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
-        <div className="flex max-h-[97vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-2xl">
-          <header className="flex items-center justify-between bg-gradient-to-r from-[#005f95] via-[#0076b6] to-emerald-600 px-4 py-3 text-white sm:px-6 sm:py-4">
-            <div><p className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-100">Kişisel İş Planlama</p><h2 className="text-lg font-black sm:text-2xl">Takvim ve Hatırlatıcılarım</h2></div>
-            <div className="flex items-center gap-2"><span className="hidden rounded-full bg-white/15 px-3 py-1 text-xs font-black sm:inline">{activeItems.length} aktif · {dueCount} geciken</span><button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-white/25 bg-white/15 px-3 py-2 text-xs font-black hover:bg-white/25">Kapat</button></div>
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0f1a26]/60 p-2 backdrop-blur-[2px] sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setOpen(false) }}>
+        <div className="flex max-h-[88vh] w-full max-w-[1120px] flex-col overflow-hidden rounded-xl border border-[#1E2A38]/20 bg-white shadow-[0_24px_64px_rgba(16,30,43,0.35)]">
+          <header className="flex items-center justify-between gap-3 border-b-[3px] border-b-[#D4B26A] bg-[#1E2A38] px-4 py-2.5 text-white sm:px-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-[#D4B26A]">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]" aria-hidden><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#D4B26A]">Kişisel İş Planlama</p>
+                <h2 className="truncate text-[16px] font-bold tracking-wide">Takvim ve Hatırlatıcılar</h2>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="hidden items-center gap-2 rounded-md border border-white/15 bg-white/10 px-2.5 py-1 text-[12px] font-semibold sm:inline-flex">
+                <span><b className="text-white">{activeItems.length}</b> <span className="text-white/70">aktif</span></span>
+                <span className="text-white/30">|</span>
+                <span className={dueCount ? 'text-rose-200' : 'text-white/70'}><b className={dueCount ? 'text-rose-100' : 'text-white'}>{dueCount}</b> geciken</span>
+              </span>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Kapat" title="Kapat" className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 bg-white/10 hover:bg-white/20">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-4 w-4" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
           </header>
 
-          <div className="grid min-h-0 flex-1 overflow-y-auto xl:grid-cols-[minmax(460px,.95fr)_minmax(360px,.75fr)_minmax(290px,.55fr)] xl:overflow-hidden">
-            <section className="min-w-0 border-b border-sky-100 bg-gradient-to-br from-sky-50/80 to-white p-3 sm:p-5 xl:overflow-y-auto xl:border-b-0 xl:border-r">
-              <div className="mb-3 flex items-center justify-between rounded-xl border border-sky-200 bg-white p-2 shadow-sm">
-                <button type="button" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} className="h-9 w-10 rounded-lg bg-sky-50 text-xl font-black text-[#005f95] hover:bg-sky-100">‹</button>
-                <button type="button" onClick={() => { const today = new Date(); setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today) }} className="text-center"><span className="block text-lg font-black text-slate-900">{MONTHS[visibleMonth.getMonth()]} {visibleMonth.getFullYear()}</span><span className="text-[10px] font-black uppercase text-sky-600">Bugüne dön</span></button>
-                <button type="button" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} className="h-9 w-10 rounded-lg bg-sky-50 text-xl font-black text-[#005f95] hover:bg-sky-100">›</button>
+          <div className="grid min-h-0 flex-1 overflow-y-auto bg-[#F4F6F8] lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] lg:overflow-hidden xl:grid-cols-[minmax(0,0.95fr)_minmax(0,0.85fr)_minmax(0,0.8fr)]">
+            {/* 1) Takvim + secili gun */}
+            <section className="min-w-0 border-b border-[#D5DDE2] p-3 sm:p-4 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+              <div className="mb-2 flex items-center justify-between rounded-lg border border-[#D5DDE2] bg-white px-1.5 py-1">
+                <button type="button" aria-label="Önceki ay" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() - 1, 1))} className="h-8 w-8 rounded-md text-[18px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA]">‹</button>
+                <div className="text-center leading-tight">
+                  <span className="block text-[15px] font-bold text-[#1E2A38]">{MONTHS[visibleMonth.getMonth()]} {visibleMonth.getFullYear()}</span>
+                  <button type="button" onClick={() => { const today = new Date(); setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1)); selectDay(today) }} className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#8A6D2B] hover:underline">Bugüne dön</button>
+                </div>
+                <button type="button" aria-label="Sonraki ay" onClick={() => setVisibleMonth(new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 1))} className="h-8 w-8 rounded-md text-[18px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA]">›</button>
               </div>
-              <div className="grid grid-cols-7 gap-1 text-center">{WEEKDAYS.map((day, index) => <div key={day} className={`py-2 text-[10px] font-black uppercase ${index >= 5 ? 'text-amber-700' : 'text-slate-500'}`}>{day}</div>)}</div>
-              <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+              <div className="grid grid-cols-7 gap-1 text-center">{WEEKDAYS.map((day, index) => <div key={day} className={`py-0.5 text-[10.5px] font-bold uppercase tracking-wide ${index >= 5 ? 'text-[#8A6D2B]' : 'text-slate-500'}`}>{day}</div>)}</div>
+              <div className="grid grid-cols-7 gap-[3px]">
                 {cells.map((date) => {
                   const key = dateKey(date)
                   const dayItems = itemsByDate.get(key) || []
@@ -255,65 +283,82 @@ export function DashboardReminder({ open: controlledOpen, onOpenChange, showTrig
                   const weekend = date.getDay() === 0 || date.getDay() === 6
                   const holiday = holidayName(date)
                   const overdue = dayItems.some((item) => !item.tamamlandi && new Date(item.hatirlatma_tarihi).getTime() <= Date.now())
-                  return <button key={key} type="button" onClick={() => selectDay(date)} title={holiday || (weekend ? 'Hafta sonu' : undefined)} className={`relative min-h-14 rounded-lg border p-1.5 text-left transition sm:min-h-16 ${selected ? 'border-[#0076b6] bg-[#0076b6] text-white shadow-md' : holiday ? 'border-rose-300 bg-rose-50 text-rose-900' : weekend ? 'border-amber-200 bg-amber-50/80 text-amber-900' : today ? 'border-emerald-400 bg-emerald-50' : outside ? 'border-slate-100 bg-slate-50/70 text-slate-400' : 'border-slate-200 bg-white text-slate-800 hover:border-sky-300 hover:bg-sky-50'}`}>
-                    <span className={`text-xs font-black sm:text-sm ${today && !selected ? 'text-emerald-700' : ''}`}>{date.getDate()}</span>
-                    {holiday && <span className={`mt-0.5 block truncate text-[7px] font-black sm:text-[8px] ${selected ? 'text-white/90' : 'text-rose-600'}`}>{holiday}</span>}
-                    {dayItems.length > 0 && <div className="mt-1 flex flex-wrap gap-1"><span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${selected ? 'bg-white text-[#005f95]' : overdue ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700'}`}>{dayItems.length} iş</span></div>}
+                  return <button key={key} type="button" onClick={() => selectDay(date)} title={holiday || (weekend ? 'Hafta sonu' : undefined)} className={`relative min-h-[36px] rounded-md border px-1.5 py-0.5 text-left transition ${
+                    selected ? 'border-[#1E2A38] bg-[#1E2A38] text-white shadow-sm'
+                      : outside ? 'border-transparent bg-transparent text-slate-300'
+                      : holiday ? 'border-rose-200 bg-rose-50 text-rose-800'
+                      : today ? 'border-[#D4B26A] bg-[#FBF6E9] text-[#1E2A38]'
+                      : weekend ? 'border-[#ECE3CC] bg-[#FBF9F3] text-[#6B5420] hover:border-[#D4B26A]'
+                      : 'border-[#E2E7EC] bg-white text-[#1E2A38] hover:border-[#1E2A38]/40'
+                  }`}>
+                    <span className={`text-[12px] font-bold ${today && !selected ? 'text-[#8A6D2B]' : ''}`}>{date.getDate()}</span>
+                    {holiday && <span className={`block truncate text-[8.5px] font-semibold leading-tight ${selected ? 'text-white/85' : 'text-rose-600'}`}>{holiday}</span>}
+                    {dayItems.length > 0 && <span className={`absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9.5px] font-bold ${selected ? 'bg-[#D4B26A] text-[#1E2A38]' : overdue ? 'bg-rose-600 text-white' : 'bg-[#1E2A38] text-white'}`}>{dayItems.length}</span>}
                   </button>
                 })}
               </div>
 
-              <div className="mt-4 rounded-2xl border border-sky-200 bg-white p-4 shadow-sm">
-                <h3 className="text-sm font-black text-[#005f95]">{new Date(`${selectedDate}T12:00:00`).toLocaleDateString('tr-TR', { dateStyle: 'full' })}</h3>
-                <div className="mt-3 grid gap-2 lg:grid-cols-2">{selectedItems.length ? selectedItems.map(reminderRow) : <div className="col-span-full rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs font-bold text-slate-400">Bu gün için planlanan iş bulunmuyor.</div>}</div>
+              <div className="mt-3 rounded-lg border border-[#D5DDE2] bg-white p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-[13.5px] font-bold text-[#1E2A38]">{new Date(`${selectedDate}T12:00:00`).toLocaleDateString('tr-TR', { dateStyle: 'full' })}</h3>
+                  <span className="text-[11.5px] font-semibold text-slate-500">{selectedItems.length} iş</span>
+                </div>
+                <div className="grid gap-1.5 sm:grid-cols-2">{selectedItems.length ? selectedItems.map(reminderRow) : <div className="col-span-full rounded-lg border border-dashed border-slate-200 p-4 text-center text-[12.5px] font-medium text-slate-400">Bu gün için planlanan iş yok.</div>}</div>
               </div>
             </section>
 
-            <aside className="min-w-0 space-y-4 bg-slate-50 p-3 sm:p-5 xl:overflow-y-auto">
+            {/* 2) Bildirimler + yeni hatirlatici + yaklasan isler */}
+            <aside className="min-w-0 space-y-3 p-3 sm:p-4 lg:overflow-y-auto">
               {notifications}
-              <form onSubmit={save} className="space-y-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
-                <div><p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">Yeni Plan</p><h3 className="text-base font-black text-slate-900">Hatırlatıcı Oluştur</h3></div>
-                <label className="grid gap-1 text-[11px] font-black uppercase text-slate-600">İş Başlığı<input required maxLength={150} value={title} onChange={(event) => setTitle(event.target.value)} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold normal-case text-slate-900 outline-none focus:border-emerald-500" placeholder="Örn. Dosya incelemesini tamamla" /></label>
-                <label className="grid gap-1 text-[11px] font-black uppercase text-slate-600">Tarih ve Saat<input required type="datetime-local" value={reminderAt} onChange={(event) => { const input = event.currentTarget; setReminderAt(input.value); if (input.value) { const date = new Date(input.value); setSelectedDate(dateKey(date)); setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1)); window.setTimeout(() => input.blur(), 0) } }} className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold normal-case text-slate-900 outline-none focus:border-emerald-500" /></label>
-                <label className="grid gap-1 text-[11px] font-black uppercase text-slate-600">Açıklama<textarea maxLength={2000} rows={4} value={note} onChange={(event) => setNote(event.target.value)} className="resize-y rounded-lg border border-slate-200 bg-white p-3 text-sm font-semibold normal-case leading-5 text-slate-900 outline-none focus:border-emerald-500" placeholder="Hatırlatılacak işin ayrıntıları" /></label>
-                {error && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{error}</p>}
-                <div className="sticky bottom-0 z-10 -mx-1 rounded-xl border border-emerald-200 bg-white/95 p-1 shadow-[0_-8px_20px_rgba(15,118,110,0.10)] backdrop-blur-sm"><button disabled={busy} className="min-h-11 w-full rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 text-sm font-black text-white shadow-sm hover:brightness-105 disabled:opacity-50">{busy ? 'Kaydediliyor...' : 'Takvime Ekle'}</button></div>
+              <form onSubmit={save} className="space-y-2.5 rounded-lg border border-[#D5DDE2] bg-white p-3">
+                <div><p className={PANEL_TITLE}>Yeni Plan</p><h3 className="text-[14.5px] font-bold text-[#1E2A38]">Hatırlatıcı Oluştur</h3></div>
+                <label className={LABEL}>İş Başlığı<input required maxLength={150} value={title} onChange={(event) => setTitle(event.target.value)} className={INPUT} placeholder="Örn. Dosya incelemesini tamamla" /></label>
+                <label className={LABEL}>Tarih ve Saat<input required type="datetime-local" value={reminderAt} onChange={(event) => { const input = event.currentTarget; setReminderAt(input.value); if (input.value) { const date = new Date(input.value); setSelectedDate(dateKey(date)); setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1)); window.setTimeout(() => input.blur(), 0) } }} className={INPUT} /></label>
+                <label className={LABEL}>Açıklama<textarea maxLength={2000} rows={3} value={note} onChange={(event) => setNote(event.target.value)} className="resize-y rounded-lg border border-slate-300 bg-white p-2.5 text-[13.5px] font-medium normal-case leading-5 tracking-normal text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10" placeholder="Hatırlatılacak işin ayrıntıları" /></label>
+                {selectedRecipientIds.length > 0 && <p className="rounded-md bg-[#EEF2F6] px-2.5 py-1.5 text-[12px] font-semibold text-[#1E2A38]">Size ek olarak <b>{selectedRecipientIds.length} kişiye</b> de hatırlatılacak.</p>}
+                {error && <p className="rounded-md border-l-4 border-l-rose-500 bg-rose-50 px-2.5 py-1.5 text-[12.5px] font-semibold text-rose-800">{error}</p>}
+                <button disabled={busy} className="h-10 w-full rounded-lg border-b-2 border-b-[#D4B26A] bg-[#1E2A38] text-[13.5px] font-bold text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:opacity-50">{busy ? 'Kaydediliyor...' : 'Takvime Ekle'}</button>
               </form>
 
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-black uppercase text-slate-700">Yaklaşan İşler</h3><span className="rounded-full bg-sky-100 px-2 py-1 text-[10px] font-black text-sky-700">{activeItems.length}</span></div>
-                <div className="space-y-2">{activeItems.length ? activeItems.slice(0, 10).map(reminderRow) : <p className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs font-bold text-slate-400">Aktif hatırlatıcı bulunmuyor.</p>}</div>
-                {completedItems.length > 0 && <details className="mt-3"><summary className="cursor-pointer text-xs font-black text-slate-500">Tamamlananlar ({completedItems.length})</summary><div className="mt-2 space-y-2">{completedItems.slice(0, 10).map(reminderRow)}</div></details>}
+              <section className="rounded-lg border border-[#D5DDE2] bg-white p-3">
+                <div className="mb-2 flex items-center justify-between"><h3 className={PANEL_TITLE}>Yaklaşan İşler</h3><span className="rounded-full bg-[#1E2A38] px-2 py-0.5 text-[11px] font-bold text-white">{activeItems.length}</span></div>
+                <div className="space-y-1.5">{activeItems.length ? activeItems.slice(0, 10).map(reminderRow) : <p className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-[12.5px] font-medium text-slate-400">Aktif hatırlatıcı yok.</p>}</div>
+                {completedItems.length > 0 && <details className="mt-2"><summary className="cursor-pointer text-[12px] font-bold text-slate-500 hover:text-[#1E2A38]">Tamamlananlar ({completedItems.length})</summary><div className="mt-1.5 space-y-1.5">{completedItems.slice(0, 10).map(reminderRow)}</div></details>}
               </section>
             </aside>
 
-            <aside className="min-w-0 border-t border-violet-200 bg-gradient-to-b from-violet-50 to-white p-3 sm:p-5 xl:overflow-y-auto xl:border-l xl:border-t-0">
-              <section className="overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
-                <div className="bg-gradient-to-r from-violet-700 to-indigo-600 px-4 py-3 text-white">
-                  <div className="flex items-center justify-between gap-2"><div><p className="text-[9px] font-black uppercase tracking-wider text-violet-200">Paylaşımlı Plan</p><h3 className="text-sm font-black">Hatırlatılacak Kullanıcılar</h3></div>{selectedRecipientIds.length > 0 && <span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-violet-700">{selectedRecipientIds.length} kişi</span>}</div>
-                  <p className="mt-1 text-[10px] font-semibold text-violet-100">Hatırlatma size ve seçtiğiniz kullanıcılara ayrı ayrı gösterilir.</p>
+            {/* 3) Paylasim - hatirlatilacak kullanicilar */}
+            <aside className="min-w-0 border-t border-[#D5DDE2] p-3 sm:p-4 lg:col-span-2 lg:overflow-y-auto xl:col-span-1 xl:border-l xl:border-t-0">
+              <section className="overflow-hidden rounded-lg border border-[#D5DDE2] bg-white">
+                <div className="border-b border-[#D5DDE2] bg-[#F7F8FA] px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div><p className={PANEL_TITLE}>Paylaşımlı Plan</p><h3 className="text-[14px] font-bold text-[#1E2A38]">Hatırlatılacak Kişiler</h3></div>
+                    {selectedRecipientIds.length > 0 && <span className="rounded-full bg-[#1E2A38] px-2 py-0.5 text-[11px] font-bold text-white">{selectedRecipientIds.length} kişi</span>}
+                  </div>
+                  <p className="mt-1 text-[11.5px] font-medium leading-snug text-slate-500">İsteğe bağlı. Seçtiğiniz kişilere de aynı hatırlatma gösterilir.</p>
                 </div>
-                <div className="p-3">
-                  <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs font-black text-violet-800">
+                <div className="p-2.5">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md border border-[#D5DDE2] bg-[#F7F8FA] px-2.5 py-2 text-[12.5px] font-bold text-[#1E2A38]">
                     <input
                       type="checkbox"
                       checked={sharingUsers.length > 0 && sharingUsers.every((user) => selectedRecipientIds.includes(user.id))}
                       onChange={(event) => setSelectedRecipientIds(event.target.checked ? sharingUsers.map((user) => user.id) : [])}
-                      className="h-4 w-4 accent-violet-600"
+                      className="h-4 w-4 accent-[#1E2A38]"
                     />
-                    <span className="flex-1">Tüm Kullanıcıları Seç</span>
-                    <span className="rounded-full bg-white px-2 py-0.5 text-[9px] text-violet-600">{sharingUsers.length}</span>
+                    <span className="flex-1">Tüm kullanıcıları seç</span>
+                    <span className="text-[11px] font-semibold text-slate-500">{sharingUsers.length}</span>
                   </label>
-                  <input value={userFilter} onChange={(event) => setUserFilter(event.target.value)} placeholder="Kullanıcı ara..." className="mt-3 h-10 w-full rounded-lg border border-violet-200 bg-white px-3 text-xs font-bold outline-none focus:border-violet-500" />
-                  <div className="mt-3 max-h-[54vh] space-y-1.5 overflow-y-auto pr-1">
-                    {sharingUsers.filter((user) => user.name.toLocaleLowerCase('tr-TR').includes(userFilter.trim().toLocaleLowerCase('tr-TR'))).map((user) => (
-                      <label key={user.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2.5 text-xs font-bold transition ${selectedRecipientIds.includes(user.id) ? 'border-violet-300 bg-violet-50 text-violet-900' : 'border-slate-100 bg-white text-slate-700 hover:border-violet-200'}`}>
-                        <input type="checkbox" checked={selectedRecipientIds.includes(user.id)} onChange={(event) => setSelectedRecipientIds((current) => event.target.checked ? [...current, user.id] : current.filter((id) => id !== user.id))} className="h-4 w-4 accent-violet-600" />
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[9px] font-black text-violet-700">{user.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase('tr-TR')}</span>
+                  <input value={userFilter} onChange={(event) => setUserFilter(event.target.value)} placeholder="Kişi ara..." className="mt-2 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[13px] font-semibold text-[#1E2A38] outline-none focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10" />
+                  <div className="mt-2 max-h-[52vh] divide-y divide-slate-100 overflow-y-auto pr-0.5">
+                    {filteredSharingUsers.map((user) => (
+                      <label key={user.id} className={`flex cursor-pointer items-center gap-2 rounded px-1.5 py-[3px] text-[12.5px] font-semibold leading-tight transition ${selectedRecipientIds.includes(user.id) ? 'bg-[#EEF2F6] text-[#1E2A38]' : 'bg-white text-slate-700 hover:bg-[#F7F8FA]'}`}>
+                        <input type="checkbox" checked={selectedRecipientIds.includes(user.id)} onChange={(event) => setSelectedRecipientIds((current) => event.target.checked ? [...current, user.id] : current.filter((id) => id !== user.id))} className="h-3.5 w-3.5 shrink-0 accent-[#1E2A38]" />
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#E3E9F0] text-[8.5px] font-bold text-[#1E2A38]">{user.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase('tr-TR')}</span>
                         <span className="min-w-0 flex-1 truncate">{user.name}</span>
                       </label>
                     ))}
-                    {sharingUsers.length === 0 && <p className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-xs font-bold text-slate-400">Aktif kullanıcı bulunamadı.</p>}
+                    {sharingUsers.length === 0 && <p className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-[12.5px] font-medium text-slate-400">Kullanıcı listesi alınamadı.</p>}
+                    {sharingUsers.length > 0 && filteredSharingUsers.length === 0 && <p className="p-3 text-center text-[12.5px] font-medium text-slate-400">Eşleşen kişi yok.</p>}
                   </div>
                 </div>
               </section>
@@ -323,10 +368,10 @@ export function DashboardReminder({ open: controlledOpen, onOpenChange, showTrig
       </div>, document.body) : null}
 
     {dueAlert && mounted ? createPortal(
-      <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
-        <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-2xl">
-          <div className="bg-gradient-to-r from-rose-600 to-orange-500 px-5 py-4 text-white"><p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-100">Hatırlatma Zamanı</p><h2 className="mt-1 text-xl font-black">{dueAlert.baslik}</h2></div>
-          <div className="space-y-4 p-5"><p className="text-sm font-black text-rose-700">{new Date(dueAlert.hatirlatma_tarihi).toLocaleString('tr-TR', { dateStyle: 'full', timeStyle: 'short' })}</p>{dueAlert.not_metni && <p className="whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-700">{dueAlert.not_metni}</p>}<div className="grid gap-2 sm:grid-cols-3"><button type="button" onClick={() => { setDueAlert(null); setOpen(true) }} className="min-h-11 rounded-lg border border-sky-200 bg-sky-50 text-sm font-black text-sky-800">Takvimi Aç</button><button type="button" onClick={() => { const next = new Date(Date.now() + 10 * 60 * 1000); void update(dueAlert.id, false, next); setDueAlert(null) }} className="min-h-11 rounded-lg border border-amber-200 bg-amber-50 text-sm font-black text-amber-800">10 Dk Ertele</button><button type="button" onClick={() => { void update(dueAlert.id, true); setDueAlert(null) }} className="min-h-11 rounded-lg bg-emerald-600 text-sm font-black text-white">Tamamlandı</button></div></div>
+      <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-[#0f1a26]/70 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-md overflow-hidden rounded-xl border border-[#1E2A38]/20 bg-white shadow-2xl">
+          <div className="border-b-[3px] border-b-[#D4B26A] bg-[#1E2A38] px-5 py-3.5 text-white"><p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#D4B26A]">Hatırlatma Zamanı</p><h2 className="mt-0.5 text-[18px] font-bold">{dueAlert.baslik}</h2></div>
+          <div className="space-y-3 p-5"><p className="text-[13.5px] font-bold text-rose-700">{new Date(dueAlert.hatirlatma_tarihi).toLocaleString('tr-TR', { dateStyle: 'full', timeStyle: 'short' })}</p>{dueAlert.not_metni && <p className="whitespace-pre-wrap rounded-lg border border-[#D5DDE2] bg-[#F7F8FA] p-3 text-[13.5px] font-medium leading-6 text-slate-700">{dueAlert.not_metni}</p>}<div className="grid gap-2 sm:grid-cols-3"><button type="button" onClick={() => { setDueAlert(null); setOpen(true) }} className="h-10 rounded-lg border border-slate-300 bg-white text-[13px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA]">Takvimi Aç</button><button type="button" onClick={() => { const next = new Date(Date.now() + 10 * 60 * 1000); void update(dueAlert.id, false, next); setDueAlert(null) }} className="h-10 rounded-lg border border-[#D4B26A] bg-[#FBF6E9] text-[13px] font-bold text-[#6B5420] hover:bg-[#F6EDD3]">10 Dk Ertele</button><button type="button" onClick={() => { void update(dueAlert.id, true); setDueAlert(null) }} className="h-10 rounded-lg border-b-2 border-b-[#D4B26A] bg-[#1E2A38] text-[13px] font-bold text-white hover:bg-[#2A3B4D]">Tamamlandı</button></div></div>
         </div>
       </div>, document.body) : null}
   </>

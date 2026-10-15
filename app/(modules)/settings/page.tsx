@@ -7,6 +7,7 @@ import { FormDesignRenderer } from '@/components/shared/FormDesignRenderer'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { SosyalAsistanPanel } from './SosyalAsistanPanel'
 import { OnlineFormsTab, normalizeOnlineFormsForSave, validateOnlineForms } from './OnlineFormsTab'
+import { PredefinedValuesTab, cleanPredefinedValuesForSave, validatePredefinedValues } from './PredefinedValuesTab'
 import {
   DEFAULT_ONLINE_APPLICATION_FORMS,
   isFormCurrentlyPublished,
@@ -181,7 +182,7 @@ interface ScheduledSqlTasksResponse {
   error?: string;
 }
 
-type DatabaseBackupScheduleType = 'daily' | 'weekly';
+type DatabaseBackupScheduleType = 'daily' | 'weekdays' | 'weekly';
 
 interface DatabaseBackupSchedule {
   id: string;
@@ -206,6 +207,7 @@ interface DatabaseBackupSettings {
   dayOfWeek: number | null;
   timeOfDay: string;
   schedules: DatabaseBackupSchedule[];
+  retentionCount: number;
   lastRunAt: string | null;
   lastStatus: 'idle' | 'success' | 'error';
   lastMessage: string | null;
@@ -389,6 +391,7 @@ const fixedPermissionPages = [
   { name: 'Güncelleme', path: '/workflow/guncelleme' },
   { name: 'İnceleme Formları', path: '/workflow/sonuc' },
   { name: 'Mahalle Grupları', path: '/workflow/mahalle-gruplari' },
+  { name: 'Performans Raporu', path: '/workflow/performans' },
   { name: 'Kullanıcılar', path: '/users' },
   { name: 'Ayarlar', path: '/settings' },
   { name: 'Online Basvuru Form Ayarlari', path: '/settings/online' },
@@ -574,15 +577,10 @@ const PAGE_PERMISSION_GROUP_DISPLAY_ORDER = [
 // (sinifsiz döngü), boylece hem sayfa hem islem gruplari birbirinden farkli
 // renklerle ayirt edilir. Tailwind JIT icin siniflar TAM METIN olarak burada
 // yaziliyor (dinamik sablon string'i CALISMAZ).
+// 2026-10-15 (kurumsal tur): gruplar eskiden 8 farkli renkli degradeydi -
+// artik tek lacivert/altin kurumsal tema (indeksle secim mantigi ayni kaldi).
 const PERMISSION_GROUP_COLOR_THEMES = [
-  { header: 'from-sky-600 to-blue-600', border: 'border-sky-200', bg: 'bg-sky-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-emerald-600 to-teal-600', border: 'border-emerald-200', bg: 'bg-emerald-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-amber-600 to-orange-600', border: 'border-amber-200', bg: 'bg-amber-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-violet-600 to-purple-600', border: 'border-violet-200', bg: 'bg-violet-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-rose-600 to-pink-600', border: 'border-rose-200', bg: 'bg-rose-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-cyan-600 to-sky-600', border: 'border-cyan-200', bg: 'bg-cyan-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-indigo-600 to-blue-600', border: 'border-indigo-200', bg: 'bg-indigo-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
-  { header: 'from-fuchsia-600 to-pink-600', border: 'border-fuchsia-200', bg: 'bg-fuchsia-50/60', chipBg: 'bg-white/20', chipHover: 'hover:bg-white/30' },
+  { header: 'from-[#0a3a57] to-[#0d4f6e] border-b-2 border-[#c9a227]', border: 'border-slate-300', bg: 'bg-slate-50', chipBg: 'bg-white/15 ring-1 ring-white/25', chipHover: 'hover:bg-white/25' },
 ];
 
 const groupedPermissionPages: Record<string, typeof permissionPages> = {};
@@ -745,6 +743,7 @@ const defaultDatabaseBackupSettings: DatabaseBackupSettings = {
   dayOfWeek: null,
   timeOfDay: '02:00',
   schedules: [],
+  retentionCount: 2,
   lastRunAt: null,
   lastStatus: 'idle',
   lastMessage: null,
@@ -1196,8 +1195,10 @@ function SystemSettingsPageInner() {
     healthStatus: 'Sağlık Durumu',
   });
 
-  const [newCategoryTitle, setNewCategoryTitle] = useState('');
   const [predefinedSaveStatus, setPredefinedSaveStatus] = useState('');
+  // 2026-10-15: son yuklenen/kaydedilen hal - Hazır Değerler sekmesinde
+  // kaydedilmemis degisiklik uyarisi icin (bkz. PredefinedValuesTab).
+  const [predefinedSnapshot, setPredefinedSnapshot] = useState<string | null>(null);
   const [isSavingPredefinedValues, setIsSavingPredefinedValues] = useState(false);
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledSqlTask[]>([]);
   const [scheduledTaskForm, setScheduledTaskForm] = useState<ScheduledSqlTaskForm>(emptyScheduledTaskForm);
@@ -1789,6 +1790,7 @@ function SystemSettingsPageInner() {
         if (!isCancelled) {
           setPredefinedValues(payload.data.values);
           setPredefinedValueTitles(payload.data.titles);
+          setPredefinedSnapshot(JSON.stringify({ values: payload.data.values, titles: payload.data.titles }));
         }
       } catch (loadError) {
         if (!isCancelled) {
@@ -1999,6 +2001,15 @@ function SystemSettingsPageInner() {
   };
 
   const savePredefinedValues = async () => {
+    // 2026-10-15: bos/tekrarlanan kodlu satirlar kaydedilmez (onceden hic
+    // kontrol yoktu; bos kod sessizce kaydediliyordu).
+    if (activeTab === 'predefinedValues') {
+      const validationError = validatePredefinedValues(predefinedValues, predefinedValueTitles);
+      if (validationError) {
+        setPredefinedSaveStatus('Kaydedilmedi: ' + validationError);
+        return;
+      }
+    }
     setIsSavingPredefinedValues(true);
     setPredefinedSaveStatus('');
 
@@ -2007,7 +2018,7 @@ function SystemSettingsPageInner() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          values: predefinedValues,
+          values: cleanPredefinedValuesForSave(predefinedValues),
           titles: predefinedValueTitles,
         }),
       });
@@ -2019,6 +2030,7 @@ function SystemSettingsPageInner() {
 
       setPredefinedValues(payload.data.values);
       setPredefinedValueTitles(payload.data.titles);
+      setPredefinedSnapshot(JSON.stringify({ values: payload.data.values, titles: payload.data.titles }));
       setPredefinedSaveStatus('Hazır değerler kaydedildi.');
     } catch (saveError) {
       setPredefinedSaveStatus((saveError as Error).message);
@@ -2799,18 +2811,6 @@ function SystemSettingsPageInner() {
     );
   };
 
-  const handlePredefinedValueChange = (category: string, index: number, field: keyof PredefinedValue, value: string) => {
-    setPredefinedValues(prev => ({ ...prev, [category]: prev[category].map((item, i) => i === index ? { ...item, [field]: value } : item) }));
-  };
-
-  const handlePredefinedTitleChange = (category: string, value: string) => {
-    setPredefinedValueTitles(prev => ({ ...prev, [category]: value }));
-  };
-
-  const addPredefinedValue = (category: string) => {
-    setPredefinedValues(prev => ({ ...prev, [category]: [...prev[category], { id: '', name: '' }] }));
-  };
-
   const refreshScheduledTasks = async () => {
     const response = await fetch('/api/scheduled-sql-tasks');
     const payload = (await response.json()) as ScheduledSqlTasksResponse;
@@ -3189,31 +3189,6 @@ function SystemSettingsPageInner() {
     { total: 0, daily: 0, weekly: 0, monthly: 0 },
   ) ?? { total: 0, daily: 0, weekly: 0, monthly: 0 };
 
-  const removePredefinedValue = (category: string, index: number) => {
-    setPredefinedValues(prev => ({ ...prev, [category]: prev[category].filter((_, i) => i !== index) }));
-  };
-
-  const removePredefinedValueList = (category: string) => {
-    setPredefinedValueTitles(prev => {
-      const next = { ...prev };
-      delete next[category];
-      return next;
-    });
-    setPredefinedValues(prev => {
-      const next = { ...prev };
-      delete next[category];
-      return next;
-    });
-  };
-
-  const addNewPredefinedValueList = () => {
-    if (!newCategoryTitle.trim()) return;
-    const categoryKey = 'custom_' + Date.now();
-    setPredefinedValueTitles(prev => ({ ...prev, [categoryKey]: newCategoryTitle }));
-    setPredefinedValues(prev => ({ ...prev, [categoryKey]: [] }));
-    setNewCategoryTitle('');
-  };
-
   const handleFormDesignChange = (id: string, field: keyof FormDesign, value: string) => {
     setFormDesigns(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
   };
@@ -3423,17 +3398,17 @@ function SystemSettingsPageInner() {
           </svg>
         </div>
         <div>
-          <p className="text-base font-black uppercase tracking-wide text-white/80">Sistem Ayarları</p>
-          <h3 className="text-3xl font-black leading-tight">Mahalle Listesi ve Ödeme Günleri</h3>
+          <p className="text-ayar-aciklama font-black uppercase tracking-wide text-white/80">Sistem Ayarları</p>
+          <h3 className="text-ayar-baslik font-black leading-tight">Mahalle Listesi ve Ödeme Günleri</h3>
         </div>
-        <span className="ml-auto rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xl font-black">
+        <span className="ml-auto rounded-full border border-white/30 bg-white/10 px-4 py-2 text-ayar-govde font-black">
           {neighborhoods.length} mahalle
         </span>
       </div>
 
       <div className="space-y-5 bg-white p-6">
         {neighborhoodStatus && (
-          <div className="rounded-lg border-2 border-sky-200 bg-sky-50 px-4 py-3 text-xl font-bold text-[#005f95]">
+          <div className="rounded-lg border-2 border-sky-200 bg-sky-50 px-4 py-3 text-ayar-govde font-bold text-[#005f95]">
             {neighborhoodStatus}
           </div>
         )}
@@ -3447,8 +3422,8 @@ function SystemSettingsPageInner() {
             <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2">
                 <span className="h-6 w-1.5 rounded-full bg-[#1E2A38]" />
-                <span className="text-xl font-black uppercase text-slate-500">Toplam kayıt</span>
-                <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-lg font-black text-[#005f95]">
+                <span className="text-ayar-govde font-black uppercase text-slate-500">Toplam kayıt</span>
+                <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-ayar-aciklama font-black text-[#005f95]">
                   {filteredSortedNeighborhoods.length}/{neighborhoods.length} mahalle
                 </span>
               </div>
@@ -3465,22 +3440,22 @@ function SystemSettingsPageInner() {
                     value={neighborhoodSearchTerm}
                     onChange={(event) => setNeighborhoodSearchTerm(event.target.value)}
                     placeholder="Mahalle ara..."
-                    className="w-52 rounded-lg border-2 border-slate-300 bg-white py-2 pl-9 pr-3 text-xl font-bold text-slate-800 outline-none focus:border-[#1E2A38]"
+                    className="w-52 rounded-lg border-2 border-slate-300 bg-white py-2 pl-9 pr-3 text-ayar-govde font-bold text-slate-800 outline-none focus:border-[#1E2A38]"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => void refreshNeighborhoods()}
                   disabled={isLoadingNeighborhoods}
-                  className="rounded-lg border-2 border-slate-300 bg-white px-4 py-2 text-lg font-black text-slate-500 shadow-sm hover:border-[#1E2A38] hover:text-[#1E2A38] disabled:cursor-wait disabled:opacity-60"
+                  className="rounded-lg border-2 border-slate-300 bg-white px-4 py-2 text-ayar-aciklama font-black text-slate-500 shadow-sm hover:border-[#1E2A38] hover:text-[#1E2A38] disabled:cursor-wait disabled:opacity-60"
                 >
                   {isLoadingNeighborhoods ? 'Yükleniyor...' : 'Listeyi Yenile'}
                 </button>
               </div>
             </div>
             <div className="max-h-[560px] overflow-auto">
-              <table className="ns-tablo ns-tablo-buyuk w-full min-w-[860px] border-collapse text-left text-xl">
-                <thead className="sticky top-0 bg-[#1E2A38] text-lg font-black uppercase text-white shadow-sm">
+              <table className="ns-tablo ns-tablo-buyuk w-full min-w-[860px] border-collapse text-left text-ayar-govde">
+                <thead className="sticky top-0 bg-[#1E2A38] text-ayar-aciklama font-black uppercase text-white shadow-sm">
                   <tr>
                     <th className="w-16 px-4 py-3">Sıra</th>
                     <th className="px-4 py-3">
@@ -3511,13 +3486,13 @@ function SystemSettingsPageInner() {
 
                       return (
                         <tr key={neighborhood.id} className="hover:bg-sky-50/50">
-                          <td className="px-4 py-3 text-lg font-black text-slate-400">{index + 1}</td>
+                          <td className="px-4 py-3 text-ayar-aciklama font-black text-slate-400">{index + 1}</td>
                           <td className="px-4 py-3">
                             <input
                               defaultValue={nameValue}
                               disabled={isSaving}
                               data-field="name"
-                              className="w-full min-w-[140px] rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xl font-black text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white disabled:opacity-60"
+                              className="w-full min-w-[140px] rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-ayar-govde font-black text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white disabled:opacity-60"
                               onBlur={(event) => {
                                 if (event.target.value.trim() && event.target.value !== nameValue) {
                                   void updateNeighborhood(neighborhood, event.target.value, paymentDayValue, paymentEndDayValue)
@@ -3533,7 +3508,7 @@ function SystemSettingsPageInner() {
                               defaultValue={paymentDayValue}
                               disabled={isSaving}
                               data-field="paymentDay"
-                              className="w-24 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-xl font-black text-emerald-700 outline-none focus:border-emerald-500 focus:bg-white disabled:opacity-60"
+                              className="w-24 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-ayar-govde font-black text-emerald-700 outline-none focus:border-emerald-500 focus:bg-white disabled:opacity-60"
                               onBlur={(event) => {
                                 if (event.target.value !== paymentDayValue) {
                                   void updateNeighborhoodPaymentDay(neighborhood, event.target.value)
@@ -3550,7 +3525,7 @@ function SystemSettingsPageInner() {
                               disabled={isSaving}
                               data-field="paymentEndDay"
                               title="Başlangıca eklenecek gün sayısı - sonuç bir sonraki aya sarkmaz."
-                              className="w-24 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-xl font-black text-amber-700 outline-none focus:border-amber-500 focus:bg-white disabled:opacity-60"
+                              className="w-24 rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2 text-ayar-govde font-black text-amber-700 outline-none focus:border-amber-500 focus:bg-white disabled:opacity-60"
                               onBlur={(event) => {
                                 if (event.target.value !== paymentEndDayValue) {
                                   void updateNeighborhoodPaymentEndDay(neighborhood, event.target.value)
@@ -3575,7 +3550,7 @@ function SystemSettingsPageInner() {
                                   )
                                 }}
                                 disabled={isSaving}
-                                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-lg font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-ayar-aciklama font-black text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
                               >
                                 Güncelle
                               </button>
@@ -3583,7 +3558,7 @@ function SystemSettingsPageInner() {
                                 type="button"
                                 onClick={() => void deleteNeighborhood(neighborhood)}
                                 disabled={isSaving}
-                                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-lg font-black text-rose-700 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
+                                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-ayar-aciklama font-black text-rose-700 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
                               >
                                 Sil
                               </button>
@@ -3594,7 +3569,7 @@ function SystemSettingsPageInner() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={5} className="px-4 py-10 text-center text-xl font-bold text-slate-500">
+                      <td colSpan={5} className="px-4 py-10 text-center text-ayar-govde font-bold text-slate-500">
                         {isLoadingNeighborhoods
                           ? 'Mahalle listesi yükleniyor.'
                           : neighborhoods.length === 0
@@ -3617,31 +3592,31 @@ function SystemSettingsPageInner() {
                     <path d="M10 4v12M4 10h12" strokeLinecap="round" />
                   </svg>
                 </span>
-                <h4 className="text-xl font-black text-slate-900">Yeni Mahalle Ekle</h4>
+                <h4 className="text-ayar-govde font-black text-slate-900">Yeni Mahalle Ekle</h4>
               </div>
               <div className="space-y-3">
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-xl font-black uppercase text-slate-500">Mahalle adı</span>
+                  <span className="text-ayar-govde font-black uppercase text-slate-500">Mahalle adı</span>
                   <input
                     value={neighborhoodForm.name}
                     onChange={(event) => setNeighborhoodForm(prev => ({ ...prev, name: event.target.value }))}
-                    className="rounded-lg border-2 border-slate-300 bg-white px-4 py-2.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38]"
+                    className="rounded-lg border-2 border-slate-300 bg-white px-4 py-2.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38]"
                   />
                 </label>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-lg font-black uppercase text-emerald-700">Başlangıç günü</span>
+                    <span className="text-ayar-aciklama font-black uppercase text-emerald-700">Başlangıç günü</span>
                     <input
                       type="number"
                       min={1}
                       max={31}
                       value={neighborhoodForm.paymentDay}
                       onChange={(event) => setNeighborhoodForm(prev => ({ ...prev, paymentDay: event.target.value }))}
-                      className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 px-3 py-2.5 text-xl font-black text-emerald-800 outline-none focus:border-emerald-500"
+                      className="rounded-lg border-2 border-emerald-200 bg-emerald-50/40 px-3 py-2.5 text-ayar-govde font-black text-emerald-800 outline-none focus:border-emerald-500"
                     />
                   </label>
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-lg font-black uppercase text-amber-700" title="Başlangıç tarihine eklenecek gün sayısı. Sonuç bir sonraki aya sarkmaz, ay sonunda sabitlenir.">Bitiş günü (kaç gün)</span>
+                    <span className="text-ayar-aciklama font-black uppercase text-amber-700" title="Başlangıç tarihine eklenecek gün sayısı. Sonuç bir sonraki aya sarkmaz, ay sonunda sabitlenir.">Bitiş günü (kaç gün)</span>
                     <input
                       type="number"
                       min={1}
@@ -3649,7 +3624,7 @@ function SystemSettingsPageInner() {
                       value={neighborhoodForm.paymentEndDay}
                       onChange={(event) => setNeighborhoodForm(prev => ({ ...prev, paymentEndDay: event.target.value }))}
                       title="Başlangıç tarihine eklenecek gün sayısı. Sonuç bir sonraki aya sarkmaz, ay sonunda sabitlenir."
-                      className="rounded-lg border-2 border-amber-200 bg-amber-50/40 px-3 py-2.5 text-xl font-black text-amber-800 outline-none focus:border-amber-500"
+                      className="rounded-lg border-2 border-amber-200 bg-amber-50/40 px-3 py-2.5 text-ayar-govde font-black text-amber-800 outline-none focus:border-amber-500"
                     />
                   </label>
                 </div>
@@ -3657,7 +3632,7 @@ function SystemSettingsPageInner() {
                   type="button"
                   onClick={() => void addNeighborhood()}
                   disabled={savingNeighborhoodId === 'new'}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1E2A38] px-5 py-3 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#1E2A38] px-5 py-3 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60"
                 >
                   {savingNeighborhoodId === 'new' ? 'Ekleniyor' : 'Mahalle Ekle'}
                 </button>
@@ -3666,24 +3641,24 @@ function SystemSettingsPageInner() {
 
             <div className="rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/40 p-5">
               <div className="mb-2">
-                <h4 className="text-xl font-black text-amber-900">Toplu Güncelleme</h4>
-                <p className="mt-1.5 text-lg font-semibold text-amber-700">Aşağıda girilen gün(ler), <span className="font-black">tüm mahallelere</span> tek seferde uygulanır.</p>
+                <h4 className="text-ayar-govde font-black text-amber-900">Toplu Güncelleme</h4>
+                <p className="mt-1.5 text-ayar-aciklama font-semibold text-amber-700">Aşağıda girilen gün(ler), <span className="font-black">tüm mahallelere</span> tek seferde uygulanır.</p>
               </div>
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-lg font-black uppercase text-emerald-700">Başlangıç günü</span>
+                    <span className="text-ayar-aciklama font-black uppercase text-emerald-700">Başlangıç günü</span>
                     <input
                       type="number"
                       min={1}
                       max={31}
                       value={bulkPaymentDayForm.paymentDay}
                       onChange={(event) => setBulkPaymentDayForm(prev => ({ ...prev, paymentDay: event.target.value }))}
-                      className="rounded-lg border-2 border-emerald-200 bg-white px-3 py-2.5 text-xl font-black text-emerald-800 outline-none focus:border-emerald-500"
+                      className="rounded-lg border-2 border-emerald-200 bg-white px-3 py-2.5 text-ayar-govde font-black text-emerald-800 outline-none focus:border-emerald-500"
                     />
                   </label>
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-lg font-black uppercase text-amber-700" title="Başlangıç tarihine eklenecek gün sayısı. Sonuç bir sonraki aya sarkmaz, ay sonunda sabitlenir.">Bitiş günü (kaç gün)</span>
+                    <span className="text-ayar-aciklama font-black uppercase text-amber-700" title="Başlangıç tarihine eklenecek gün sayısı. Sonuç bir sonraki aya sarkmaz, ay sonunda sabitlenir.">Bitiş günü (kaç gün)</span>
                     <input
                       type="number"
                       min={1}
@@ -3691,7 +3666,7 @@ function SystemSettingsPageInner() {
                       value={bulkPaymentDayForm.paymentEndDay}
                       onChange={(event) => setBulkPaymentDayForm(prev => ({ ...prev, paymentEndDay: event.target.value }))}
                       title="Başlangıç tarihine eklenecek gün sayısı. Sonuç bir sonraki aya sarkmaz, ay sonunda sabitlenir."
-                      className="rounded-lg border-2 border-amber-300 bg-white px-3 py-2.5 text-xl font-black text-amber-800 outline-none focus:border-amber-500"
+                      className="rounded-lg border-2 border-amber-300 bg-white px-3 py-2.5 text-ayar-govde font-black text-amber-800 outline-none focus:border-amber-500"
                     />
                   </label>
                 </div>
@@ -3699,7 +3674,7 @@ function SystemSettingsPageInner() {
                   type="button"
                   onClick={() => void applyPaymentDayToAllNeighborhoods()}
                   disabled={isApplyingBulkPaymentDay}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-600 px-5 py-3 text-xl font-black text-white shadow-sm hover:bg-amber-700 disabled:cursor-wait disabled:opacity-60"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-amber-600 px-5 py-3 text-ayar-govde font-black text-white shadow-sm hover:bg-amber-700 disabled:cursor-wait disabled:opacity-60"
                 >
                   {isApplyingBulkPaymentDay ? 'Uygulanıyor...' : 'Tüm Mahallelere Uygula'}
                 </button>
@@ -3735,21 +3710,21 @@ function SystemSettingsPageInner() {
           </svg>
         </div>
         <div>
-          <p className="text-base font-black uppercase tracking-wide text-white/80">Sistem Ayarları</p>
-          <h3 className="text-3xl font-black leading-tight">Yetkili Personeller</h3>
+          <p className="text-ayar-aciklama font-black uppercase tracking-wide text-white/80">Sistem Ayarları</p>
+          <h3 className="text-ayar-baslik font-black leading-tight">Yetkili Personeller</h3>
         </div>
-        <span className="ml-auto rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xl font-black">
+        <span className="ml-auto rounded-full border border-white/30 bg-white/10 px-4 py-2 text-ayar-govde font-black">
           {authorizedPersonnel.length} kişi
         </span>
       </div>
 
       <div className="space-y-5 bg-white p-6">
-        <div className="rounded-lg border-2 border-slate-300 bg-slate-50 px-4 py-3 text-xl font-semibold text-slate-700">
+        <div className="rounded-lg border-2 border-slate-300 bg-slate-50 px-4 py-3 text-ayar-govde font-semibold text-slate-700">
           Burada listelenen personel, ilerleyen zamanda bazı işlemler için (ör. istisnai yazdırma, iptal/onay gerektiren işlemler) <span className="font-black text-[#1E2A38]">onay yetkisine</span> sahip olacak şekilde kullanılacaktır. Bu ekrandan sadece yetkili personel listesini yönetebilirsiniz.
         </div>
 
         {authorizedPersonnelStatus && (
-          <div className="rounded-lg border-2 border-sky-200 bg-sky-50 px-4 py-3 text-xl font-bold text-[#005f95]">
+          <div className="rounded-lg border-2 border-sky-200 bg-sky-50 px-4 py-3 text-ayar-govde font-bold text-[#005f95]">
             {authorizedPersonnelStatus}
           </div>
         )}
@@ -3759,12 +3734,12 @@ function SystemSettingsPageInner() {
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="h-6 w-1.5 rounded-full bg-[#1E2A38]" />
-                <span className="text-xl font-black uppercase text-slate-500">Yetkili Personel Listesi</span>
+                <span className="text-ayar-govde font-black uppercase text-slate-500">Yetkili Personel Listesi</span>
               </div>
             </div>
             <div className="max-h-[560px] overflow-auto">
-              <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] border-collapse text-left text-xl">
-                <thead className="sticky top-0 bg-[#1E2A38] text-lg font-black uppercase text-white shadow-sm">
+              <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] border-collapse text-left text-ayar-govde">
+                <thead className="sticky top-0 bg-[#1E2A38] text-ayar-aciklama font-black uppercase text-white shadow-sm">
                   <tr>
                     <th className="w-16 px-4 py-3">Sıra</th>
                     <th className="px-4 py-3">Ad Soyad</th>
@@ -3779,22 +3754,22 @@ function SystemSettingsPageInner() {
                       const user = settingsUsers.find(u => u.id === entry.userId);
                       return (
                         <tr key={entry.userId} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 text-lg font-black text-slate-400">{index + 1}</td>
+                          <td className="px-4 py-3 text-ayar-aciklama font-black text-slate-400">{index + 1}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg font-black text-[#1E2A38]">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-ayar-aciklama font-black text-[#1E2A38]">
                                 {(user?.name || user?.username || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
                               </span>
-                              <span className="text-xl font-black text-slate-900">{user?.name || user?.username || 'Bilinmeyen kullanıcı'}</span>
+                              <span className="text-ayar-govde font-black text-slate-900">{user?.name || user?.username || 'Bilinmeyen kullanıcı'}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-lg font-bold text-slate-500">{user?.username || '-'}</td>
+                          <td className="px-4 py-3 text-ayar-aciklama font-bold text-slate-500">{user?.username || '-'}</td>
                           <td className="px-4 py-3">
                             <input
                               defaultValue={entry.title || ''}
                               disabled={isSavingAuthorizedPersonnel}
                               placeholder="ör. Şube Müdürü"
-                              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xl font-bold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white disabled:opacity-60"
+                              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-ayar-govde font-bold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white disabled:opacity-60"
                               onBlur={(event) => {
                                 if (event.target.value !== (entry.title || '')) {
                                   void updateAuthorizedPersonnelTitle(entry.userId, event.target.value);
@@ -3807,7 +3782,7 @@ function SystemSettingsPageInner() {
                               type="button"
                               onClick={() => void removeAuthorizedPersonnel(entry)}
                               disabled={isSavingAuthorizedPersonnel}
-                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-lg font-black text-rose-700 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-ayar-aciklama font-black text-rose-700 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
                             >
                               Kaldır
                             </button>
@@ -3817,7 +3792,7 @@ function SystemSettingsPageInner() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={5} className="px-4 py-10 text-center text-xl font-bold text-slate-500">
+                      <td colSpan={5} className="px-4 py-10 text-center text-ayar-govde font-bold text-slate-500">
                         Henüz yetkili personel eklenmedi. Sağdaki listeden kullanıcı ekleyebilirsiniz.
                       </td>
                     </tr>
@@ -3836,7 +3811,7 @@ function SystemSettingsPageInner() {
                     <path d="M10 4v12M4 10h12" strokeLinecap="round" />
                   </svg>
                 </span>
-                <h4 className="text-xl font-black text-slate-900">Kullanıcılardan Ekle</h4>
+                <h4 className="text-ayar-govde font-black text-slate-900">Kullanıcılardan Ekle</h4>
               </div>
               <div className="relative mb-3">
                 <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
@@ -3850,7 +3825,7 @@ function SystemSettingsPageInner() {
                   value={authorizedPersonnelSearchTerm}
                   onChange={(event) => setAuthorizedPersonnelSearchTerm(event.target.value)}
                   placeholder="Kullanıcı ara..."
-                  className="w-full rounded-lg border-2 border-slate-300 bg-white py-2.5 pl-9 pr-3 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38]"
+                  className="w-full rounded-lg border-2 border-slate-300 bg-white py-2.5 pl-9 pr-3 text-ayar-govde font-bold text-slate-900 outline-none focus:border-[#1E2A38]"
                 />
               </div>
               <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
@@ -3860,20 +3835,20 @@ function SystemSettingsPageInner() {
                     type="button"
                     onClick={() => void addAuthorizedPersonnel(user.id)}
                     disabled={isSavingAuthorizedPersonnel}
-                    className="flex w-full items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-xl font-bold text-slate-700 shadow-sm hover:border-[#1E2A38] hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                    className="flex w-full items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-left text-ayar-govde font-bold text-slate-700 shadow-sm hover:border-[#1E2A38] hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
                   >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg font-black text-slate-500">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-ayar-aciklama font-black text-slate-500">
                       {(user.name || user.username || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">{user.name || user.username || 'İsimsiz kullanıcı'}</span>
-                      <span className="block truncate text-lg font-black text-slate-400">{user.username || `ID: ${user.id}`}</span>
+                      <span className="block truncate text-ayar-aciklama font-black text-slate-400">{user.username || `ID: ${user.id}`}</span>
                     </span>
-                    <span className="shrink-0 text-2xl leading-none text-[#1E2A38]">+</span>
+                    <span className="shrink-0 text-ayar-bolum leading-none text-[#1E2A38]">+</span>
                   </button>
                 ))}
                 {authorizedPersonnelCandidateUsers.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center text-xl font-bold text-slate-400">
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-center text-ayar-govde font-bold text-slate-400">
                     {authorizedPersonnelSearchTerm ? 'Aramanızla eşleşen kullanıcı bulunamadı.' : 'Eklenebilecek kullanıcı kalmadı.'}
                   </div>
                 )}
@@ -3891,27 +3866,27 @@ function SystemSettingsPageInner() {
   const whatsappPanel = (
     <div className="overflow-hidden rounded-2xl border border-slate-300 shadow-[0_18px_45px_rgba(15,30,43,0.10)] ring-1 ring-slate-200">
       <div className="flex items-center gap-3 bg-[#1E2A38] px-6 py-5 text-white">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/30 text-3xl">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/30 text-ayar-baslik">
           💬
         </div>
         <div>
-          <p className="text-base font-black uppercase tracking-wide text-white/80">Sistem Ayarları</p>
-          <h3 className="text-3xl font-black leading-tight">WhatsApp Web</h3>
+          <p className="text-ayar-aciklama font-black uppercase tracking-wide text-white/80">Sistem Ayarları</p>
+          <h3 className="text-ayar-baslik font-black leading-tight">WhatsApp Web</h3>
         </div>
       </div>
 
       <div className="space-y-5 bg-white p-6">
-        <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/60 px-5 py-4 text-xl font-semibold text-emerald-900">
+        <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/60 px-5 py-4 text-ayar-govde font-semibold text-emerald-900">
           Bu entegrasyon, yetkili bir kullanıcının burada <span className="font-black">BİR KEZ</span> QR kod okutarak kurumun WhatsApp hesabını sunucuya bağlamasıyla çalışır. Bağlandıktan sonra hiçbir kullanıcının kendi WhatsApp Web&apos;ine girmesine gerek kalmaz - dosya ekranındaki <span className="font-black">&quot;WhatsApp&apos;tan Gönder&quot;</span> butonuna basan HERKESİN mesajı, otomatik olarak bu TEK kurum numarası üzerinden gönderilir. Bağlantı sunucuda saklanır; sunucu yeniden başlasa bile QR&apos;ı tekrar okutmaya gerek yoktur.
         </div>
 
-        <div className="rounded-lg border-2 border-amber-200 bg-amber-50/70 px-5 py-4 text-xl font-semibold text-amber-900">
+        <div className="rounded-lg border-2 border-amber-200 bg-amber-50/70 px-5 py-4 text-ayar-govde font-semibold text-amber-900">
           Not: whatsapp-web.js, WhatsApp&apos;ın resmi desteklediği bir API değildir (WhatsApp Web arayüzünü otomatikleştiren gayri-resmi bir yöntemdir). Kurulumu ücretsiz ve basittir, ancak çok yoğun otomatik gönderimde numara nadiren geçici kısıtlamaya uğrayabilir.
         </div>
 
         <div className="rounded-xl border-2 border-slate-300 bg-white p-6 shadow-sm">
           {!whatsappConnection && (
-            <p className="text-xl font-bold text-slate-500">Bağlantı durumu yükleniyor...</p>
+            <p className="text-ayar-govde font-bold text-slate-500">Bağlantı durumu yükleniyor...</p>
           )}
 
           {whatsappConnection?.status === 'ready' && (
@@ -3919,8 +3894,8 @@ function SystemSettingsPageInner() {
               <div className="flex items-center gap-3">
                 <span className="flex h-3.5 w-3.5 shrink-0 rounded-full bg-emerald-500" />
                 <div>
-                  <p className="text-xl font-black text-emerald-800">Bağlı</p>
-                  <p className="text-xl font-semibold text-slate-500">
+                  <p className="text-ayar-govde font-black text-emerald-800">Bağlı</p>
+                  <p className="text-ayar-govde font-semibold text-slate-500">
                     {whatsappConnection.connectedNumber ? `+${whatsappConnection.connectedNumber}` : 'Numara bilgisi alınamadı'}
                     {whatsappConnection.connectedName ? ` — ${whatsappConnection.connectedName}` : ''}
                   </p>
@@ -3930,7 +3905,7 @@ function SystemSettingsPageInner() {
                 type="button"
                 onClick={() => void disconnectWhatsapp()}
                 disabled={isWhatsappLoggingOut}
-                className="inline-flex items-center gap-2 self-start rounded-lg border-2 border-rose-200 bg-rose-50 px-5 py-3 text-xl font-black text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 self-start rounded-lg border-2 border-rose-200 bg-rose-50 px-5 py-3 text-ayar-govde font-black text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isWhatsappLoggingOut ? 'Kesiliyor...' : 'Bağlantıyı Kes'}
               </button>
@@ -3940,29 +3915,29 @@ function SystemSettingsPageInner() {
           {whatsappConnection?.status === 'ready' && (
             <div className="mt-4 border-t-2 border-slate-100 pt-4">
               <label className="flex flex-col gap-2">
-                <span className="text-xl font-black uppercase tracking-wide text-slate-500">Kurum Görünen Adı</span>
+                <span className="text-ayar-govde font-black uppercase tracking-wide text-slate-500">Kurum Görünen Adı</span>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     value={whatsappDisplayNameForm}
                     onChange={(event) => setWhatsappDisplayNameForm(event.target.value)}
                     placeholder="Örn: Sivas Belediyesi Sosyal Yardım"
-                    className="flex-1 rounded-lg border-2 border-slate-300 bg-white px-4 py-3 text-xl font-bold text-slate-950 outline-none focus:border-[#1E2A38]"
+                    className="flex-1 rounded-lg border-2 border-slate-300 bg-white px-4 py-3 text-ayar-govde font-bold text-slate-950 outline-none focus:border-[#1E2A38]"
                   />
                   <button
                     type="button"
                     onClick={() => void saveWhatsappDisplayName()}
                     disabled={isSavingWhatsappDisplayName || !whatsappDisplayNameForm.trim()}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1E2A38] px-6 py-3 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1E2A38] px-6 py-3 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isSavingWhatsappDisplayName ? 'Kaydediliyor...' : 'Kaydet'}
                   </button>
                 </div>
-                <span className="text-xl font-semibold text-slate-400">
+                <span className="text-ayar-govde font-semibold text-slate-400">
                   Numarayı rehberine kaydetmemiş alıcılar, mesajı çıplak telefon numarası yerine bu isimle görür. (Rehberine kaydetmiş olanlar için her zaman kendi verdikleri isim görünür - bu WhatsApp&apos;ın kendi kuralıdır, değiştirilemez.)
                 </span>
               </label>
               {whatsappDisplayNameStatus && (
-                <p className={`mt-2 text-xl font-bold ${whatsappDisplayNameStatus.includes('güncellendi') ? 'text-emerald-700' : 'text-rose-600'}`}>
+                <p className={`mt-2 text-ayar-govde font-bold ${whatsappDisplayNameStatus.includes('güncellendi') ? 'text-emerald-700' : 'text-rose-600'}`}>
                   {whatsappDisplayNameStatus}
                 </p>
               )}
@@ -3971,16 +3946,16 @@ function SystemSettingsPageInner() {
 
           {whatsappConnection?.status === 'qr' && whatsappConnection.qrDataUrl && (
             <div className="flex flex-col items-center gap-3 text-center">
-              <p className="text-xl font-black text-slate-700">Kurumun WhatsApp hesabıyla bu kodu okutun</p>
+              <p className="text-ayar-govde font-black text-slate-700">Kurumun WhatsApp hesabıyla bu kodu okutun</p>
               <img src={whatsappConnection.qrDataUrl} alt="WhatsApp QR Kod" className="h-56 w-56 rounded-lg border-2 border-slate-200 p-2" />
-              <p className="max-w-md text-xl font-semibold text-slate-500">
+              <p className="max-w-md text-ayar-govde font-semibold text-slate-500">
                 Telefonda WhatsApp &gt; Ayarlar &gt; Bağlı Cihazlar &gt; Cihaz Bağla yolunu izleyip bu QR kodu okutun. Kod süresi dolarsa birkaç saniye içinde otomatik yenilenir.
               </p>
               <button
                 type="button"
                 onClick={() => void connectWhatsapp(true)}
                 disabled={isWhatsappConnecting}
-                className="inline-flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-5 py-3 text-xl font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg border-2 border-emerald-200 bg-emerald-50 px-5 py-3 text-ayar-govde font-black text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
@@ -3997,18 +3972,18 @@ function SystemSettingsPageInner() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
                 <span className="flex h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-amber-400" />
-                <p className="text-xl font-black text-amber-700">
+                <p className="text-ayar-govde font-black text-amber-700">
                   {whatsappConnection.status === 'authenticated' ? 'Kimlik doğrulandı, bağlanılıyor...' : 'Başlatılıyor...'}
                 </p>
               </div>
-              <p className="text-xl font-semibold text-slate-400">
+              <p className="text-ayar-govde font-semibold text-slate-400">
                 Bu ekran normalde birkaç saniye sürer. Uzun süre (1-2 dakikadan fazla) takılı kalırsa, aşağıdaki butonla tekrar QR okutmadan yeniden deneyebilirsiniz - sistem de kendiliğinden yeniden dener.
               </p>
               <button
                 type="button"
                 onClick={() => void connectWhatsapp(true)}
                 disabled={isWhatsappConnecting}
-                className="inline-flex items-center gap-2 self-start rounded-lg border-2 border-amber-200 bg-amber-50 px-5 py-3 text-xl font-black text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 self-start rounded-lg border-2 border-amber-200 bg-amber-50 px-5 py-3 text-ayar-govde font-black text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isWhatsappConnecting ? 'Yeniden Deneniyor...' : 'Yeniden Dene'}
               </button>
@@ -4019,13 +3994,13 @@ function SystemSettingsPageInner() {
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
                 <span className="flex h-3.5 w-3.5 shrink-0 rounded-full bg-slate-300" />
-                <p className="text-xl font-black text-slate-600">Bağlı Değil</p>
+                <p className="text-ayar-govde font-black text-slate-600">Bağlı Değil</p>
               </div>
               {whatsappConnection.lastError && (
-                <p className="text-xl font-semibold text-rose-600">{whatsappConnection.lastError}</p>
+                <p className="text-ayar-govde font-semibold text-rose-600">{whatsappConnection.lastError}</p>
               )}
               {whatsappConnection.reconnectCooldownUntil && whatsappConnection.reconnectCooldownUntil > Date.now() && (
-                <p className="max-w-md rounded-lg border-2 border-amber-200 bg-amber-50 px-4 py-3 text-xl font-semibold text-amber-800">
+                <p className="max-w-md rounded-lg border-2 border-amber-200 bg-amber-50 px-4 py-3 text-ayar-govde font-semibold text-amber-800">
                   QR art arda birkaç kez tamamlanamadan koptu - bu genelde WhatsApp&apos;ın geçici hız sınırlamasına işaret eder. Sistemin arka planda kendiliğinden tekrar denemesi yaklaşık {Math.ceil((whatsappConnection.reconnectCooldownUntil - Date.now()) / 60000)} dakika durduruldu (numarayı daha fazla yormamak için). Telefonunuzda WhatsApp &gt; Bağlı Cihazlar listesinde eski/askıda bir kayıt varsa kaldırıp birkaç dakika bekledikten sonra aşağıdaki butonla elle tekrar deneyebilirsiniz.
                 </p>
               )}
@@ -4033,7 +4008,7 @@ function SystemSettingsPageInner() {
                 type="button"
                 onClick={() => void connectWhatsapp(true)}
                 disabled={isWhatsappConnecting}
-                className="inline-flex items-center gap-2 self-start rounded-lg bg-[#1E2A38] px-6 py-3 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 self-start rounded-lg bg-[#1E2A38] px-6 py-3 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isWhatsappConnecting ? 'Başlatılıyor...' : 'Bağlan'}
               </button>
@@ -4042,19 +4017,19 @@ function SystemSettingsPageInner() {
         </div>
 
         {whatsappStatus && (
-          <div className={`rounded-lg border-2 px-5 py-4 text-xl font-bold ${whatsappStatus.includes('kaydedildi') ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+          <div className={`rounded-lg border-2 px-5 py-4 text-ayar-govde font-bold ${whatsappStatus.includes('kaydedildi') ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
             {whatsappStatus}
           </div>
         )}
 
         <div className="grid gap-4 rounded-xl border-2 border-slate-300 bg-white p-5 shadow-sm">
           <label className="flex flex-col gap-2">
-            <span className="text-xl font-black uppercase tracking-wide text-slate-500">Not (Opsiyonel)</span>
+            <span className="text-ayar-govde font-black uppercase tracking-wide text-slate-500">Not (Opsiyonel)</span>
             <input
               value={whatsappSettingsForm.note || ''}
               onChange={(event) => setWhatsappSettingsForm(prev => ({ ...prev, note: event.target.value }))}
               placeholder="Örn: Bu hat Sosyal Hizmetler bilgi hattıdır"
-              className="rounded-lg border-2 border-slate-300 bg-white px-4 py-3 text-xl font-bold text-slate-950 outline-none focus:border-[#1E2A38]"
+              className="rounded-lg border-2 border-slate-300 bg-white px-4 py-3 text-ayar-govde font-bold text-slate-950 outline-none focus:border-[#1E2A38]"
             />
           </label>
         </div>
@@ -4064,7 +4039,7 @@ function SystemSettingsPageInner() {
             type="button"
             onClick={() => void persistWhatsappSettings()}
             disabled={isSavingWhatsapp || !whatsappSettingsDirty}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1E2A38] px-6 py-3 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1E2A38] px-6 py-3 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSavingWhatsapp ? 'Kaydediliyor...' : 'Notu Kaydet'}
           </button>
@@ -4086,25 +4061,30 @@ function SystemSettingsPageInner() {
           temaya kavusturuldu - eskiden parlak mavi-yesil degrade bir
           baslikti. SADECE GORUNUM - "işleyişe dokunmayalım" istegi geregi
           hicbir prop/onClick/mantik DEGISMEDI. */}
-      <div className="ns-sayfa-baslik rounded-xl border border-[#2A3B4D] bg-[#1E2A38] p-5 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
+      <div className={`ns-sayfa-baslik ${activeTab === 'userPermissions' ? 'ns-yazi-masaustu ' : ''}overflow-hidden rounded-xl border border-[#0a3a57]/30 border-b-4 border-b-[#c9a227] bg-gradient-to-r from-[#0a3a57] via-[#0d4f6e] to-[#0a3a57] p-5 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]`}>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-[13px] font-semibold uppercase tracking-wide text-white/80">{activeHeader.eyebrow}</p>
-            <h1 className="mt-1 text-2xl font-semibold uppercase leading-tight tracking-wide md:text-[28px]">{activeHeader.title}</h1>
+            <p className="text-[13px] font-bold uppercase tracking-[0.18em] text-[#e8cf7a]">{activeHeader.eyebrow}</p>
+            <h1 className="mt-1 text-2xl font-black leading-tight tracking-wide md:text-[28px]">{activeHeader.title}</h1>
+            {activeTab === 'userPermissions' && (
+              <p className="mt-1 max-w-3xl text-base font-medium text-white/75 lg:text-lg">
+                Kullanıcı seçin; giriş günlerini, görebileceği sayfaları ve yapabileceği işlemleri belirleyip <span className="font-bold text-white">Değişiklikleri Kaydet</span>&apos;e basın.
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {activeTab === 'userPermissions' && (
               <a
                 href="/users"
-                className="inline-flex items-center justify-center rounded-lg border border-white/30 bg-white/10 px-5 py-2.5 text-xl font-bold text-white shadow-sm hover:bg-white/20 transition-colors"
+                className="inline-flex items-center justify-center rounded-lg border border-white/30 bg-white/10 px-5 py-2.5 text-base font-bold text-white shadow-sm hover:bg-white/20 transition-colors"
               >
-                Kullanıcılar sayfasına dön
+                ← Kullanıcılar
               </a>
             )}
             <button
               onClick={saveActiveSettings}
               disabled={isSavingPredefinedValues || isSavingFormDesigns || isSavingOnlineForms || isSavingUserPermissions || isSavingGeneralSettings || isSavingSmsSettings || isSavingDatabaseBackupSettings}
-              className="rounded-lg bg-white px-6 py-2 text-sm font-bold text-[#1E2A38] shadow-sm hover:bg-slate-100 transition-colors disabled:opacity-50"
+              className="rounded-lg bg-[#c9a227] px-6 py-2.5 text-base font-black text-[#0a3a57] shadow-sm transition-colors hover:bg-[#d8b440] disabled:opacity-50"
             >
               {isSavingPredefinedValues || isSavingFormDesigns || isSavingOnlineForms || isSavingUserPermissions || isSavingGeneralSettings || isSavingSmsSettings || isSavingDatabaseBackupSettings ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
             </button>
@@ -4158,17 +4138,17 @@ function SystemSettingsPageInner() {
             <div className="space-y-3">
               <div className="flex flex-col gap-3 rounded-xl border border-slate-300 bg-slate-50 px-6 py-5 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="text-lg font-black uppercase tracking-wide text-[#1E2A38]">KAPS / NVİ Sorgu Ekranı</p>
-                  <p className="mt-2 text-lg font-bold text-slate-700">
+                  <p className="text-ayar-aciklama font-black uppercase tracking-wide text-[#1E2A38]">KAPS / NVİ Sorgu Ekranı</p>
+                  <p className="mt-2 text-ayar-aciklama font-bold text-slate-700">
                     {typeof window !== 'undefined' ? `${window.location.origin}${kapsUrl}` : kapsUrl}
                   </p>
-                  <p className="mt-1 text-base font-semibold text-slate-500">Sunucu içi adres: {kapsDirectUrl}</p>
+                  <p className="mt-1 text-ayar-aciklama font-semibold text-slate-500">Sunucu içi adres: {kapsDirectUrl}</p>
                 </div>
                 <a
                   href={kapsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="shrink-0 rounded-lg border border-[#1E2A38] bg-white px-6 py-3.5 text-lg font-black text-[#1E2A38] shadow-sm hover:bg-slate-100"
+                  className="shrink-0 rounded-lg border border-[#1E2A38] bg-white px-6 py-3.5 text-ayar-aciklama font-black text-[#1E2A38] shadow-sm hover:bg-slate-100"
                 >
                   Yeni Pencerede Aç
                 </a>
@@ -4247,18 +4227,18 @@ function SystemSettingsPageInner() {
               <div className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_18px_45px_rgba(15,30,43,0.10)]">
                 <div className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Mesajlaşma Servisleri</p>
-                    <h2 className="mt-1 text-4xl font-black text-slate-900">SMS Entegrasyonu</h2>
-                    <p className="mt-1.5 max-w-3xl text-xl font-semibold text-slate-600">
+                    <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Mesajlaşma Servisleri</p>
+                    <h2 className="mt-1 text-ayar-baslik font-black text-slate-900">SMS Entegrasyonu</h2>
+                    <p className="mt-1.5 max-w-3xl text-ayar-govde font-semibold text-slate-600">
                       Mutlucell, İleti Bilgi Teknolojileri ve NetGSM için API erişim bilgilerini buradan tanımlayabilirsiniz. Bu bölüm ayrı ayar kaydı olarak saklanır.
                     </p>
                   </div>
                   <div className="rounded-xl border border-slate-300 bg-white p-4">
-                    <p className="text-xl font-black uppercase tracking-wide text-slate-600">Aktif Sağlayıcı</p>
+                    <p className="text-ayar-govde font-black uppercase tracking-wide text-slate-600">Aktif Sağlayıcı</p>
                     <select
                       value={smsSettings.activeProvider}
                       onChange={event => setSmsSettings(prev => ({ ...prev, activeProvider: event.target.value as SmsProviderId }))}
-                      className="mt-1.5 min-w-56 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-xl font-black text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                      className="mt-1.5 min-w-56 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-ayar-govde font-black text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                     >
                       <option value="mutlucell">Mutlucell</option>
                       <option value="ileti">İleti Bilgi Teknolojileri</option>
@@ -4280,9 +4260,9 @@ function SystemSettingsPageInner() {
                         <div className={`border-b px-5 py-5 ${isActiveProvider ? 'border-slate-200 bg-slate-50' : 'border-slate-100 bg-slate-50'}`}>
                           <div className="flex items-start justify-between gap-4">
                             <div>
-                              <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">SMS Sağlayıcısı</p>
-                              <h3 className="mt-1 text-3xl font-black text-slate-900">{provider.name}</h3>
-                              <p className="mt-1.5 text-xl font-semibold leading-relaxed text-slate-600">{provider.description}</p>
+                              <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">SMS Sağlayıcısı</p>
+                              <h3 className="mt-1 text-ayar-baslik font-black text-slate-900">{provider.name}</h3>
+                              <p className="mt-1.5 text-ayar-govde font-semibold leading-relaxed text-slate-600">{provider.description}</p>
                             </div>
                             <label className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5">
                               <input
@@ -4291,7 +4271,7 @@ function SystemSettingsPageInner() {
                                 onChange={event => updateSmsProviderSetting(provider.id, 'enabled', event.target.checked)}
                                 className="h-5 w-5"
                               />
-                              <span className="text-xl font-black uppercase text-slate-700">Aktif</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-700">Aktif</span>
                             </label>
                           </div>
                         </div>
@@ -4299,108 +4279,108 @@ function SystemSettingsPageInner() {
                         <div className="space-y-5 p-5">
                           <div className="grid gap-4">
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">Gönderici Başlığı</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">Gönderici Başlığı</span>
                               <input
                                 value={providerSettings.senderTitle}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'senderTitle', event.target.value)}
                                 placeholder="Örn. SIVASBLD"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">Müşteri / Bayi Kodu</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">Müşteri / Bayi Kodu</span>
                               <input
                                 value={providerSettings.customerCode}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'customerCode', event.target.value)}
                                 placeholder="Firma tarafından verilen kod"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2 md:col-span-2">
-                              <span className="text-xl font-black uppercase text-slate-600">API Adresi</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">API Adresi</span>
                               <input
                                 value={providerSettings.apiUrl}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'apiUrl', event.target.value)}
                                 placeholder="https://..."
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">Kullanıcı Adı</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">Kullanıcı Adı</span>
                               <input
                                 value={providerSettings.username}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'username', event.target.value)}
                                 autoComplete="off"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">Şifre</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">Şifre</span>
                               <input
                                 type="password"
                                 value={providerSettings.password}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'password', event.target.value)}
                                 autoComplete="new-password"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">API Key</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">API Key</span>
                               <input
                                 type="password"
                                 value={providerSettings.apiKey}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'apiKey', event.target.value)}
                                 autoComplete="off"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">API Secret / Token</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">API Secret / Token</span>
                               <input
                                 type="password"
                                 value={providerSettings.apiSecret}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'apiSecret', event.target.value)}
                                 autoComplete="new-password"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2">
-                              <span className="text-xl font-black uppercase text-slate-600">Test Telefonu</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">Test Telefonu</span>
                               <input
                                 value={providerSettings.testPhone}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'testPhone', event.target.value)}
                                 placeholder="05xx xxx xx xx"
                                 inputMode="tel"
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                             <label className="flex flex-col gap-2 md:col-span-2">
-                              <span className="text-xl font-black uppercase text-slate-600">Not / Ek Parametreler</span>
+                              <span className="text-ayar-govde font-black uppercase text-slate-600">Not / Ek Parametreler</span>
                               <textarea
                                 value={providerSettings.notes}
                                 onChange={event => updateSmsProviderSetting(provider.id, 'notes', event.target.value)}
                                 rows={3}
                                 placeholder="Firma tarafından verilen özel parametre, başlık veya gönderim tipi notları..."
-                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                                className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                               />
                             </label>
                           </div>
 
-                          <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-xl font-bold text-slate-600 sm:grid-cols-3">
+                          <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-ayar-govde font-bold text-slate-600 sm:grid-cols-3">
                             <div>
-                              <span className="block text-xl font-black uppercase text-slate-500">Durum</span>
+                              <span className="block text-ayar-govde font-black uppercase text-slate-500">Durum</span>
                               <span className={providerSettings.enabled ? 'text-emerald-700' : 'text-slate-500'}>
                                 {providerSettings.enabled ? 'Aktif' : 'Pasif'}
                               </span>
                             </div>
                             <div>
-                              <span className="block text-xl font-black uppercase text-slate-500">Seçim</span>
+                              <span className="block text-ayar-govde font-black uppercase text-slate-500">Seçim</span>
                               <span className={isActiveProvider ? 'text-[#1E2A38]' : 'text-slate-500'}>
                                 {isActiveProvider ? 'Varsayılan' : 'Yedek'}
                               </span>
                             </div>
                             <div>
-                              <span className="block text-xl font-black uppercase text-slate-500">Kimlik</span>
+                              <span className="block text-ayar-govde font-black uppercase text-slate-500">Kimlik</span>
                               <span>{providerSettings.username || providerSettings.apiKey ? 'Girildi' : 'Eksik'}</span>
                             </div>
                           </div>
@@ -4411,12 +4391,12 @@ function SystemSettingsPageInner() {
                                 type="button"
                                 onClick={() => void testSmsProvider(provider.id)}
                                 disabled={smsProviderTestStatus[provider.id]?.status === 'sending'}
-                                className="inline-flex items-center justify-center gap-2 self-start rounded-lg border-2 border-[#1E2A38] bg-white px-6 py-3.5 text-xl font-black uppercase text-[#1E2A38] hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
+                                className="inline-flex items-center justify-center gap-2 self-start rounded-lg border-2 border-[#1E2A38] bg-white px-6 py-3.5 text-ayar-govde font-black uppercase text-[#1E2A38] hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
                               >
                                 {smsProviderTestStatus[provider.id]?.status === 'sending' ? 'Gönderiliyor...' : '📨 Test SMS Gönder'}
                               </button>
                               {smsProviderTestStatus[provider.id] && smsProviderTestStatus[provider.id]?.status !== 'sending' && (
-                                <p className={`text-xl font-bold ${smsProviderTestStatus[provider.id]?.status === 'success' ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                <p className={`text-ayar-govde font-bold ${smsProviderTestStatus[provider.id]?.status === 'success' ? 'text-emerald-700' : 'text-rose-600'}`}>
                                   {smsProviderTestStatus[provider.id]?.status === 'success' ? '✓ ' : '✗ '}
                                   {smsProviderTestStatus[provider.id]?.message}
                                 </p>
@@ -4432,16 +4412,16 @@ function SystemSettingsPageInner() {
                 <div className="border-t border-slate-200 p-6">
                   <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                      <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Hazır Mesajlar</p>
-                      <h3 className="mt-1 text-3xl font-black text-slate-900">SMS Şablonları</h3>
-                      <p className="mt-1.5 text-xl font-semibold text-slate-600">
+                      <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Hazır Mesajlar</p>
+                      <h3 className="mt-1 text-ayar-baslik font-black text-slate-900">SMS Şablonları</h3>
+                      <p className="mt-1.5 text-ayar-govde font-semibold text-slate-600">
                         Dosya Ara ekranındaki SMS gönder penceresinde kullanılacak hazır kalıpları buradan yönetin.
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={addSmsTemplate}
-                      className="rounded-lg bg-[#1E2A38] px-6 py-3.5 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D]"
+                      className="rounded-lg bg-[#1E2A38] px-6 py-3.5 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D]"
                     >
                       Yeni Şablon Ekle
                     </button>
@@ -4452,11 +4432,11 @@ function SystemSettingsPageInner() {
                       <div key={template.id} className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
                         <div className="mb-3 flex items-start justify-between gap-3">
                           <label className="flex min-w-0 flex-1 flex-col gap-2">
-                            <span className="text-xl font-black uppercase text-slate-600">Şablon Adı</span>
+                            <span className="text-ayar-govde font-black uppercase text-slate-600">Şablon Adı</span>
                             <input
                               value={template.title}
                               onChange={event => updateSmsTemplate(template.id, { title: event.target.value })}
-                              className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-xl font-black text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+                              className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-govde font-black text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
                             />
                           </label>
                           <label className="mt-6 flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-4 py-3">
@@ -4466,27 +4446,27 @@ function SystemSettingsPageInner() {
                               onChange={event => updateSmsTemplate(template.id, { active: event.target.checked })}
                               className="h-5 w-5"
                             />
-                            <span className="text-xl font-black uppercase text-slate-700">Aktif</span>
+                            <span className="text-ayar-govde font-black uppercase text-slate-700">Aktif</span>
                           </label>
                         </div>
                         <label className="flex flex-col gap-2">
-                          <span className="text-xl font-black uppercase text-slate-600">Mesaj Metni</span>
+                          <span className="text-ayar-govde font-black uppercase text-slate-600">Mesaj Metni</span>
                           <textarea
                             value={template.text}
                             onChange={event => updateSmsTemplate(template.id, { text: event.target.value })}
                             rows={4}
-                            className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-lg font-semibold leading-relaxed text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                            className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3.5 text-ayar-aciklama font-semibold leading-relaxed text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                           />
                         </label>
                         <div className="mt-3 flex flex-col gap-2 border-t border-slate-200 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                          <p className="text-xl font-bold text-slate-500">
+                          <p className="text-ayar-govde font-bold text-slate-500">
                             Kullanılabilir alanlar: {'{adSoyad}'}, {'{dosyaNo}'}, {'{tc}'}, {'{kurum}'}
                           </p>
                           <button
                             type="button"
                             onClick={() => removeSmsTemplate(template.id)}
                             disabled={smsSettings.templates.length <= 1}
-                            className="rounded-lg border border-rose-300 bg-rose-50 px-5 py-2.5 text-xl font-black text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="rounded-lg border border-rose-300 bg-rose-50 px-5 py-2.5 text-ayar-govde font-black text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             Sil
                           </button>
@@ -4498,11 +4478,11 @@ function SystemSettingsPageInner() {
 
                 <div className="border-t border-slate-200 bg-slate-50 px-6 py-5">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <p className="text-xl font-semibold leading-relaxed text-slate-600">
+                    <p className="text-ayar-govde font-semibold leading-relaxed text-slate-600">
                       Bilgiler kaydedildikten sonra SMS gönderim modülleri bu ayar kaydını kullanacak şekilde bağlanabilir. Bu ekranda gerçek SMS gönderimi yapılmaz.
                     </p>
                     {smsSettingsStatus && (
-                      <div className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xl font-bold text-[#1E2A38]">
+                      <div className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-ayar-govde font-bold text-[#1E2A38]">
                         {smsSettingsStatus}
                       </div>
                     )}
@@ -4601,85 +4581,16 @@ function SystemSettingsPageInner() {
           )}
 
           {activeTab === 'predefinedValues' && (
-            <div className="space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-                <h2 className="text-2xl font-extrabold text-[#1E2A38]">Hazır Değerler Yönetimi</h2>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Yeni Liste Başlığı..."
-                    value={newCategoryTitle}
-                    onChange={e => setNewCategoryTitle(e.target.value)}
-                    className="rounded-md border border-slate-300 px-4 py-2 text-xl outline-none focus:border-[#1E2A38]"
-                  />
-                  <button
-                    onClick={addNewPredefinedValueList}
-                    className="rounded-md bg-[#6fb744] px-4 py-2 text-xl font-bold text-white hover:bg-[#5aa333] transition-colors"
-                  >
-                    + Ekle
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Kullanici istegi: "Yardım Kriterleri" artik AYRI bir
-                    "Yardım Kriterleri" sekmesinde (dönem bazinda panellerle)
-                    yonetiliyor - bu genel Hazır Değerler kartlarinda
-                    TEKRAR gosterilmez (bkz. activeTab === 'yardimKriterleri'). */}
-                {Object.keys(predefinedValueTitles).filter(category => category !== 'yardimKriterleri').map(category => (
-                  <div key={category} className="rounded-lg border border-slate-300 p-5 space-y-3 bg-slate-50/50">
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-2">
-                      <input
-                        type="text"
-                        value={predefinedValueTitles[category]}
-                        onChange={e => handlePredefinedTitleChange(category, e.target.value)}
-                        className="bg-transparent text-xl font-black text-slate-800 outline-none focus:text-[#1E2A38] transition-colors"
-                      />
-                      <button
-                        onClick={() => removePredefinedValueList(category)}
-                        className="text-xl text-slate-400 hover:text-rose-500 transition-colors"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-
-                    <div className="space-y-2">
-                      {predefinedValues[category]?.map((val, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder="ID"
-                            value={val.id}
-                            onChange={e => handlePredefinedValueChange(category, idx, 'id', e.target.value)}
-                            className="w-20 rounded-md border border-slate-300 px-3 py-2 text-xl outline-none focus:border-[#1E2A38]"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Değer"
-                            value={val.name}
-                            onChange={e => handlePredefinedValueChange(category, idx, 'name', e.target.value)}
-                            className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-xl outline-none focus:border-[#1E2A38]"
-                          />
-                          <button
-                            onClick={() => removePredefinedValue(category, idx)}
-                            className="text-xl text-slate-300 hover:text-rose-500"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <button
-                      onClick={() => addPredefinedValue(category)}
-                      className="w-full rounded-md border border-dashed border-slate-300 py-2 text-xl font-bold text-slate-500 hover:bg-white hover:border-[#1E2A38] hover:text-[#1E2A38] transition-all mt-2"
-                    >
-                      + Yeni Satır
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <PredefinedValuesTab
+              values={predefinedValues}
+              titles={predefinedValueTitles}
+              setValues={setPredefinedValues}
+              setTitles={setPredefinedValueTitles}
+              isDirty={predefinedSnapshot !== null && predefinedSnapshot !== JSON.stringify({ values: predefinedValues, titles: predefinedValueTitles })}
+              isSaving={isSavingPredefinedValues}
+              saveStatus={predefinedSaveStatus}
+              onSave={() => void savePredefinedValues()}
+            />
           )}
 
           {activeTab === 'yardimKriterleri' && (
@@ -4713,17 +4624,14 @@ function SystemSettingsPageInner() {
           )}
 
           {activeTab === 'userPermissions' && (
-            <div className="space-y-6">
-              <p className="max-w-3xl border-b border-slate-200 pb-4 text-xl font-semibold text-slate-500">
-                Kullanıcılar `kullanicilar` tablosundan alınır. Seçilen kullanıcı için görülebilecek sayfaları ve yapılabilecek işlemleri buradan sınırlandırabilirsiniz.
-              </p>
-
+            <div className="ns-yazi-masaustu space-y-6">
               <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-                <div className="rounded-xl border border-slate-300 bg-slate-50 p-3">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-lg font-black uppercase text-slate-500">Kullanıcılar</p>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-base font-black text-slate-500">{filteredPermissionUsers.length}/{settingsUsers.length}</span>
+                <div className="self-start overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm xl:sticky xl:top-2">
+                  <div className="flex items-center justify-between border-b-2 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-4 py-3">
+                    <p className="text-base lg:text-xl font-black uppercase tracking-wide text-white">Kullanıcılar</p>
+                    <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-sm lg:text-lg font-black text-white ring-1 ring-white/25">{filteredPermissionUsers.length}/{settingsUsers.length}</span>
                   </div>
+                  <div className="p-3">
                   <div className="relative mb-3">
                     <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
@@ -4736,7 +4644,7 @@ function SystemSettingsPageInner() {
                       value={permissionUserSearchTerm}
                       onChange={(event) => setPermissionUserSearchTerm(event.target.value)}
                       placeholder="Kullanıcı ara..."
-                      className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-lg font-bold text-slate-900 outline-none focus:border-[#1E2A38]"
+                      className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-lg lg:text-2xl font-bold text-slate-900 outline-none focus:border-[#0a3a57]"
                     />
                     {permissionUserSearchTerm && (
                       <button
@@ -4759,26 +4667,33 @@ function SystemSettingsPageInner() {
                           key={user.id}
                           type="button"
                           onClick={() => setSelectedPermissionUserId(user.id)}
-                          className={`w-full rounded-lg border p-3 text-left transition-all ${isSelected ? 'border-[#1E2A38] bg-white shadow-sm' : 'border-slate-300 bg-white hover:border-slate-400'}`}
+                          className={`relative flex w-full items-center gap-3 overflow-hidden rounded-lg border px-3 py-2.5 text-left transition-all ${isSelected ? 'border-[#0a3a57] bg-sky-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}`}
                         >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-lg font-black text-slate-900">{user.name || user.username || 'İsimsiz kullanıcı'}</p>
-                              <p className="truncate text-base font-bold text-slate-400">{user.username || user.email || `ID: ${user.id}`}</p>
-                            </div>
-                            <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${config?.isActive === false || user.status === 0 ? 'bg-rose-500' : 'bg-emerald-500'}`} />
-                          </div>
-                          <p className="mt-2 text-base font-bold text-slate-500">
-                            {config?.isActive === false || user.status === 0 ? 'Pasif kullanıcı' : config?.isAdmin === false ? 'Kısıtlı yetki' : 'Tam yetki'}
-                          </p>
+                          {isSelected && <span className="absolute inset-y-0 left-0 w-1.5 bg-[#c9a227]" />}
+                          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base lg:text-xl font-black ${isSelected ? 'bg-[#0a3a57] text-[#e8cf7a]' : 'bg-slate-100 text-slate-500'}`}>
+                            {(user.name || user.username || '?').trim().slice(0, 1).toLocaleUpperCase('tr-TR')}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-base lg:text-xl font-black text-slate-900">{user.name || user.username || 'İsimsiz kullanıcı'}</span>
+                            <span className="block truncate text-sm lg:text-lg font-bold text-slate-400">{user.username || user.email || `ID: ${user.id}`}</span>
+                          </span>
+                          {(() => {
+                            const isPassive = config?.isActive === false || user.status === 0
+                            const label = isPassive ? 'Pasif' : config?.isAdmin === false ? 'Kısıtlı' : 'Tam'
+                            const cls = isPassive
+                              ? 'bg-rose-50 text-rose-700 ring-rose-200'
+                              : config?.isAdmin === false ? 'bg-amber-50 text-amber-800 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                            return <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs lg:text-base font-black uppercase ring-1 ${cls}`}>{label}</span>
+                          })()}
                         </button>
                       );
                     })}
                     {filteredPermissionUsers.length === 0 && (
-                      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-lg font-bold text-slate-400">
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center text-lg lg:text-2xl font-bold text-slate-400">
                         {settingsUsers.length === 0 ? 'Kullanıcı bulunamadı.' : 'Aramanızla eşleşen kullanıcı bulunamadı.'}
                       </div>
                     )}
+                  </div>
                   </div>
                 </div>
 
@@ -4809,11 +4724,11 @@ function SystemSettingsPageInner() {
                             type="checkbox"
                             checked={opts.checked}
                             onChange={(event) => opts.onChange(event.target.checked)}
-                            className="mt-0.5 h-5 w-5 shrink-0 accent-[#1E2A38]"
+                            className="mt-0.5 h-5 w-5 shrink-0 accent-[#0a3a57]"
                           />
                           <span className="min-w-0">
-                            <span className="block text-lg font-black text-slate-800 dark:text-slate-100">{opts.title}</span>
-                            {opts.desc && <span className="mt-1 block text-base font-semibold leading-snug text-slate-400 dark:text-slate-500">{opts.desc}</span>}
+                            <span className="block text-lg lg:text-2xl font-black text-slate-800 dark:text-slate-100">{opts.title}</span>
+                            {opts.desc && <span className="mt-1 block text-base lg:text-xl font-semibold leading-snug text-slate-400 dark:text-slate-500">{opts.desc}</span>}
                           </span>
                         </label>
                       );
@@ -4821,24 +4736,24 @@ function SystemSettingsPageInner() {
                       return (
                         <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
                           {/* Kimlik seridi */}
-                          <div className="flex flex-wrap items-center gap-3 bg-[#1E2A38] px-5 py-4">
-                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-xl font-black text-white ring-1 ring-white/30">
+                          <div className="flex flex-wrap items-center gap-3 border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] via-[#0d4f6e] to-[#0a3a57] px-5 py-4">
+                            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15 text-xl lg:text-3xl font-black text-white ring-1 ring-white/30">
                               {(selectedPermissionUser.name || selectedPermissionUser.username || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
                             </span>
                             <div className="min-w-0">
-                              <p className="text-base font-black uppercase tracking-wide text-white/75">Seçili Kullanıcı</p>
-                              <h3 className="truncate text-2xl font-black text-white">{selectedPermissionUser.name || selectedPermissionUser.username}</h3>
-                              <p className="truncate text-lg font-bold text-white/80">{selectedPermissionUser.email || selectedPermissionUser.username || `ID: ${selectedPermissionUser.id}`}</p>
+                              <p className="text-base lg:text-xl font-black uppercase tracking-wide text-white/75">Seçili Kullanıcı</p>
+                              <h3 className="truncate text-2xl lg:text-4xl font-black text-white">{selectedPermissionUser.name || selectedPermissionUser.username}</h3>
+                              <p className="truncate text-lg lg:text-2xl font-bold text-white/80">{selectedPermissionUser.email || selectedPermissionUser.username || `ID: ${selectedPermissionUser.id}`}</p>
                             </div>
                             <div className="ml-auto flex flex-wrap items-center gap-1.5">
-                              <span className={`rounded-full px-3 py-1.5 text-base font-black uppercase ${isActive ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-200 text-slate-600'}`}>
+                              <span className={`rounded-full px-3 py-1.5 text-base lg:text-xl font-black uppercase ${isActive ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-200 text-slate-600'}`}>
                                 {isActive ? 'Aktif' : 'Pasif'}
                               </span>
                               {cfg.isAdmin && (
-                                <span className="rounded-full bg-white px-3 py-1.5 text-base font-black uppercase text-[#1E2A38]">Tam Yetkili</span>
+                                <span className="rounded-full bg-white px-3 py-1.5 text-base lg:text-xl font-black uppercase text-[#0a3a57]">Tam Yetkili</span>
                               )}
                               {isRestricted && (
-                                <span className="rounded-full bg-amber-400 px-3 py-1.5 text-base font-black uppercase text-amber-950">Giriş Kısıtlı</span>
+                                <span className="rounded-full bg-amber-400 px-3 py-1.5 text-base lg:text-xl font-black uppercase text-amber-950">Giriş Kısıtlı</span>
                               )}
                             </div>
                           </div>
@@ -4847,7 +4762,7 @@ function SystemSettingsPageInner() {
                           <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
                             {/* Giriş İzni */}
                             <div className="rounded-lg border border-slate-300 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-                              <p className="mb-2 text-lg font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Giriş İzni — Gün ve Saat</p>
+                              <p className="mb-2 text-lg lg:text-2xl font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Giriş İzni — Gün ve Saat</p>
                               <div className="grid grid-cols-7 gap-1">
                                 {LOGIN_WEEKDAY_LABELS.map(({ day, label }) => {
                                   const isOn = allowedWeekdays.includes(day);
@@ -4857,7 +4772,7 @@ function SystemSettingsPageInner() {
                                       type="button"
                                       title={isOn ? `${label} günü girişe açık - kapatmak için tıklayın` : `${label} günü girişe kapalı - açmak için tıklayın`}
                                       onClick={() => toggleUserLoginWeekday(selectedPermissionUser.id, day)}
-                                      className={`h-10 rounded-md text-sm font-black uppercase transition ${isOn ? 'bg-[#1E2A38] text-white shadow-sm' : 'bg-white text-slate-400 ring-1 ring-slate-300 line-through dark:bg-slate-900 dark:text-slate-600 dark:ring-slate-700'}`}
+                                      className={`h-10 rounded-md text-sm lg:text-lg font-black uppercase transition ${isOn ? 'bg-[#0a3a57] text-white shadow-sm' : 'bg-white text-slate-400 ring-1 ring-slate-300 line-through dark:bg-slate-900 dark:text-slate-600 dark:ring-slate-700'}`}
                                     >
                                       {label}
                                     </button>
@@ -4866,31 +4781,31 @@ function SystemSettingsPageInner() {
                               </div>
                               <div className="mt-3 flex items-end gap-2">
                                 <label className="flex-1">
-                                  <span className="mb-1 block text-sm font-black uppercase text-slate-400">Başlangıç</span>
+                                  <span className="mb-1 block text-sm lg:text-lg font-black uppercase text-slate-400">Başlangıç</span>
                                   <input
                                     type="time"
                                     value={loginSchedule?.timeStart ?? ''}
                                     onChange={(event) => updateUserLoginScheduleTime(selectedPermissionUser.id, 'timeStart', event.target.value)}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-lg font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-lg lg:text-2xl font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                   />
                                 </label>
-                                <span className="pb-2 text-lg font-black text-slate-400">–</span>
+                                <span className="pb-2 text-lg lg:text-2xl font-black text-slate-400">–</span>
                                 <label className="flex-1">
-                                  <span className="mb-1 block text-sm font-black uppercase text-slate-400">Bitiş</span>
+                                  <span className="mb-1 block text-sm lg:text-lg font-black uppercase text-slate-400">Bitiş</span>
                                   <input
                                     type="time"
                                     value={loginSchedule?.timeEnd ?? ''}
                                     onChange={(event) => updateUserLoginScheduleTime(selectedPermissionUser.id, 'timeEnd', event.target.value)}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-lg font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-lg lg:text-2xl font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                   />
                                 </label>
                               </div>
-                              <p className="mt-2 text-base font-semibold text-slate-400">Gün seçilmezse her gün, saat boş bırakılırsa tüm saatler açık sayılır.</p>
+                              <p className="mt-2 text-base lg:text-xl font-semibold text-slate-400">Gün seçilmezse her gün, saat boş bırakılırsa tüm saatler açık sayılır.</p>
                             </div>
 
                             {/* Hesap ve Erişim */}
                             <div>
-                              <p className="mb-2 text-lg font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Hesap ve Erişim</p>
+                              <p className="mb-2 text-lg lg:text-2xl font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Hesap ve Erişim</p>
                               <div className="grid gap-2 sm:grid-cols-2">
                                 {toggleRow({
                                   checked: isActive,
@@ -4934,11 +4849,11 @@ function SystemSettingsPageInner() {
 
                     <div className="grid gap-5 2xl:grid-cols-2">
                       <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-                        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="h-6 w-1.5 rounded-full bg-[#1E2A38]" />
-                            <h3 className="text-xl font-black text-slate-900">Görebileceği Sayfalar</h3>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-base font-black text-slate-500">
+                            <span className="h-6 w-1.5 rounded-full bg-[#c9a227]" />
+                            <h3 className="text-xl lg:text-3xl font-black text-[#0a3a57]">Görebileceği Sayfalar</h3>
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-base lg:text-xl font-black text-slate-500">
                               {ensureUserPermissionConfig(selectedPermissionUser.id).allowedPages.length}/{permissionPages.length}
                             </span>
                           </div>
@@ -4949,7 +4864,7 @@ function SystemSettingsPageInner() {
                               isAdmin: false,
                               allowedPages: permissionPages.map(page => page.path),
                             }))}
-                            className="rounded border border-slate-300 px-3 py-1.5 text-base font-black text-slate-500 hover:bg-slate-50"
+                            className="rounded border border-slate-300 px-3 py-1.5 text-base lg:text-xl font-black text-slate-500 hover:bg-slate-50"
                           >
                             Tümünü Seç
                           </button>
@@ -4964,7 +4879,7 @@ function SystemSettingsPageInner() {
                             return (
                               <div key={groupName} className={`overflow-hidden rounded-lg border ${theme.border}`}>
                                 <div className={`flex items-center justify-between gap-2 bg-gradient-to-r px-3 py-2 ${theme.header}`}>
-                                  <span className="text-base font-black uppercase tracking-wide text-white">{groupName}</span>
+                                  <span className="text-base lg:text-xl font-black uppercase tracking-wide text-white">{groupName}</span>
                                   <button
                                     type="button"
                                     onClick={() => updateUserPermissionConfig(selectedPermissionUser.id, config => ({
@@ -4974,23 +4889,23 @@ function SystemSettingsPageInner() {
                                         ? config.allowedPages.filter(path => !pagesInGroup.some(page => page.path === path))
                                         : Array.from(new Set([...config.allowedPages, ...pagesInGroup.map(page => page.path)])),
                                     }))}
-                                    className={`rounded-full px-2.5 py-1 text-sm font-black uppercase text-white transition ${theme.chipBg} ${theme.chipHover}`}
+                                    className={`rounded-full px-2.5 py-1 text-sm lg:text-lg font-black uppercase text-white transition ${theme.chipBg} ${theme.chipHover}`}
                                   >
                                     {allChecked ? 'Temizle' : 'Tümünü Seç'}
                                   </button>
                                 </div>
                                 <div className={`grid gap-2 p-3 sm:grid-cols-2 ${theme.bg}`}>
                                   {pagesInGroup.map(page => (
-                                    <label key={page.path} className="flex items-center gap-2 rounded-lg border border-white bg-white px-3 py-2.5 text-lg font-bold text-slate-700 shadow-sm transition hover:border-slate-300">
+                                    <label key={page.path} className="flex items-center gap-2 rounded-lg border border-white bg-white px-3 py-2.5 text-lg lg:text-2xl font-bold text-slate-700 shadow-sm transition hover:border-slate-300">
                                       <input
                                         type="checkbox"
                                         checked={permissionConfig.allowedPages.includes(page.path)}
                                         onChange={() => toggleUserPagePermission(selectedPermissionUser.id, page.path)}
-                                        className="h-5 w-5"
+                                        className="h-5 w-5 accent-[#0a3a57]"
                                       />
                                       <span className="min-w-0">
                                         <span className="block truncate">{page.name}</span>
-                                        <span className="block truncate text-sm font-black text-slate-400">{page.path}</span>
+                                        <span className="block truncate text-sm lg:text-lg font-black text-slate-400">{page.path}</span>
                                       </span>
                                     </label>
                                   ))}
@@ -5002,11 +4917,11 @@ function SystemSettingsPageInner() {
                       </div>
 
                       <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-                        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <span className="h-6 w-1.5 rounded-full bg-[#1E2A38]" />
-                            <h3 className="text-xl font-black text-slate-900">Yapabileceği İşlemler</h3>
-                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-base font-black text-slate-500">
+                            <span className="h-6 w-1.5 rounded-full bg-[#c9a227]" />
+                            <h3 className="text-xl lg:text-3xl font-black text-[#0a3a57]">Yapabileceği İşlemler</h3>
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-base lg:text-xl font-black text-slate-500">
                               {ensureUserPermissionConfig(selectedPermissionUser.id).allowedActions.length}/{USER_ACTION_PERMISSION_DEFINITIONS.length}
                             </span>
                           </div>
@@ -5017,7 +4932,7 @@ function SystemSettingsPageInner() {
                               isAdmin: false,
                               allowedActions: USER_ACTION_PERMISSION_DEFINITIONS.map(action => action.id),
                             }))}
-                            className="rounded border border-slate-300 px-3 py-1.5 text-base font-black text-slate-500 hover:bg-slate-50"
+                            className="rounded border border-slate-300 px-3 py-1.5 text-base lg:text-xl font-black text-slate-500 hover:bg-slate-50"
                           >
                             Tümünü Seç
                           </button>
@@ -5032,7 +4947,7 @@ function SystemSettingsPageInner() {
                             return (
                               <div key={groupName} className={`overflow-hidden rounded-lg border ${theme.border}`}>
                                 <div className={`flex items-center justify-between gap-2 bg-gradient-to-r px-3 py-2 ${theme.header}`}>
-                                  <span className="text-base font-black uppercase tracking-wide text-white">{groupName}</span>
+                                  <span className="text-base lg:text-xl font-black uppercase tracking-wide text-white">{groupName}</span>
                                   <button
                                     type="button"
                                     onClick={() => updateUserPermissionConfig(selectedPermissionUser.id, config => ({
@@ -5042,7 +4957,7 @@ function SystemSettingsPageInner() {
                                         ? config.allowedActions.filter(id => !actionsInGroup.some(action => action.id === id))
                                         : Array.from(new Set([...config.allowedActions, ...actionsInGroup.map(action => action.id)])),
                                     }))}
-                                    className={`rounded-full px-2.5 py-1 text-sm font-black uppercase text-white transition ${theme.chipBg} ${theme.chipHover}`}
+                                    className={`rounded-full px-2.5 py-1 text-sm lg:text-lg font-black uppercase text-white transition ${theme.chipBg} ${theme.chipHover}`}
                                   >
                                     {allChecked ? 'Temizle' : 'Tümünü Seç'}
                                   </button>
@@ -5060,9 +4975,9 @@ function SystemSettingsPageInner() {
                                             type="checkbox"
                                             checked={isAllowed}
                                             onChange={() => toggleUserActionPermission(selectedPermissionUser.id, action.id)}
-                                            className="h-5 w-5"
+                                            className="h-5 w-5 accent-[#0a3a57]"
                                           />
-                                          <span className="min-w-0 text-lg font-black text-slate-800">{action.label}</span>
+                                          <span className="min-w-0 text-lg lg:text-2xl font-black text-slate-800">{action.label}</span>
                                         </label>
 
                                         {isAllowed && (
@@ -5071,63 +4986,63 @@ function SystemSettingsPageInner() {
                                               <button
                                                 type="button"
                                                 onClick={() => setUserActionScheduleMode(selectedPermissionUser.id, action.id, 'always')}
-                                                className={`rounded px-3 py-1.5 text-sm font-black uppercase transition ${!isWindowMode ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white text-slate-500 hover:bg-slate-100'}`}
+                                                className={`rounded px-3 py-1.5 text-sm lg:text-lg font-black uppercase transition ${!isWindowMode ? 'bg-emerald-600 text-white' : 'border border-slate-300 bg-white text-slate-500 hover:bg-slate-100'}`}
                                               >
                                                 Tam süreli
                                               </button>
                                               <button
                                                 type="button"
                                                 onClick={() => setUserActionScheduleMode(selectedPermissionUser.id, action.id, 'window')}
-                                                className={`rounded px-3 py-1.5 text-sm font-black uppercase transition ${isWindowMode ? 'bg-amber-600 text-white' : 'border border-slate-300 bg-white text-slate-500 hover:bg-slate-100'}`}
+                                                className={`rounded px-3 py-1.5 text-sm lg:text-lg font-black uppercase transition ${isWindowMode ? 'bg-amber-600 text-white' : 'border border-slate-300 bg-white text-slate-500 hover:bg-slate-100'}`}
                                               >
                                                 Zaman aralığı
                                               </button>
                                               {isWindowMode && !isScheduleEmpty(schedule) && (
-                                                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-sm font-black uppercase text-amber-700">Kısıtlı</span>
+                                                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-sm lg:text-lg font-black uppercase text-amber-700">Kısıtlı</span>
                                               )}
                                             </div>
 
                                             {isWindowMode && (
                                               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                                                 <label className="block">
-                                                  <span className="mb-1 block text-sm font-black uppercase text-slate-400">Saat Başlangıç</span>
+                                                  <span className="mb-1 block text-sm lg:text-lg font-black uppercase text-slate-400">Saat Başlangıç</span>
                                                   <input
                                                     type="time"
                                                     value={schedule?.timeStart ?? ''}
                                                     onChange={(event) => updateUserActionScheduleField(selectedPermissionUser.id, action.id, 'timeStart', event.target.value)}
-                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base font-bold text-slate-800"
+                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base lg:text-xl font-bold text-slate-800"
                                                   />
                                                 </label>
                                                 <label className="block">
-                                                  <span className="mb-1 block text-sm font-black uppercase text-slate-400">Saat Bitiş</span>
+                                                  <span className="mb-1 block text-sm lg:text-lg font-black uppercase text-slate-400">Saat Bitiş</span>
                                                   <input
                                                     type="time"
                                                     value={schedule?.timeEnd ?? ''}
                                                     onChange={(event) => updateUserActionScheduleField(selectedPermissionUser.id, action.id, 'timeEnd', event.target.value)}
-                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base font-bold text-slate-800"
+                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base lg:text-xl font-bold text-slate-800"
                                                   />
                                                 </label>
                                                 <label className="block">
-                                                  <span className="mb-1 block text-sm font-black uppercase text-slate-400">Tarih Başlangıç</span>
+                                                  <span className="mb-1 block text-sm lg:text-lg font-black uppercase text-slate-400">Tarih Başlangıç</span>
                                                   <input
                                                     type="date"
                                                     value={schedule?.dateStart ?? ''}
                                                     onChange={(event) => updateUserActionScheduleField(selectedPermissionUser.id, action.id, 'dateStart', event.target.value)}
-                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base font-bold text-slate-800"
+                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base lg:text-xl font-bold text-slate-800"
                                                   />
                                                 </label>
                                                 <label className="block">
-                                                  <span className="mb-1 block text-sm font-black uppercase text-slate-400">Tarih Bitiş</span>
+                                                  <span className="mb-1 block text-sm lg:text-lg font-black uppercase text-slate-400">Tarih Bitiş</span>
                                                   <input
                                                     type="date"
                                                     value={schedule?.dateEnd ?? ''}
                                                     onChange={(event) => updateUserActionScheduleField(selectedPermissionUser.id, action.id, 'dateEnd', event.target.value)}
-                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base font-bold text-slate-800"
+                                                    className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-base lg:text-xl font-bold text-slate-800"
                                                   />
                                                 </label>
                                               </div>
                                             )}
-                                            <p className="text-sm font-bold text-slate-400">
+                                            <p className="text-sm lg:text-lg font-bold text-slate-400">
                                               Saat ve tarih alanlarının hepsi opsiyoneldir - sadece saat, sadece tarih ya da ikisi birden ayarlanabilir. Boş bırakılan alan kısıtlama uygulamaz.
                                             </p>
                                           </div>
@@ -5144,13 +5059,13 @@ function SystemSettingsPageInner() {
                     </div>
 
                     {userPermissionStatus && (
-                      <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-xl font-bold text-[#1E2A38]">
+                      <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-xl lg:text-3xl font-bold text-[#0a3a57]">
                         {userPermissionStatus}
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-20 text-center text-xl font-bold text-slate-400">
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 py-20 text-center text-xl lg:text-3xl font-bold text-slate-400">
                     Yetki düzenlemek için bir kullanıcı seçin.
                   </div>
                 )}
@@ -5161,10 +5076,10 @@ function SystemSettingsPageInner() {
           {activeTab === 'scheduledTasks' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                <h2 className="text-2xl font-extrabold text-[#1E2A38]">Zamanlanmış SQL Görevleri</h2>
+                <h2 className="text-ayar-bolum font-extrabold text-[#1E2A38]">Zamanlanmış SQL Görevleri</h2>
                 <button
                   onClick={resetScheduledTaskForm}
-                  className="rounded-md bg-[#6fb744] px-5 py-2.5 text-xl font-bold text-white hover:bg-[#5aa333]"
+                  className="rounded-md bg-[#6fb744] px-5 py-2.5 text-ayar-govde font-bold text-white hover:bg-[#5aa333]"
                 >
                   + Yeni Görev
                 </button>
@@ -5173,69 +5088,69 @@ function SystemSettingsPageInner() {
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                  {/* Görev Formu */}
                  <div className="space-y-4 p-5 border border-slate-300 rounded-xl bg-slate-50/50">
-                    <h3 className="text-xl font-bold text-slate-800 border-b border-slate-200 pb-2">{editingScheduledTaskId ? 'Görevi Düzenle' : 'Yeni Görev Tanımı'}</h3>
+                    <h3 className="text-ayar-govde font-bold text-slate-800 border-b border-slate-200 pb-2">{editingScheduledTaskId ? 'Görevi Düzenle' : 'Yeni Görev Tanımı'}</h3>
                     <label className="flex flex-col gap-1.5">
-                      <span className="text-xl font-black uppercase text-slate-500">Görev Adı</span>
+                      <span className="text-ayar-govde font-black uppercase text-slate-500">Görev Adı</span>
                       <input
                         type="text"
                         value={scheduledTaskForm.name}
                         onChange={e => setScheduledTaskForm({...scheduledTaskForm, name: e.target.value})}
-                        className="rounded-md border border-slate-300 px-4 py-2.5 text-xl outline-none focus:border-[#1E2A38]"
+                        className="rounded-md border border-slate-300 px-4 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38]"
                       />
                     </label>
                     <label className="flex flex-col gap-1.5">
-                      <span className="text-xl font-black uppercase text-slate-500">SQL Sorgusu</span>
+                      <span className="text-ayar-govde font-black uppercase text-slate-500">SQL Sorgusu</span>
                       <textarea
                         rows={6}
                         value={scheduledTaskForm.query}
                         onChange={e => setScheduledTaskForm({...scheduledTaskForm, query: e.target.value})}
-                        className="rounded-md border border-slate-300 px-4 py-2.5 text-lg font-mono outline-none focus:border-[#1E2A38]"
+                        className="rounded-md border border-slate-300 px-4 py-2.5 text-ayar-aciklama font-mono outline-none focus:border-[#1E2A38]"
                       />
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                        <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Periyot</span>
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Periyot</span>
                           <select
                             value={scheduledTaskForm.scheduleType}
                             onChange={e => setScheduledTaskForm({...scheduledTaskForm, scheduleType: e.target.value as ScheduledSqlTaskType})}
-                            className="rounded-md border border-slate-300 px-3 py-2.5 text-xl outline-none focus:border-[#1E2A38]"
+                            className="rounded-md border border-slate-300 px-3 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38]"
                           >
                              <option value="daily">Günlük</option>
                              <option value="weekly">Haftalık</option>
                           </select>
                        </label>
                        <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Günü</span>
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Günü</span>
                           <select
                             disabled={scheduledTaskForm.scheduleType === 'daily'}
                             value={scheduledTaskForm.dayOfWeek}
                             onChange={e => setScheduledTaskForm({...scheduledTaskForm, dayOfWeek: parseInt(e.target.value)})}
-                            className="rounded-md border border-slate-300 px-3 py-2.5 text-xl outline-none focus:border-[#1E2A38] disabled:bg-slate-100"
+                            className="rounded-md border border-slate-300 px-3 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38] disabled:bg-slate-100"
                           >
                              {weekdayOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                           </select>
                        </label>
                        <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Saat</span>
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Saat</span>
                           <input
                             type="time"
                             value={scheduledTaskForm.timeOfDay}
                             onChange={e => setScheduledTaskForm({...scheduledTaskForm, timeOfDay: e.target.value})}
-                            className="rounded-md border border-slate-300 px-3 py-2.5 text-xl outline-none focus:border-[#1E2A38]"
+                            className="rounded-md border border-slate-300 px-3 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38]"
                           />
                        </label>
                     </div>
                     <div className="pt-2 flex justify-between items-center">
                        <button
                          onClick={resetScheduledTaskForm}
-                         className="text-xl font-bold text-slate-400 hover:text-slate-600"
+                         className="text-ayar-govde font-bold text-slate-400 hover:text-slate-600"
                        >
                          İptal
                        </button>
                        <button
                          onClick={saveScheduledTask}
                          disabled={isSavingScheduledTask}
-                         className="rounded-md bg-[#1E2A38] px-8 py-3 text-xl font-bold text-white shadow-md hover:bg-[#2A3B4D]"
+                         className="rounded-md bg-[#1E2A38] px-8 py-3 text-ayar-govde font-bold text-white shadow-md hover:bg-[#2A3B4D]"
                        >
                          {isSavingScheduledTask ? 'Kaydediliyor...' : 'Kaydet'}
                        </button>
@@ -5244,19 +5159,19 @@ function SystemSettingsPageInner() {
 
                  {/* Görev Listesi */}
                  <div className="space-y-4">
-                    <p className="text-xl font-black uppercase text-slate-500">Tanımlı Görevler ({scheduledTasks.length})</p>
+                    <p className="text-ayar-govde font-black uppercase text-slate-500">Tanımlı Görevler ({scheduledTasks.length})</p>
                     <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
                        {scheduledTasks.map(task => (
                          <div key={task.id} className="p-4 border border-slate-300 rounded-xl bg-white shadow-sm hover:border-[#1E2A38]/30 transition-all">
                             <div className="flex items-center justify-between mb-2">
-                               <h4 className="text-xl font-bold text-slate-800">{task.name}</h4>
+                               <h4 className="text-ayar-govde font-bold text-slate-800">{task.name}</h4>
                                <div className="flex gap-2">
-                                  <button onClick={() => runScheduledTaskNow(task.id)} className="text-lg bg-slate-100 text-[#1E2A38] px-3 py-1.5 rounded-md font-bold hover:bg-slate-200">Çalıştır</button>
-                                  <button onClick={() => editScheduledTask(task)} className="text-lg bg-slate-100 text-slate-600 px-3 py-1.5 rounded-md font-bold hover:bg-slate-200">Düzenle</button>
-                                  <button onClick={() => deleteScheduledTask(task.id)} className="text-lg bg-rose-50 text-rose-500 px-3 py-1.5 rounded-md font-bold hover:bg-rose-100">Sil</button>
+                                  <button onClick={() => runScheduledTaskNow(task.id)} className="text-ayar-aciklama bg-slate-100 text-[#1E2A38] px-3 py-1.5 rounded-md font-bold hover:bg-slate-200">Çalıştır</button>
+                                  <button onClick={() => editScheduledTask(task)} className="text-ayar-aciklama bg-slate-100 text-slate-600 px-3 py-1.5 rounded-md font-bold hover:bg-slate-200">Düzenle</button>
+                                  <button onClick={() => deleteScheduledTask(task.id)} className="text-ayar-aciklama bg-rose-50 text-rose-500 px-3 py-1.5 rounded-md font-bold hover:bg-rose-100">Sil</button>
                                </div>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 text-lg font-bold text-slate-500 border-t border-slate-200 pt-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-1 text-ayar-aciklama font-bold text-slate-500 border-t border-slate-200 pt-2">
                                <span>Periyot: {task.scheduleType === 'daily' ? 'Günlük' : `Haftalık (${weekdayOptions.find(w => w.value === task.dayOfWeek)?.label})`}</span>
                                <span>Saat: {task.timeOfDay}</span>
                                <span>Son Çalışma: {formatScheduledTaskDate(task.lastRunAt)}</span>
@@ -5276,21 +5191,21 @@ function SystemSettingsPageInner() {
             <div className="space-y-6">
               <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-2xl font-extrabold text-[#1E2A38]">Veritabanı İşlemleri</h2>
-                  <p className="text-xl font-semibold text-slate-500">PostgreSQL yedek alma, geri yükleme ve zamanlı yedekleme ayarları</p>
+                  <h2 className="text-ayar-bolum font-extrabold text-[#1E2A38]">Veritabanı İşlemleri</h2>
+                  <p className="text-ayar-govde font-semibold text-slate-500">PostgreSQL yedek alma, geri yükleme ve zamanlı yedekleme ayarları</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => void refreshDatabaseBackups()}
                     disabled={isLoadingDatabaseBackups}
-                    className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-xl font-black text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-ayar-govde font-black text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                   >
                     {isLoadingDatabaseBackups ? 'Yenileniyor...' : 'Yedekleri Yenile'}
                   </button>
                   <button
                     onClick={runDatabaseBackupNow}
                     disabled={isRunningDatabaseBackup || isSavingDatabaseBackupSettings || databaseBackupSettings.databaseNames.length === 0}
-                    className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:opacity-50"
+                    className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:opacity-50"
                   >
                     {isRunningDatabaseBackup ? 'Yedek Alınıyor...' : 'Şimdi Yedek Al'}
                   </button>
@@ -5298,7 +5213,7 @@ function SystemSettingsPageInner() {
               </div>
 
               {databaseBackupStatus && (
-                <div className={`rounded-lg border px-4 py-3 text-xl font-bold ${
+                <div className={`rounded-lg border px-4 py-3 text-ayar-govde font-bold ${
                   databaseBackupStatus.toLocaleLowerCase('tr-TR').includes('hata') || databaseBackupStatus.toLocaleLowerCase('tr-TR').includes('kontrol')
                     ? 'border-rose-200 bg-rose-50 text-rose-700'
                     : 'border-sky-200 bg-sky-50 text-[#005f95]'
@@ -5310,24 +5225,24 @@ function SystemSettingsPageInner() {
               <div className="grid gap-5 xl:grid-cols-[minmax(400px,540px)_minmax(0,1fr)]">
                 <div className="space-y-4 rounded-xl border border-slate-300 bg-slate-50/60 p-5">
                   <div>
-                    <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Yedekleme Ayarları</p>
-                    <p className="mt-1.5 text-xl font-semibold text-slate-500">Klasör yolu sunucunun/uygulamanın çalıştığı bilgisayara göre yazılır.</p>
+                    <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Yedekleme Ayarları</p>
+                    <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">Klasör yolu sunucunun/uygulamanın çalıştığı bilgisayara göre yazılır.</p>
                   </div>
 
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-xl font-black uppercase text-slate-500">Yedek Klasörü</span>
+                    <span className="text-ayar-govde font-black uppercase text-slate-500">Yedek Klasörü</span>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <input
                         type="text"
                         value={databaseBackupSettings.backupDirectory}
                         onChange={event => setDatabaseBackupSettings(current => ({ ...current, backupDirectory: event.target.value }))}
                         placeholder="C:\Yedekler veya backups/database"
-                        className="min-w-0 flex-1 rounded-md border border-slate-300 px-4 py-2.5 text-xl outline-none focus:border-[#1E2A38]"
+                        className="min-w-0 flex-1 rounded-md border border-slate-300 px-4 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38]"
                       />
                       <button
                         type="button"
                         onClick={openFolderPicker}
-                        className="whitespace-nowrap rounded-md border border-[#1E2A38] bg-white px-4 py-2.5 text-xl font-black text-[#1E2A38] hover:bg-slate-100"
+                        className="whitespace-nowrap rounded-md border border-[#1E2A38] bg-white px-4 py-2.5 text-ayar-govde font-black text-[#1E2A38] hover:bg-slate-100"
                       >
                         Klasor Sec
                       </button>
@@ -5335,10 +5250,10 @@ function SystemSettingsPageInner() {
                   </label>
 
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-xl font-black uppercase text-slate-500">Manuel Yedek Alinacak Veritabanlari</span>
+                    <span className="text-ayar-govde font-black uppercase text-slate-500">Manuel Yedek Alinacak Veritabanlari</span>
                     <div className="grid gap-2 rounded-lg border border-slate-300 bg-white p-3">
                       {databaseBackupOptions.map(option => (
-                        <label key={option.name} className="flex items-center gap-2 text-xl font-bold text-slate-700">
+                        <label key={option.name} className="flex items-center gap-2 text-ayar-govde font-bold text-slate-700">
                           <input
                             type="checkbox"
                             checked={databaseBackupSettings.databaseNames.includes(option.name)}
@@ -5349,22 +5264,22 @@ function SystemSettingsPageInner() {
                         </label>
                       ))}
                       {databaseBackupOptions.length === 0 && (
-                        <span className="text-xl font-bold text-slate-400">Veritabani listesi alinamadi.</span>
+                        <span className="text-ayar-govde font-bold text-slate-400">Veritabani listesi alinamadi.</span>
                       )}
                     </div>
-                    <span className="text-lg font-semibold text-slate-400">Simdi yedek al butonu isaretli tum veritabanlarini yedekler.</span>
+                    <span className="text-ayar-aciklama font-semibold text-slate-400">Simdi yedek al butonu isaretli tum veritabanlarini yedekler.</span>
                   </label>
 
                   <label className="flex flex-col gap-1.5">
-                    <span className="text-xl font-black uppercase text-slate-500">PostgreSQL Bin Klasörü</span>
+                    <span className="text-ayar-govde font-black uppercase text-slate-500">PostgreSQL Bin Klasörü</span>
                     <input
                       type="text"
                       value={databaseBackupSettings.postgresBinDirectory}
                       onChange={event => setDatabaseBackupSettings(current => ({ ...current, postgresBinDirectory: event.target.value }))}
                       placeholder="C:\Program Files\PostgreSQL\16\bin"
-                      className="rounded-md border border-slate-300 px-4 py-2.5 text-xl outline-none focus:border-[#1E2A38]"
+                      className="rounded-md border border-slate-300 px-4 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38]"
                     />
-                    <span className="text-lg font-semibold text-slate-400">pg_dump ve psql PATH içinde değilse bu alan gereklidir.</span>
+                    <span className="text-ayar-aciklama font-semibold text-slate-400">pg_dump ve psql PATH içinde değilse bu alan gereklidir.</span>
                   </label>
 
                   <label className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2.5">
@@ -5374,7 +5289,20 @@ function SystemSettingsPageInner() {
                       onChange={event => setDatabaseBackupSettings(current => ({ ...current, scheduleEnabled: event.target.checked }))}
                       className="h-5 w-5"
                     />
-                    <span className="text-xl font-bold text-slate-700">Otomatik yedekleme aktif</span>
+                    <span className="text-ayar-govde font-bold text-slate-700">Otomatik yedekleme aktif</span>
+                  </label>
+
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-ayar-govde font-black uppercase text-slate-500">Saklanacak Yedek Sayısı</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={365}
+                      value={databaseBackupSettings.retentionCount ?? 2}
+                      onChange={event => setDatabaseBackupSettings(current => ({ ...current, retentionCount: Math.max(0, parseInt(event.target.value) || 0) }))}
+                      className="w-32 rounded-md border border-slate-300 px-4 py-2.5 text-ayar-govde outline-none focus:border-[#1E2A38]"
+                    />
+                    <span className="text-ayar-aciklama font-semibold text-slate-400">Her veritabanı için en yeni bu kadar yedek tutulur; yeni yedek başarıyla bitince en eskisi silinir. 0 = hiç silme.</span>
                   </label>
 
                   {/* Kullanici istegi: eski TEK programli (Periyot/Gunu/Saat +
@@ -5389,11 +5317,11 @@ function SystemSettingsPageInner() {
 
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-xl font-black uppercase text-slate-500">Otomatik Yedekleme Programlari</span>
+                      <span className="text-ayar-govde font-black uppercase text-slate-500">Otomatik Yedekleme Programlari</span>
                       <button
                         type="button"
                         onClick={addDatabaseBackupSchedule}
-                        className="rounded-md border border-[#1E2A38] bg-white px-4 py-2 text-xl font-black text-[#1E2A38] hover:bg-slate-100"
+                        className="rounded-md border border-[#1E2A38] bg-white px-4 py-2 text-ayar-govde font-black text-[#1E2A38] hover:bg-slate-100"
                       >
                         Program Ekle
                       </button>
@@ -5414,14 +5342,14 @@ function SystemSettingsPageInner() {
                               value={schedule.name}
                               onChange={event => updateDatabaseBackupSchedule(schedule.id, { name: event.target.value })}
                               placeholder={`Program ${index + 1}`}
-                              className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-xl font-bold outline-none focus:border-[#1E2A38]"
+                              className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-ayar-govde font-bold outline-none focus:border-[#1E2A38]"
                             />
                           </label>
                           <button
                             type="button"
                             onClick={() => removeDatabaseBackupSchedule(schedule.id)}
                             disabled={databaseBackupSettings.schedules.length <= 1}
-                            className="rounded-md border border-rose-300 px-3 py-2 text-xl font-black text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                            className="rounded-md border border-rose-300 px-3 py-2 text-ayar-govde font-black text-rose-600 hover:bg-rose-50 disabled:opacity-40"
                           >
                             Sil
                           </button>
@@ -5429,45 +5357,46 @@ function SystemSettingsPageInner() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <label className="flex flex-col gap-1.5">
-                            <span className="text-lg font-black uppercase text-slate-500">Periyot</span>
+                            <span className="text-ayar-aciklama font-black uppercase text-slate-500">Periyot</span>
                             <select
                               value={schedule.scheduleType}
                               onChange={event => updateDatabaseBackupSchedule(schedule.id, {
                                 scheduleType: event.target.value as DatabaseBackupScheduleType,
                                 dayOfWeek: event.target.value === 'weekly' ? schedule.dayOfWeek ?? 1 : null,
                               })}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-xl outline-none focus:border-[#1E2A38]"
+                              className="rounded-md border border-slate-300 px-3 py-2 text-ayar-govde outline-none focus:border-[#1E2A38]"
                             >
                               <option value="daily">Günlük</option>
+                              <option value="weekdays">Hafta içi (Pzt–Cum)</option>
                               <option value="weekly">Haftalık</option>
                             </select>
                           </label>
                           <label className="flex flex-col gap-1.5">
-                            <span className="text-lg font-black uppercase text-slate-500">Gunu</span>
+                            <span className="text-ayar-aciklama font-black uppercase text-slate-500">Gunu</span>
                             <select
-                              disabled={schedule.scheduleType === 'daily'}
+                              disabled={schedule.scheduleType !== 'weekly'}
                               value={schedule.dayOfWeek ?? 1}
                               onChange={event => updateDatabaseBackupSchedule(schedule.id, { dayOfWeek: parseInt(event.target.value) })}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-xl outline-none focus:border-[#1E2A38] disabled:bg-slate-100"
+                              className="rounded-md border border-slate-300 px-3 py-2 text-ayar-govde outline-none focus:border-[#1E2A38] disabled:bg-slate-100"
                             >
                               {weekdayOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                             </select>
                           </label>
                           <label className="flex flex-col gap-1.5">
-                            <span className="text-lg font-black uppercase text-slate-500">Saat</span>
+                            <span className="text-ayar-aciklama font-black uppercase text-slate-500">Saat</span>
                             <input
                               type="time"
                               value={schedule.timeOfDay}
                               onChange={event => updateDatabaseBackupSchedule(schedule.id, { timeOfDay: event.target.value })}
-                              className="rounded-md border border-slate-300 px-3 py-2 text-xl outline-none focus:border-[#1E2A38]"
+                              className="rounded-md border border-slate-300 px-3 py-2 text-ayar-govde outline-none focus:border-[#1E2A38]"
                             />
                           </label>
                         </div>
 
                         <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-                          <span className="text-lg font-black uppercase text-slate-500">Bu Programda Yedeklenecekler</span>
+                          <span className="text-ayar-aciklama font-black uppercase text-slate-500">Bu Programda Yedeklenecekler</span>
                           {databaseBackupOptions.map(option => (
-                            <label key={`${schedule.id}-${option.name}`} className="flex items-center gap-2 text-xl font-bold text-slate-700">
+                            <label key={`${schedule.id}-${option.name}`} className="flex items-center gap-2 text-ayar-govde font-bold text-slate-700">
                               <input
                                 type="checkbox"
                                 checked={schedule.databaseNames.includes(option.name)}
@@ -5479,7 +5408,7 @@ function SystemSettingsPageInner() {
                           ))}
                         </div>
 
-                        <div className="grid gap-1 text-lg font-bold text-slate-500">
+                        <div className="grid gap-1 text-ayar-aciklama font-bold text-slate-500">
                           <span>Son Calisma: {formatScheduledTaskDate(schedule.lastRunAt)}</span>
                           <span className={schedule.lastStatus === 'success' ? 'text-emerald-700' : schedule.lastStatus === 'error' ? 'text-rose-600' : ''}>
                             Durum: {schedule.lastStatus === 'idle' ? 'Beklemede' : schedule.lastStatus === 'success' ? 'Basarili' : 'Hata'}
@@ -5493,7 +5422,7 @@ function SystemSettingsPageInner() {
                   <button
                     onClick={saveDatabaseBackupSettings}
                     disabled={isSavingDatabaseBackupSettings}
-                    className="w-full rounded-md bg-[#6fb744] px-4 py-3 text-xl font-black text-white shadow-sm hover:bg-[#5aa333] disabled:opacity-50"
+                    className="w-full rounded-md bg-[#6fb744] px-4 py-3 text-ayar-govde font-black text-white shadow-sm hover:bg-[#5aa333] disabled:opacity-50"
                   >
                     {isSavingDatabaseBackupSettings ? 'Kaydediliyor...' : 'Yedekleme Ayarlarını Kaydet'}
                   </button>
@@ -5502,14 +5431,14 @@ function SystemSettingsPageInner() {
                 <div className="space-y-4 rounded-xl border border-slate-300 bg-white p-5">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                      <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Yedek Dosyaları</p>
-                      <p className="mt-1.5 text-xl font-semibold text-slate-500">{databaseBackups.length} yedek listeleniyor.</p>
+                      <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Yedek Dosyaları</p>
+                      <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">{databaseBackups.length} yedek listeleniyor.</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <select
                         value={selectedRestoreBackup}
                         onChange={event => setSelectedRestoreBackup(event.target.value)}
-                        className="min-w-56 rounded-md border border-slate-300 px-3 py-2 text-xl font-bold outline-none focus:border-[#1E2A38]"
+                        className="min-w-56 rounded-md border border-slate-300 px-3 py-2 text-ayar-govde font-bold outline-none focus:border-[#1E2A38]"
                       >
                         <option value="">Yedek seçin</option>
                         {databaseBackups.map(backup => (
@@ -5519,7 +5448,7 @@ function SystemSettingsPageInner() {
                       <button
                         onClick={restoreDatabaseBackup}
                         disabled={isRestoringDatabaseBackup || !selectedRestoreBackup}
-                        className="rounded-md bg-rose-600 px-5 py-2 text-xl font-black text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
+                        className="rounded-md bg-rose-600 px-5 py-2 text-ayar-govde font-black text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
                       >
                         {isRestoringDatabaseBackup ? 'Yükleniyor...' : 'Restore'}
                       </button>
@@ -5527,7 +5456,7 @@ function SystemSettingsPageInner() {
                   </div>
 
                   <div className="overflow-x-auto overflow-hidden rounded-lg border border-slate-300">
-                    <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] text-left text-xl">
+                    <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] text-left text-ayar-govde">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
                           <th className="px-3 py-2.5 font-black uppercase">Dosya</th>
@@ -5544,12 +5473,12 @@ function SystemSettingsPageInner() {
                             <td className="px-3 py-2.5 font-bold text-slate-600">{backup.databaseName || '-'}</td>
                             <td className="px-3 py-2.5 font-bold text-slate-600">{formatBackupSize(backup.size)}</td>
                             <td className="px-3 py-2.5 font-bold text-slate-600">{formatScheduledTaskDate(backup.createdAt)}</td>
-                            <td className="max-w-72 truncate px-3 py-2.5 font-mono text-lg text-slate-500" title={backup.fullPath}>{backup.fullPath}</td>
+                            <td className="max-w-72 truncate px-3 py-2.5 font-mono text-ayar-aciklama text-slate-500" title={backup.fullPath}>{backup.fullPath}</td>
                           </tr>
                         ))}
                         {databaseBackups.length === 0 && (
                           <tr>
-                            <td colSpan={5} className="px-3 py-8 text-center text-xl font-bold text-slate-400">
+                            <td colSpan={5} className="px-3 py-8 text-center text-ayar-govde font-bold text-slate-400">
                               Henüz yedek dosyası bulunamadı.
                             </td>
                           </tr>
@@ -5558,7 +5487,7 @@ function SystemSettingsPageInner() {
                     </table>
                   </div>
 
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xl font-semibold leading-6 text-amber-800">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-ayar-govde font-semibold leading-6 text-amber-800">
                     Restore işlemi mevcut veritabanı üzerine uygulanır. İşlem öncesinde güncel bir yedek alınması önerilir.
                   </div>
                 </div>
@@ -5571,15 +5500,15 @@ function SystemSettingsPageInner() {
               <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
                 <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                   <div>
-                    <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Yedek Klasoru</p>
-                    <p className="mt-1.5 break-all font-mono text-xl font-bold text-slate-600">
+                    <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Yedek Klasoru</p>
+                    <p className="mt-1.5 break-all font-mono text-ayar-govde font-bold text-slate-600">
                       {folderPickerData?.currentPath || databaseBackupSettings.backupDirectory || '-'}
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => setIsFolderPickerOpen(false)}
-                    className="rounded-md border border-slate-300 px-4 py-2 text-xl font-black text-slate-600 hover:bg-slate-50"
+                    className="rounded-md border border-slate-300 px-4 py-2 text-ayar-govde font-black text-slate-600 hover:bg-slate-50"
                   >
                     Kapat
                   </button>
@@ -5587,7 +5516,7 @@ function SystemSettingsPageInner() {
 
                 <div className="space-y-3 overflow-y-auto p-5">
                   {folderPickerStatus && (
-                    <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-xl font-bold text-rose-700">
+                    <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-ayar-govde font-bold text-rose-700">
                       {folderPickerStatus}
                     </div>
                   )}
@@ -5598,7 +5527,7 @@ function SystemSettingsPageInner() {
                         key={root.fullPath}
                         type="button"
                         onClick={() => void loadFolderPicker(root.fullPath)}
-                        className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xl font-black text-slate-600 hover:bg-slate-50"
+                        className="rounded-md border border-slate-300 bg-white px-4 py-2 text-ayar-govde font-black text-slate-600 hover:bg-slate-50"
                       >
                         {root.name}
                       </button>
@@ -5607,7 +5536,7 @@ function SystemSettingsPageInner() {
                       <button
                         type="button"
                         onClick={() => void loadFolderPicker(folderPickerData.parentPath || undefined)}
-                        className="rounded-md border border-slate-300 bg-white px-4 py-2 text-xl font-black text-slate-600 hover:bg-slate-50"
+                        className="rounded-md border border-slate-300 bg-white px-4 py-2 text-ayar-govde font-black text-slate-600 hover:bg-slate-50"
                       >
                         Ust Klasor
                       </button>
@@ -5616,7 +5545,7 @@ function SystemSettingsPageInner() {
 
                   <div className="overflow-hidden rounded-lg border border-slate-200">
                     {isLoadingFolderPicker ? (
-                      <div className="px-3 py-8 text-center text-xl font-bold text-slate-400">Klasorler yukleniyor...</div>
+                      <div className="px-3 py-8 text-center text-ayar-govde font-bold text-slate-400">Klasorler yukleniyor...</div>
                     ) : folderPickerData && folderPickerData.directories.length > 0 ? (
                       <div className="divide-y divide-slate-100">
                         {folderPickerData.directories.map(directory => (
@@ -5624,28 +5553,28 @@ function SystemSettingsPageInner() {
                             key={directory.fullPath}
                             type="button"
                             onClick={() => void loadFolderPicker(directory.fullPath)}
-                            className="block w-full px-3 py-2.5 text-left text-xl font-bold text-slate-700 hover:bg-sky-50"
+                            className="block w-full px-3 py-2.5 text-left text-ayar-govde font-bold text-slate-700 hover:bg-sky-50"
                           >
                             <span className="block truncate">{directory.name}</span>
-                            <span className="block truncate font-mono text-lg text-slate-400">{directory.fullPath}</span>
+                            <span className="block truncate font-mono text-ayar-aciklama text-slate-400">{directory.fullPath}</span>
                           </button>
                         ))}
                       </div>
                     ) : (
-                      <div className="px-3 py-8 text-center text-xl font-bold text-slate-400">Bu klasorde alt klasor yok.</div>
+                      <div className="px-3 py-8 text-center text-ayar-govde font-bold text-slate-400">Bu klasorde alt klasor yok.</div>
                     )}
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="break-all font-mono text-lg font-bold text-slate-500">
+                  <p className="break-all font-mono text-ayar-aciklama font-bold text-slate-500">
                     Secilecek klasor: {folderPickerData?.currentPath || '-'}
                   </p>
                   <button
                     type="button"
                     onClick={selectCurrentBackupFolder}
                     disabled={!folderPickerData?.currentPath}
-                    className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-xl font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:opacity-50"
+                    className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-ayar-govde font-black text-white shadow-sm hover:bg-[#2A3B4D] disabled:opacity-50"
                   >
                     Bu Klasoru Sec
                   </button>
@@ -5659,9 +5588,9 @@ function SystemSettingsPageInner() {
               <div className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_18px_45px_rgba(15,30,43,0.10)]">
                 <div className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Personel Analiz Merkezi</p>
-                    <h2 className="mt-1 text-3xl font-black text-slate-900">Personel Performans</h2>
-                    <p className="mt-1.5 text-xl font-semibold text-slate-500">Günlük, haftalık ve aylık işlem yoğunluğu tek ekranda izlenir.</p>
+                    <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Personel Analiz Merkezi</p>
+                    <h2 className="mt-1 text-ayar-baslik font-black text-slate-900">Personel Performans</h2>
+                    <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">Günlük, haftalık ve aylık işlem yoğunluğu tek ekranda izlenir.</p>
                   </div>
                   <button
                     onClick={() => {
@@ -5670,7 +5599,7 @@ function SystemSettingsPageInner() {
                       setHasLoadedPersonnelPerformance(false);
                     }}
                     disabled={isLoadingPersonnelPerformance}
-                    className="rounded-lg border border-[#1E2A38] bg-white px-5 py-3 text-xl font-black text-[#1E2A38] shadow-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-lg border border-[#1E2A38] bg-white px-5 py-3 text-ayar-govde font-black text-[#1E2A38] shadow-sm hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isLoadingPersonnelPerformance ? 'Yukleniyor...' : 'Verileri Yenile'}
                   </button>
@@ -5678,16 +5607,16 @@ function SystemSettingsPageInner() {
 
                 <div className="grid gap-3 p-5 md:grid-cols-3">
                   <div className="rounded-xl border border-slate-300 bg-slate-50 p-4">
-                    <p className="text-lg font-black uppercase text-slate-400">Veri Kaynagi</p>
-                    <p className="mt-1.5 text-xl font-black text-slate-800">Hareket ve audit kayitlari</p>
+                    <p className="text-ayar-aciklama font-black uppercase text-slate-400">Veri Kaynagi</p>
+                    <p className="mt-1.5 text-ayar-govde font-black text-slate-800">Hareket ve audit kayitlari</p>
                   </div>
                   <div className="rounded-xl border border-slate-300 bg-slate-50 p-4">
-                    <p className="text-lg font-black uppercase text-slate-400">Donem</p>
-                    <p className="mt-1.5 text-xl font-black text-slate-800">Bu ay</p>
+                    <p className="text-ayar-aciklama font-black uppercase text-slate-400">Donem</p>
+                    <p className="mt-1.5 text-ayar-govde font-black text-slate-800">Bu ay</p>
                   </div>
                   <div className="rounded-xl border border-slate-300 bg-slate-50 p-4">
-                    <p className="text-lg font-black uppercase text-slate-400">Durum</p>
-                    <p className={`mt-1.5 text-xl font-black ${personnelPerformanceStatus ? 'text-rose-600' : isLoadingPersonnelPerformance ? 'text-[#1E2A38]' : personnelPerformance ? 'text-emerald-700' : 'text-slate-600'}`}>
+                    <p className="text-ayar-aciklama font-black uppercase text-slate-400">Durum</p>
+                    <p className={`mt-1.5 text-ayar-govde font-black ${personnelPerformanceStatus ? 'text-rose-600' : isLoadingPersonnelPerformance ? 'text-[#1E2A38]' : personnelPerformance ? 'text-emerald-700' : 'text-slate-600'}`}>
                       {personnelPerformanceStatus ? 'Hata var' : isLoadingPersonnelPerformance ? 'Veri aliniyor' : personnelPerformance ? 'Hazir' : 'Beklemede'}
                     </p>
                   </div>
@@ -5695,8 +5624,8 @@ function SystemSettingsPageInner() {
               </div>
               <div className="hidden">
                 <div>
-                  <h2 className="text-xl font-extrabold text-[#0076b6]">Personel Performans</h2>
-                  <p className="text-xs font-semibold text-slate-500">Kullanıcıların günlük, haftalık ve aylık işlem analizleri</p>
+                  <h2 className="text-ayar-govde font-extrabold text-[#0076b6]">Personel Performans</h2>
+                  <p className="text-ayar-aciklama font-semibold text-slate-500">Kullanıcıların günlük, haftalık ve aylık işlem analizleri</p>
                 </div>
                 <button
                   onClick={() => {
@@ -5705,20 +5634,20 @@ function SystemSettingsPageInner() {
                     setHasLoadedPersonnelPerformance(false);
                   }}
                   disabled={isLoadingPersonnelPerformance}
-                  className="rounded-md border border-[#0076b6] px-4 py-2 text-xs font-black text-[#0076b6] hover:bg-sky-50 disabled:opacity-50"
+                  className="rounded-md border border-[#0076b6] px-4 py-2 text-ayar-aciklama font-black text-[#0076b6] hover:bg-sky-50 disabled:opacity-50"
                 >
                   Yenile
                 </button>
               </div>
 
               {isLoadingPersonnelPerformance && (
-                <div className="rounded-lg border border-slate-300 bg-slate-50 p-6 text-center text-xl font-bold text-slate-500">
+                <div className="rounded-lg border border-slate-300 bg-slate-50 p-6 text-center text-ayar-govde font-bold text-slate-500">
                   Performans verileri yükleniyor...
                 </div>
               )}
 
               {personnelPerformanceStatus && (
-                <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-xl font-bold text-rose-700">
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-ayar-govde font-bold text-rose-700">
                   {personnelPerformanceStatus}
                 </div>
               )}
@@ -5733,21 +5662,21 @@ function SystemSettingsPageInner() {
                       { label: 'Bu Ay', value: personnelTotals.monthly },
                     ].map((item) => (
                       <div key={item.label} className="rounded-lg border border-slate-300 bg-slate-50 p-4">
-                        <p className="text-lg font-black uppercase text-slate-500">{item.label}</p>
-                        <p className="mt-2 text-3xl font-black text-slate-900">{item.value.toLocaleString('tr-TR')}</p>
+                        <p className="text-ayar-aciklama font-black uppercase text-slate-500">{item.label}</p>
+                        <p className="mt-2 text-ayar-baslik font-black text-slate-900">{item.value.toLocaleString('tr-TR')}</p>
                       </div>
                     ))}
                   </div>
 
                   {personnelPerformance.users.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 p-10 text-center text-xl font-bold text-slate-400">
+                    <div className="rounded-lg border border-dashed border-slate-300 p-10 text-center text-ayar-govde font-bold text-slate-400">
                       Henüz performans kaydı bulunamadı.
                     </div>
                   ) : (
                     <>
                       <div className="overflow-x-auto overflow-hidden rounded-lg border border-slate-300">
-                        <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] text-left text-xl">
-                          <thead className="bg-slate-50 text-lg font-black uppercase text-slate-500">
+                        <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] text-left text-ayar-govde">
+                          <thead className="bg-slate-50 text-ayar-aciklama font-black uppercase text-slate-500">
                             <tr>
                               <th className="px-4 py-3">Kullanıcı</th>
                               <th className="px-4 py-3 text-right">Günlük</th>
@@ -5771,7 +5700,7 @@ function SystemSettingsPageInner() {
                                 </td>
                                 <td className="px-4 py-3 text-right font-bold text-slate-700">{user.weekly.toLocaleString('tr-TR')}</td>
                                 <td className="px-4 py-3 text-right font-bold text-slate-700">{user.monthly.toLocaleString('tr-TR')}</td>
-                                <td className="px-4 py-3 text-lg font-semibold text-slate-500">{formatPersonnelDate(user.lastActivity)}</td>
+                                <td className="px-4 py-3 text-ayar-aciklama font-semibold text-slate-500">{formatPersonnelDate(user.lastActivity)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -5788,10 +5717,10 @@ function SystemSettingsPageInner() {
                             <div key={`${user.userName}-analysis`} className="rounded-lg border border-slate-300 bg-white p-4 shadow-sm">
                               <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
                                 <div>
-                                  <h3 className="text-xl font-black text-slate-900">{user.userName}</h3>
-                                  <p className="text-lg font-semibold text-slate-500">{user.monthly.toLocaleString('tr-TR')} aylık işlem</p>
+                                  <h3 className="text-ayar-govde font-black text-slate-900">{user.userName}</h3>
+                                  <p className="text-ayar-aciklama font-semibold text-slate-500">{user.monthly.toLocaleString('tr-TR')} aylık işlem</p>
                                 </div>
-                                <span className="rounded-full bg-slate-100 px-3 py-1.5 text-lg font-black text-[#1E2A38]">
+                                <span className="rounded-full bg-slate-100 px-3 py-1.5 text-ayar-aciklama font-black text-[#1E2A38]">
                                   {user.monthly.toLocaleString('tr-TR')} / ay
                                 </span>
                               </div>
@@ -5803,16 +5732,16 @@ function SystemSettingsPageInner() {
                                   { title: 'Alanlar', rows: fields },
                                 ].map((section) => (
                                   <div key={section.title} className="space-y-2">
-                                    <p className="text-lg font-black uppercase text-slate-500">{section.title}</p>
+                                    <p className="text-ayar-aciklama font-black uppercase text-slate-500">{section.title}</p>
                                     {section.rows.length > 0 ? (
                                       section.rows.map((row) => (
                                         <div key={`${section.title}-${row.label}`} className="flex items-center justify-between gap-3 rounded-md bg-slate-50 px-3 py-2">
-                                          <span className="truncate text-lg font-bold text-slate-700">{row.label}</span>
-                                          <span className="text-lg font-black text-slate-900">{row.count.toLocaleString('tr-TR')}</span>
+                                          <span className="truncate text-ayar-aciklama font-bold text-slate-700">{row.label}</span>
+                                          <span className="text-ayar-aciklama font-black text-slate-900">{row.count.toLocaleString('tr-TR')}</span>
                                         </div>
                                       ))
                                     ) : (
-                                      <p className="rounded-md bg-slate-50 px-3 py-2 text-lg font-semibold text-slate-400">Kayıt yok</p>
+                                      <p className="rounded-md bg-slate-50 px-3 py-2 text-ayar-aciklama font-semibold text-slate-400">Kayıt yok</p>
                                     )}
                                   </div>
                                 ))}
@@ -5827,11 +5756,11 @@ function SystemSettingsPageInner() {
                   {personnelPerformance.recent.length > 0 && (
                     <div className="overflow-hidden rounded-lg border border-slate-300">
                       <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
-                        <h3 className="text-xl font-black text-slate-800">Son İşlemler</h3>
-                        <span className="text-lg font-black uppercase text-slate-500">{personnelPerformance.recent.length} kayıt</span>
+                        <h3 className="text-ayar-govde font-black text-slate-800">Son İşlemler</h3>
+                        <span className="text-ayar-aciklama font-black uppercase text-slate-500">{personnelPerformance.recent.length} kayıt</span>
                       </div>
                       <div className="max-h-[360px] overflow-y-auto overflow-x-auto">
-                        <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] text-left text-lg">
+                        <table className="ns-tablo ns-tablo-buyuk w-full min-w-[700px] text-left text-ayar-aciklama">
                           <thead className="sticky top-0 bg-white font-black uppercase text-slate-500 shadow-sm">
                             <tr>
                               <th className="px-4 py-3">Tarih</th>
@@ -5846,7 +5775,7 @@ function SystemSettingsPageInner() {
                               <tr key={`${activity.userName}-${activity.activityDate}-${index}`} className="hover:bg-slate-50">
                                 <td className="px-4 py-3 font-semibold text-slate-500">{formatPersonnelDate(activity.activityDate)}</td>
                                 <td className="px-4 py-3">
-                                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1.5 text-lg font-black text-[#1E2A38]">
+                                  <span className="inline-flex rounded-full bg-slate-100 px-3 py-1.5 text-ayar-aciklama font-black text-[#1E2A38]">
                                     {activity.userName}
                                   </span>
                                 </td>
@@ -5890,11 +5819,11 @@ function SystemSettingsPageInner() {
               <div className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-[0_18px_45px_rgba(15,30,43,0.10)]">
                 <div className="flex flex-col gap-4 border-b border-slate-200 bg-slate-50 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Genel Sistem Ayarları</p>
-                    <h2 className="mt-1 text-3xl font-black text-slate-900">Kurum ve Çıktı Bilgileri</h2>
-                    <p className="mt-1.5 text-xl font-semibold text-slate-500">Kurum bilgileri, rapor metinleri ve online başvuru bilgilendirmesi burada yönetilir.</p>
+                    <p className="text-ayar-govde font-black uppercase tracking-wide text-[#1E2A38]">Genel Sistem Ayarları</p>
+                    <h2 className="mt-1 text-ayar-baslik font-black text-slate-900">Kurum ve Çıktı Bilgileri</h2>
+                    <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">Kurum bilgileri, rapor metinleri ve online başvuru bilgilendirmesi burada yönetilir.</p>
                   </div>
-                  <div className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-xl font-bold text-slate-600">
+                  <div className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-ayar-govde font-bold text-slate-600">
                     Kaydetmek için üstteki <span className="font-black text-[#1E2A38]">Değişiklikleri Kaydet</span> butonunu kullanın.
                   </div>
                 </div>
@@ -5902,13 +5831,13 @@ function SystemSettingsPageInner() {
                 <div className="grid gap-6 p-6 xl:grid-cols-[360px_minmax(0,1fr)]">
                   <div className="space-y-4">
                     <div className="rounded-xl border border-slate-300 bg-slate-50 p-4">
-                      <p className="text-xl font-black uppercase tracking-wide text-slate-500">Kurum logosu</p>
+                      <p className="text-ayar-govde font-black uppercase tracking-wide text-slate-500">Kurum logosu</p>
                       <div className="mt-4 flex justify-center">
                         <div className="flex h-36 w-36 items-center justify-center rounded-2xl border border-slate-300 bg-white p-3 shadow-sm">
                           {generalSettings.logoDataUrl ? (
                             <img src={generalSettings.logoDataUrl} alt="Kurum logosu" className="max-h-full max-w-full object-contain" />
                           ) : (
-                            <span className="text-xl font-bold text-slate-400">Logo yok</span>
+                            <span className="text-ayar-govde font-bold text-slate-400">Logo yok</span>
                           )}
                         </div>
                       </div>
@@ -5918,48 +5847,48 @@ function SystemSettingsPageInner() {
                           type="file"
                           accept="image/*"
                           onChange={event => handleGeneralLogoChange(event.target.files?.[0])}
-                          className="block w-full text-xl font-bold text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#1E2A38] file:px-4 file:py-2.5 file:text-xl file:font-black file:text-white hover:file:bg-[#2A3B4D]"
+                          className="block w-full text-ayar-govde font-bold text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#1E2A38] file:px-4 file:py-2.5 file:text-xl file:font-black file:text-white hover:file:bg-[#2A3B4D]"
                         />
                       </label>
                       <button
                         type="button"
                         onClick={() => updateGeneralSetting('logoDataUrl', '/sivas-belediyesi-logo.png')}
-                        className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xl font-black text-slate-600 hover:border-[#1E2A38] hover:text-[#1E2A38]"
+                        className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-ayar-govde font-black text-slate-600 hover:border-[#1E2A38] hover:text-[#1E2A38]"
                       >
                         Varsayılan logoya dön
                       </button>
-                      <p className="mt-3 text-lg font-semibold leading-6 text-slate-500">PNG/JPG/SVG görseller kullanılabilir. Büyük dosyalar yerine 2 MB altı logo önerilir.</p>
+                      <p className="mt-3 text-ayar-aciklama font-semibold leading-6 text-slate-500">PNG/JPG/SVG görseller kullanılabilir. Büyük dosyalar yerine 2 MB altı logo önerilir.</p>
                     </div>
 
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                      <p className="text-xl font-black uppercase tracking-wide text-emerald-700">Önizleme</p>
+                      <p className="text-ayar-govde font-black uppercase tracking-wide text-emerald-700">Önizleme</p>
                       <div className="mt-3 rounded-xl border border-emerald-100 bg-white p-4">
                         <div className="flex items-center gap-3">
                           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white p-1.5">
                             <img src={generalSettings.logoDataUrl || '/sivas-belediyesi-logo.png'} alt="Kurum logosu önizleme" className="h-full w-full object-contain" />
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-xl font-black text-slate-900">{generalSettings.institutionName || 'Kurum adı'}</p>
-                            <p className="truncate text-lg font-bold text-emerald-700">{generalSettings.departmentName || 'Müdürlük adı'}</p>
+                            <p className="truncate text-ayar-govde font-black text-slate-900">{generalSettings.institutionName || 'Kurum adı'}</p>
+                            <p className="truncate text-ayar-aciklama font-bold text-emerald-700">{generalSettings.departmentName || 'Müdürlük adı'}</p>
                           </div>
                         </div>
                         {generalContactItems.length > 0 && (
                           <div className="mt-3 grid gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
                             {generalContactItems.slice(0, 4).map((item, index) => (
                               <div key={`${item.label}-${index}`} className="min-w-0">
-                                <span className="block text-lg font-black uppercase tracking-wide text-emerald-700">{item.label}</span>
+                                <span className="block text-ayar-aciklama font-black uppercase tracking-wide text-emerald-700">{item.label}</span>
                                 {item.href ? (
                                   <a
                                     href={item.href}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="block truncate text-lg font-black text-[#005f95] underline-offset-2 hover:underline"
+                                    className="block truncate text-ayar-aciklama font-black text-[#005f95] underline-offset-2 hover:underline"
                                     title="Web sitesini yeni sekmede aç"
                                   >
                                     {item.value}
                                   </a>
                                 ) : (
-                                  <p className="truncate text-lg font-bold text-slate-600" title={item.value}>
+                                  <p className="truncate text-ayar-aciklama font-bold text-slate-600" title={item.value}>
                                     {item.value}
                                   </p>
                                 )}
@@ -5974,8 +5903,8 @@ function SystemSettingsPageInner() {
                   <div className="space-y-5">
                     <div className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
                       <div className="mb-4 border-b border-slate-200 pb-3">
-                        <h3 className="text-2xl font-black text-slate-900">Kurum Bilgileri</h3>
-                        <p className="mt-1.5 text-xl font-semibold text-slate-500">Çıktılar, önizlemeler ve kurum iletişim bilgileri için kullanılır.</p>
+                        <h3 className="text-ayar-bolum font-black text-slate-900">Kurum Bilgileri</h3>
+                        <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">Çıktılar, önizlemeler ve kurum iletişim bilgileri için kullanılır.</p>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         {[
@@ -5987,21 +5916,21 @@ function SystemSettingsPageInner() {
                           ['website', 'Web sitesi'],
                         ].map(([key, label]) => (
                           <label key={key} className="flex flex-col gap-1.5">
-                            <span className="text-xl font-black uppercase text-slate-500">{label}</span>
+                            <span className="text-ayar-govde font-black uppercase text-slate-500">{label}</span>
                             <input
                               value={String(generalSettings[key as keyof GeneralSettings] || '')}
                               onChange={event => updateGeneralSetting(key as keyof GeneralSettings, event.target.value)}
-                              className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                              className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                             />
                           </label>
                         ))}
                         <label className="flex flex-col gap-1.5 md:col-span-2">
-                          <span className="text-xl font-black uppercase text-slate-500">Adres</span>
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Adres</span>
                           <textarea
                             value={generalSettings.address}
                             onChange={event => updateGeneralSetting('address', event.target.value)}
                             rows={3}
-                            className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
+                            className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:bg-white"
                           />
                         </label>
                       </div>
@@ -6009,52 +5938,52 @@ function SystemSettingsPageInner() {
 
                     <div className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
                       <div className="mb-4 border-b border-slate-200 pb-3">
-                        <h3 className="text-2xl font-black text-slate-900">Çıktı ve Rapor Bilgileri</h3>
-                        <p className="mt-1.5 text-xl font-semibold text-slate-500">Form tasarımlarında kullanılacak kurum ve açıklama metinleri.</p>
+                        <h3 className="text-ayar-bolum font-black text-slate-900">Çıktı ve Rapor Bilgileri</h3>
+                        <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">Form tasarımlarında kullanılacak kurum ve açıklama metinleri.</p>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Çıktı kurum adı</span>
-                          <input value={generalSettings.printInstitutionName} onChange={event => updateGeneralSetting('printInstitutionName', event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Çıktı kurum adı</span>
+                          <input value={generalSettings.printInstitutionName} onChange={event => updateGeneralSetting('printInstitutionName', event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Varsayılan hazırlayan birim</span>
-                          <input value={generalSettings.defaultPreparedByUnit} onChange={event => updateGeneralSetting('defaultPreparedByUnit', event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Varsayılan hazırlayan birim</span>
+                          <input value={generalSettings.defaultPreparedByUnit} onChange={event => updateGeneralSetting('defaultPreparedByUnit', event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                         <label className="flex flex-col gap-1.5 md:col-span-2">
-                          <span className="text-xl font-black uppercase text-slate-500">Çıktı alt bilgi metni</span>
-                          <textarea value={generalSettings.printFooterText} onChange={event => updateGeneralSetting('printFooterText', event.target.value)} rows={3} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Çıktı alt bilgi metni</span>
+                          <textarea value={generalSettings.printFooterText} onChange={event => updateGeneralSetting('printFooterText', event.target.value)} rows={3} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                         <label className="flex flex-col gap-1.5 md:col-span-2">
-                          <span className="text-xl font-black uppercase text-slate-500">Barkod / QR açıklama metni</span>
-                          <textarea value={generalSettings.barcodeInfoText} onChange={event => updateGeneralSetting('barcodeInfoText', event.target.value)} rows={2} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Barkod / QR açıklama metni</span>
+                          <textarea value={generalSettings.barcodeInfoText} onChange={event => updateGeneralSetting('barcodeInfoText', event.target.value)} rows={2} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
                       <div className="mb-4 border-b border-slate-200 pb-3">
-                        <h3 className="text-2xl font-black text-slate-900">Online Başvuru Bilgilendirmesi</h3>
-                        <p className="mt-1.5 text-xl font-semibold text-slate-500">Başvuru ekranında kullanılabilecek kurum mesajları.</p>
+                        <h3 className="text-ayar-bolum font-black text-slate-900">Online Başvuru Bilgilendirmesi</h3>
+                        <p className="mt-1.5 text-ayar-govde font-semibold text-slate-500">Başvuru ekranında kullanılabilecek kurum mesajları.</p>
                       </div>
                       <div className="grid gap-4">
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Başvuru bilgilendirme metni</span>
-                          <textarea value={generalSettings.onlineApplicationInfoText} onChange={event => updateGeneralSetting('onlineApplicationInfoText', event.target.value)} rows={3} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Başvuru bilgilendirme metni</span>
+                          <textarea value={generalSettings.onlineApplicationInfoText} onChange={event => updateGeneralSetting('onlineApplicationInfoText', event.target.value)} rows={3} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Başvuru sonrası mesaj</span>
-                          <textarea value={generalSettings.onlineApplicationSuccessMessage} onChange={event => updateGeneralSetting('onlineApplicationSuccessMessage', event.target.value)} rows={3} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Başvuru sonrası mesaj</span>
+                          <textarea value={generalSettings.onlineApplicationSuccessMessage} onChange={event => updateGeneralSetting('onlineApplicationSuccessMessage', event.target.value)} rows={3} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                         <label className="flex flex-col gap-1.5">
-                          <span className="text-xl font-black uppercase text-slate-500">Çalışma saatleri</span>
-                          <input value={generalSettings.workingHours} onChange={event => updateGeneralSetting('workingHours', event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
+                          <span className="text-ayar-govde font-black uppercase text-slate-500">Çalışma saatleri</span>
+                          <input value={generalSettings.workingHours} onChange={event => updateGeneralSetting('workingHours', event.target.value)} className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-ayar-govde font-semibold outline-none focus:border-[#1E2A38] focus:bg-white" />
                         </label>
                       </div>
                     </div>
 
                     {generalSettingsStatus && (
-                      <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-xl font-bold text-[#1E2A38]">
+                      <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-ayar-govde font-bold text-[#1E2A38]">
                         {generalSettingsStatus}
                       </div>
                     )}

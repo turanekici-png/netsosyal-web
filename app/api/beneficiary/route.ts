@@ -5,40 +5,19 @@ import { beneficiaryService } from '@/lib/services'
 import { getAuditMetaFromRequest, withAuditedWrite } from '@/lib/db/auditContext'
 import { buildAssistanceExistsCondition, readAssistanceFilterParams } from '@/lib/utils/assistanceFilter'
 import {
-  BENEFICIARY_FROM_CLAUSE,
-  beneficiaryGenderLabelSql,
   buildBeneficiaryConditions,
+  buildBeneficiaryFromClause,
   buildBeneficiaryOrderBy,
+  buildBeneficiarySelectList,
   finalizeWhereClause,
 } from '@/lib/beneficiary/beneficiaryListQuery'
+import { getBeneficiaryKodEtiketleri } from '@/lib/documents/documentKodEtiketleri'
 
 export const dynamic = "force-dynamic"
 
-type BeneficiaryListRow = {
-  id: string
-  dosyaId: string | null
-  dosyaNo: string | null
-  dosyaDurumu: number | null
-  incelemePuani: number | null
-  tc: string | null
-  adSoyad: string | null
-  adi: string | null
-  soyadi: string | null
-  telefon: string | null
-  ilce: string | null
-  mahalle: string | null
-  yakinligi: number | null
-  cinsiyet: string | null
-  babaAdi: string | null
-  anaAdi: string | null
-  dogumTarihi: Date | null
-  olumTarihi: string | null
-  medeniHali: number | null
-  adresNo: string | null
-  adres: string | null
-  kayitTarihi: Date | null
-  guncellemeTarihi: Date | null
-}
+// 2026-10-15: liste bireyler tablosunun TUM alanlarini dondurur - sutunlar
+// beneficiaryFilterColumns'tan uretilir (bkz. buildBeneficiarySelectList).
+type BeneficiaryListRow = { id: string } & Record<string, unknown>
 
 type DeletePayload = { ids?: Array<string | number> }
 
@@ -88,41 +67,17 @@ export async function GET(request: Request) {
       ? whereClause.values
       : [...whereClause.values, queryLimit, offset]
 
+    const fromClause = buildBeneficiaryFromClause(await getBeneficiaryKodEtiketleri())
     const totalRows = await prisma.$queryRawUnsafe<Array<{ total: bigint }>>(`
       SELECT COUNT(*)::bigint AS total
-      ${BENEFICIARY_FROM_CLAUSE}
+      ${fromClause}
       ${whereClause.sql}
     `, ...whereClause.values)
 
     const rows = await prisma.$queryRawUnsafe<BeneficiaryListRow[]>(`
       SELECT
-        b.id::text AS "id",
-        b.dosyaid::text AS "dosyaId",
-        d.dosyano AS "dosyaNo",
-        d.durumu AS "dosyaDurumu",
-        d.inceleme_puani AS "incelemePuani",
-        b.tckimlikno AS "tc",
-        COALESCE(
-          NULLIF(BTRIM(b.adisoyadi), ''),
-          NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(BTRIM(b.adi), ''), NULLIF(BTRIM(b.soyadi), ''))), '')
-        ) AS "adSoyad",
-        b.adi AS "adi",
-        b.soyadi AS "soyadi",
-        b.ceptel AS "telefon",
-        b.nfilce AS "ilce",
-        b.nfmahkoy AS "mahalle",
-        b.yakinligi AS "yakinligi",
-        ${beneficiaryGenderLabelSql} AS "cinsiyet",
-        b.babaadi AS "babaAdi",
-        b.anaadi AS "anaAdi",
-        b.dogumtarihi AS "dogumTarihi",
-        b.olumtarihi AS "olumTarihi",
-        b.medenihali AS "medeniHali",
-        b.adresno AS "adresNo",
-        b.adres AS "adres",
-        b.ilkislemtarihi AS "kayitTarihi",
-        b.islemtarihi AS "guncellemeTarihi"
-      ${BENEFICIARY_FROM_CLAUSE}
+        ${buildBeneficiarySelectList()}
+      ${fromClause}
       ${whereClause.sql}
       ORDER BY ${orderBy}
       ${limitClause}

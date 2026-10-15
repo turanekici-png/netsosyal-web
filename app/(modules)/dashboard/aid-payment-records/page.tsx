@@ -244,6 +244,8 @@ export default async function AidPaymentRecordsPage({
 
       <ManagedReportTablePage
         eyebrow="Ana Sayfa Raporu"
+        // 2026-10-15: Dosyalar/Yardımlar ile ayni kurumsal baslik + tablo dili.
+        corporateHeader={{ kicker: "Ana Sayfa › Raporlar" }}
         title={requestedTitle}
         routePath="/dashboard/aid-payment-records"
         data={errorMessage ? [] : records}

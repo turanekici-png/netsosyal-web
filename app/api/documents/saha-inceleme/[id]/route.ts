@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireApiAccess } from '@/lib/apiAuth'
+import { getSessionUser, requireApiAccess } from '@/lib/apiAuth'
+import { etkinKimlik, PERSONEL_SECIMI_GEREKLI_MESAJI } from '@/lib/auth/tahkikatEkip'
 import { getSqlMonitorPool } from '@/lib/services/sqlMonitor.service'
 import { getAuditMetaFromRequest, withAuditedPoolWrite } from '@/lib/db/auditContext'
 import { ensureSahaIncelemeSchema } from '../_lib/sablon'
 import { kayitDetayiniEsle, kayitOzetiniEsle, normalizeBigInt, type FormSatiri } from '../_lib/kayit'
 import { evZiyaretiKonusu, kayitAlanlariniHazirla, type KaydetPayload } from '../_lib/kaydet'
 import { dosyaNitelikleriniIsle } from '../_lib/dosyaNitelikleri'
-import { parseSessionValue, readSessionCookie } from '@/lib/auth'
 import type { Sablon } from '@/lib/constants/sahaIncelemeForm'
 
 export const dynamic = 'force-dynamic'
@@ -58,8 +58,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<Pa
     const a = kayitAlanlariniHazirla(eski.sablon, await request.json() as KaydetPayload, eski.tarih_tr)
     if (a.hata !== null) return NextResponse.json({ success: false, error: a.hata }, { status: 400 })
 
-    const userId = parseSessionValue(readSessionCookie(request.cookies))
-    const currentUserId = userId && Number.isInteger(Number(userId)) ? Number(userId) : null
+    // Tahkikat ekip hesabinda tableti kullanan personel seciliyse onun id'si.
+    const kimlik = await etkinKimlik(await getSessionUser(), request.cookies)
+    if (kimlik.personelSecimiGerekli) {
+      return NextResponse.json({ success: false, error: PERSONEL_SECIMI_GEREKLI_MESAJI }, { status: 403 })
+    }
+    const currentUserId = kimlik.kullaniciId
 
     const kayit = await withAuditedPoolWrite(pool, async (client) => {
       const result = await client.query<FormSatiri>(

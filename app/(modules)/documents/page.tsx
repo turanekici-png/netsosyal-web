@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, Suspense, type ChangeEvent, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, useEffect, useLayoutEffect, useRef, Suspense, Fragment, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Image from 'next/image'
 import { useSearchParams, useRouter } from 'next/navigation'
@@ -41,6 +41,7 @@ import {
 // kaldirildi. Daha eski modal (isEvaluationModalOpen, evaluationForm state'i,
 // JSX'i) KOD OLARAK duruyor ama hicbir butondan tetiklenmiyor.
 import SahaIncelemeFormModal from '@/components/documents/SahaIncelemeFormModal'
+import { mikrofonHataMesaji } from '@/lib/mikrofonTeshis'
 import SahaIncelemeGecmisiPaneli from '@/components/documents/SahaIncelemeGecmisiPaneli'
 import DosyaMuracaatFormu, { MURACAAT_TALEP_SECENEKLERI, type MuracaatHaneSatiri } from '@/components/documents/DosyaMuracaatFormu'
 import ImzaAlani from '@/components/documents/ImzaAlani'
@@ -71,6 +72,8 @@ import {
   YARDIM_KRITERI_KISI_BASI_MIKTAR_TUR,
 } from '@/lib/nakitCriteria'
 import { isValidTcKimlikNo } from '@/lib/utils/tcKimlikNo'
+import { donemAcikMi, KAPALI_DONEM, kisDonemiDurumu } from '@/lib/constants/kisDonemi'
+import { muracaatiYardimaDonustur, OTOMATIK_DONUSEN_TABLOLAR, type OtomatikDonusumSonucu } from '@/lib/assistance/otomatikDonusum'
 import {
   DestructiveAuthorizationDialog,
   type DestructiveAuthorizationDialogHandle,
@@ -1073,6 +1076,8 @@ function getAssistanceStatusBadgeClass(status?: number | string | null, variant:
     '2': 'border-emerald-700 !bg-emerald-600 !text-white ring-2 ring-emerald-200 shadow-md shadow-emerald-300/70',
     '3': 'border-red-700 !bg-red-600 !text-white ring-2 ring-red-200 shadow-md shadow-red-300/70',
     '4': 'border-blue-700 !bg-blue-600 !text-white ring-2 ring-blue-200 shadow-md shadow-blue-300/70',
+    // 2026-10-15: Kış Dönemi "Bekliyor" - sari (bkz. lib/constants/kisDonemi.ts)
+    '5': 'border-yellow-500 !bg-yellow-400 !text-yellow-950 ring-2 ring-yellow-200 shadow-md shadow-yellow-300/70',
   }
   const dgnClasses: Record<string, string> = {
     '0': 'border-orange-700 !bg-orange-600 !text-white ring-2 ring-orange-200 shadow-md shadow-orange-300/70',
@@ -1102,6 +1107,9 @@ function getAssistanceStatusBadgeStyle(status?: number | string | null, variant:
     ? normalizedStatus === '1'
     : normalizedStatus === '3'
   const isStopped = variant === 'default' && normalizedStatus === '4'
+  if (variant === 'default' && (normalizedStatus === '5' || normalizedStatus.includes('bekliyor'))) {
+    return { backgroundColor: '#facc15', borderColor: '#eab308', color: '#422006', boxShadow: '0 4px 12px rgba(234,179,8,0.35)' }
+  }
 
   if (isActive || normalizedStatus.includes('yardım alıyor') || normalizedStatus.includes('yardim aliyor')) {
     return { backgroundColor: '#059669', borderColor: '#047857', color: '#ffffff', boxShadow: '0 4px 12px rgba(5,150,105,0.35)' }
@@ -1528,6 +1536,8 @@ type ActionIconName =
   | 'report'
   | 'home'
   | 'mic'
+  | 'eye'
+  | 'more'
 
 function ActionIcon({ name, className = 'h-4 w-4' }: { name: ActionIconName; className?: string }) {
   const commonProps = {
@@ -1545,49 +1555,49 @@ function ActionIcon({ name, className = 'h-4 w-4' }: { name: ActionIconName; cla
     case 'add':
       return <svg {...commonProps}><path d="M12 5v14" /><path d="M5 12h14" /></svg>
     case 'edit':
-      return <svg {...commonProps}><path d="M12 20h9" /><path d="m16.5 3.5 4 4L8 20H4v-4L16.5 3.5z" /></svg>
+      return <svg {...commonProps}><path d="M12 20h9" /><path d="M16.38 3.62a2.12 2.12 0 0 1 3 3L7.37 18.64a2 2 0 0 1-.86.5l-2.87.84.84-2.87a2 2 0 0 1 .5-.86z" /></svg>
     case 'cancel':
-      return <svg {...commonProps}><circle cx="12" cy="12" r="9" /><path d="m9 9 6 6" /><path d="m15 9-6 6" /></svg>
+      return <svg {...commonProps}><circle cx="12" cy="12" r="9" /><path d="m5.7 5.7 12.6 12.6" /></svg>
     case 'convert':
-      return <svg {...commonProps}><path d="M7 7h10l-3-3" /><path d="M17 7l-3 3" /><path d="M17 17H7l3 3" /><path d="M7 17l3-3" /></svg>
+      return <svg {...commonProps}><path d="m16 3 4 4-4 4" /><path d="M20 7H4" /><path d="m8 21-4-4 4-4" /><path d="M4 17h16" /></svg>
     case 'pause':
-      return <svg {...commonProps}><path d="M10 4H6v16h4V4z" /><path d="M18 4h-4v16h4V4z" /></svg>
+      return <svg {...commonProps}><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
     case 'play':
-      return <svg {...commonProps}><path d="m8 5 11 7-11 7V5z" /></svg>
+      return <svg {...commonProps}><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z" /></svg>
     case 'card':
       return <svg {...commonProps}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /><path d="M7 15h4" /></svg>
     case 'pay':
-      return <svg {...commonProps}><path d="M12 2v20" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6" /></svg>
+      return <svg {...commonProps}><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01" /><path d="M18 12h.01" /></svg>
     case 'print':
-      return <svg {...commonProps}><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v8H6z" /></svg>
+      return <svg {...commonProps}><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6" /><rect x="6" y="14" width="12" height="8" rx="1" /></svg>
     case 'delete':
-      return <svg {...commonProps}><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v5" /><path d="M14 11v5" /></svg>
+      return <svg {...commonProps}><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
     case 'tools':
-      return <svg {...commonProps}><path d="M14.7 6.3a4 4 0 0 0-5 5L4 17v3h3l5.7-5.7a4 4 0 0 0 5-5l-2.4 2.4-3-3 2.4-2.4z" /></svg>
+      return <svg {...commonProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z" /></svg>
     case 'fileAdd':
       return <svg {...commonProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M12 11v6" /><path d="M9 14h6" /></svg>
     case 'fileEdit':
       return <svg {...commonProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h8" /><path d="M14 2v6h6" /><path d="m16 19 4-4 2 2-4 4h-2v-2z" /></svg>
     case 'refresh':
-      return <svg {...commonProps}><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
+      return <svg {...commonProps}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></svg>
     case 'clean':
-      return <svg {...commonProps}><path d="m16 3 5 5L9 20H4v-5L16 3z" /><path d="m14 5 5 5" /><path d="M4 20h16" /></svg>
+      return <svg {...commonProps}><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21" /><path d="M22 21H7" /><path d="m5 11 9 9" /></svg>
     case 'search':
       return <svg {...commonProps}><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
     case 'note':
-      return <svg {...commonProps}><path d="M4 4h16v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /><path d="M8 8h8" /><path d="M8 12h8" /><path d="M8 16h5" /></svg>
+      return <svg {...commonProps}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></svg>
     case 'message':
-      return <svg {...commonProps}><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" /><path d="M8 9h8" /><path d="M8 13h5" /></svg>
+      return <svg {...commonProps}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M13 8H7" /><path d="M17 12H7" /></svg>
     case 'gift':
       return <svg {...commonProps}><path d="M20 12v8H4v-8" /><path d="M2 7h20v5H2z" /><path d="M12 22V7" /><path d="M12 7H7.5A2.5 2.5 0 1 1 10 4.5C10 6 12 7 12 7z" /><path d="M12 7h4.5A2.5 2.5 0 1 0 14 4.5C14 6 12 7 12 7z" /></svg>
     case 'map':
-      return <svg {...commonProps}><path d="M12 21s7-5.2 7-12a7 7 0 1 0-14 0c0 6.8 7 12 7 12z" /><circle cx="12" cy="9" r="2.5" /></svg>
+      return <svg {...commonProps}><path d="M20 10c0 5-5.54 10.19-7.4 11.8a1 1 0 0 1-1.2 0C9.54 20.19 4 15 4 10a8 8 0 0 1 16 0" /><circle cx="12" cy="10" r="3" /></svg>
     case 'camera':
       return <svg {...commonProps}><path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3z" /><circle cx="12" cy="13" r="4" /></svg>
     case 'image':
       return <svg {...commonProps}><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8" cy="10" r="1.5" /><path d="m21 16-5-5L5 19" /></svg>
     case 'userAdd':
-      return <svg {...commonProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6" /><path d="M16 11h6" /></svg>
+      return <svg {...commonProps}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M19 8v6" /><path d="M22 11h-6" /></svg>
     case 'save':
       return <svg {...commonProps}><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><path d="M17 21v-8H7v8" /><path d="M7 3v5h8" /></svg>
     case 'close':
@@ -1595,9 +1605,13 @@ function ActionIcon({ name, className = 'h-4 w-4' }: { name: ActionIconName; cla
     case 'idCard':
       return <svg {...commonProps}><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="9" cy="11" r="2" /><path d="M6 17a3 3 0 0 1 6 0" /><path d="M14 10h4" /><path d="M14 14h4" /></svg>
     case 'report':
-      return <svg {...commonProps}><path d="M9 3h6l2 2h2v16H5V5h2z" /><path d="M9 9h6" /><path d="M9 13h6" /><path d="M9 17h4" /></svg>
+      return <svg {...commonProps}><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" /></svg>
     case 'home':
-      return <svg {...commonProps}><path d="m3 11 9-8 9 8" /><path d="M5 10v11h14V10" /><path d="M9 21v-6h6v6" /></svg>
+      return <svg {...commonProps}><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .71-1.53l7-6a2 2 0 0 1 2.58 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+    case 'eye':
+      return <svg {...commonProps}><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0" /><circle cx="12" cy="12" r="3" /></svg>
+    case 'more':
+      return <svg {...commonProps}><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></svg>
     case 'mic':
       return <svg {...commonProps}><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v3" /><path d="M8 22h8" /></svg>
   }
@@ -1625,33 +1639,71 @@ function ActionButton({ children, tone = 'primary', onClick }: { children: React
 type ActionDropdownIconTone = 'sky' | 'emerald' | 'amber' | 'violet' | 'indigo' | 'rose' | 'cyan'
 type ActionDropdownItem = { label: string; onClick: () => void; icon?: ReactNode; variant?: 'default' | 'danger'; iconTone?: ActionDropdownIconTone; disabled?: boolean }
 
+// Kullanici istegi (2026-10-15): "acilir butonlari daha profesyonel ve
+// kullanisli, ikonlari daha estetik yapalim" - ActionDropdown ile
+// ContextActionMenu AYNI satir listesini kullanir; gorunum globals.css'teki
+// ortak ".ns-amenu" sisteminden gelir (yumusak renkli ikon karosu, uzerine
+// gelince dolu renk, tehlikeli islemler ayracla ayrilir). Klavye: Yukari/
+// Asagi/Home/End satirlar arasinda gezer, Esc kapatir.
+function focusMenuItem(menu: HTMLElement | null, direction: 1 | -1 | 'first' | 'last') {
+  if (!menu) return
+  const buttons = Array.from(menu.querySelectorAll<HTMLButtonElement>('.ns-amenu-item:not(:disabled)'))
+  if (buttons.length === 0) return
+  const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
+  const next = direction === 'first' ? 0
+    : direction === 'last' ? buttons.length - 1
+    : current === -1 ? (direction === 1 ? 0 : buttons.length - 1)
+    : (current + direction + buttons.length) % buttons.length
+  buttons[next].focus()
+}
+
+function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLElement>, onClose: () => void) {
+  const menu = event.currentTarget
+  if (event.key === 'ArrowDown') { event.preventDefault(); focusMenuItem(menu, 1) }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); focusMenuItem(menu, -1) }
+  else if (event.key === 'Home') { event.preventDefault(); focusMenuItem(menu, 'first') }
+  else if (event.key === 'End') { event.preventDefault(); focusMenuItem(menu, 'last') }
+  else if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); onClose() }
+}
+
+function ActionMenuItems({ items, onAfterSelect }: { items: ActionDropdownItem[]; onAfterSelect: () => void }) {
+  return (
+    <>
+      {items.map((item, index) => {
+        const isDanger = item.variant === 'danger'
+        const prevIsDanger = index > 0 && items[index - 1].variant === 'danger'
+        const tone = item.iconTone ?? (isDanger ? 'rose' : undefined)
+        return (
+          <Fragment key={index}>
+            {isDanger && index > 0 && !prevIsDanger && <div className="ns-amenu-ayrac" role="separator" />}
+            <button
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={() => {
+                if (item.disabled) return
+                item.onClick()
+                onAfterSelect()
+              }}
+              className={`ns-amenu-item${isDanger ? ' tehlike' : ''}`}
+            >
+              <span className="ns-amenu-ico" data-ns-ton={tone ?? ''}>
+                {item.icon}
+              </span>
+              <span className="ns-amenu-etiket">{item.label}</span>
+            </button>
+          </Fragment>
+        )
+      })}
+    </>
+  )
+}
+
 function ActionDropdown({ items, children }: { items: ActionDropdownItem[]; children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const triggerRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 })
-  // Kullanici istegi: eskiden ikonlar soluk/pastel (bg-{renk}-50) kutular
-  // icindeydi - "daha renkli ve profesyonel" olsun diye artik DOLU renkli
-  // (gradyanli) rozetlere ve satir uzerine gelince o rengin kendi tonuna
-  // gecen bir vurguya cevrildi.
-  const iconToneClass: Record<ActionDropdownIconTone, string> = {
-    sky: 'bg-[#1E2A38]',
-    emerald: 'bg-emerald-700',
-    amber: 'bg-[#1E2A38]',
-    violet: 'bg-[#1E2A38]',
-    indigo: 'bg-[#1E2A38]',
-    rose: 'bg-rose-600',
-    cyan: 'bg-[#1E2A38]',
-  }
-  const rowHoverToneClass: Record<ActionDropdownIconTone, string> = {
-    sky: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    emerald: 'hover:bg-emerald-50 hover:text-emerald-800',
-    amber: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    violet: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    indigo: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    rose: 'hover:bg-rose-50 hover:text-rose-800',
-    cyan: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-  }
 
   const updateMenuPosition = useCallback(() => {
     if (!triggerRef.current) return
@@ -1708,6 +1760,8 @@ function ActionDropdown({ items, children }: { items: ActionDropdownItem[]; chil
   useLayoutEffect(() => {
     if (!isOpen) return
     updateMenuPosition()
+    // Klavye ile gezinme (Yukari/Asagi/Esc) hemen calissin diye odak menuye
+    menuRef.current?.focus({ preventScroll: true })
     window.addEventListener('resize', updateMenuPosition)
     window.addEventListener('scroll', updateMenuPosition, true)
     return () => {
@@ -1730,49 +1784,13 @@ function ActionDropdown({ items, children }: { items: ActionDropdownItem[]; chil
       {isOpen && typeof document !== 'undefined' && createPortal(
         <div
           ref={menuRef}
-          className="dy-base-16 fixed z-[2147483647] max-h-[calc(100vh-1rem)] w-64 origin-top-right overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_16px_40px_rgba(16,30,43,0.25)] ring-1 ring-slate-950/5 animate-in fade-in zoom-in-95 duration-100"
+          role="menu"
+          tabIndex={-1}
+          onKeyDown={(event) => handleMenuKeyDown(event, () => setIsOpen(false))}
+          className="ns-amenu ns-amenu-kaydir fixed z-[2147483647] w-64"
           style={{ top: menuPosition.top, left: menuPosition.left }}
         >
-          <div className="h-1 bg-[#1E2A38]" />
-          <div className="max-h-[calc(100vh-2.5rem)] overflow-y-auto p-0.5">
-            {items.map((item, index) => {
-              const isDanger = item.variant === 'danger'
-              const hoverClass = item.iconTone
-                ? rowHoverToneClass[item.iconTone]
-                : isDanger
-                ? 'hover:bg-rose-50 hover:text-rose-700'
-                : 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]'
-              return (
-                <button
-                  key={index}
-                  onClick={() => {
-                    if (item.disabled) return
-                    item.onClick()
-                    setIsOpen(false)
-                  }}
-                  disabled={item.disabled}
-                  className={`group flex w-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-left !text-[14px] font-black transition-all disabled:cursor-not-allowed disabled:opacity-45 ${
-                    item.disabled
-                      ? 'text-slate-400'
-                      : isDanger
-                      ? `text-rose-600 ${hoverClass}`
-                      : `text-slate-700 ${hoverClass}`
-                  } ${isDanger && index > 0 ? 'mt-0.5 border-t border-slate-100 pt-1.5' : ''}`}
-                >
-                  <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-white transition-transform group-hover:scale-105 ${
-                    item.iconTone
-                      ? iconToneClass[item.iconTone]
-                      : isDanger
-                      ? 'bg-rose-600'
-                      : 'bg-slate-500'
-                  }`}>
-                    {item.icon && <span className="flex items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5">{item.icon}</span>}
-                  </div>
-                  {item.label}
-                </button>
-              )
-            })}
-          </div>
+          <ActionMenuItems items={items} onAfterSelect={() => setIsOpen(false)} />
         </div>,
         document.body
       )}
@@ -1791,26 +1809,7 @@ function ContextActionMenu({
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [menuPosition, setMenuPosition] = useState(position)
-  // ActionDropdown ile AYNI gorsel dil (dolu/gradyanli rozetler) - bkz.
-  // oradaki ayni-isimli sabitin yorumu.
-  const iconToneClass: Record<ActionDropdownIconTone, string> = {
-    sky: 'bg-[#1E2A38]',
-    emerald: 'bg-emerald-700',
-    amber: 'bg-[#1E2A38]',
-    violet: 'bg-[#1E2A38]',
-    indigo: 'bg-[#1E2A38]',
-    rose: 'bg-rose-600',
-    cyan: 'bg-[#1E2A38]',
-  }
-  const rowHoverToneClass: Record<ActionDropdownIconTone, string> = {
-    sky: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    emerald: 'hover:bg-emerald-50 hover:text-emerald-800',
-    amber: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    violet: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    indigo: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-    rose: 'hover:bg-rose-50 hover:text-rose-800',
-    cyan: 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]',
-  }
+  // Gorunum ActionDropdown ile ortak (ActionMenuItems + .ns-amenu)
 
   // Kullanici istegi: menu ekran altinda kaliyordu - eski kod satir basina
   // 44px TAHMIN ediyordu ama gercek satir yuksekligi (36px ikon + dikey
@@ -1828,6 +1827,10 @@ function ContextActionMenu({
       y: Math.max(margin, Math.min(position.y, window.innerHeight - menuHeight - margin)),
     })
   }, [items.length, position.x, position.y])
+
+  useEffect(() => {
+    menuRef.current?.focus({ preventScroll: true })
+  }, [])
 
   useEffect(() => {
     const closeOnMouseDown = (event: MouseEvent) => {
@@ -1853,50 +1856,13 @@ function ContextActionMenu({
   return createPortal(
     <div
       ref={menuRef}
-      className="dy-base-16 fixed z-[2147483647] w-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_16px_40px_rgba(16,30,43,0.25)] ring-1 ring-slate-950/5"
+      role="menu"
+      tabIndex={-1}
+      onKeyDown={(event) => handleMenuKeyDown(event, onClose)}
+      className="ns-amenu ns-amenu-kaydir fixed z-[2147483647] w-64"
       style={{ top: menuPosition.y, left: menuPosition.x }}
     >
-      <div className="h-1 bg-[#1E2A38]" />
-      <div className="max-h-[calc(100vh-2.5rem)] overflow-y-auto p-0.5">
-        {items.map((item, index) => {
-          const isDanger = item.variant === 'danger'
-          const hoverClass = item.iconTone
-            ? rowHoverToneClass[item.iconTone]
-            : isDanger
-            ? 'hover:bg-rose-50 hover:text-rose-700'
-            : 'hover:bg-[#EEF1F3] hover:text-[#1E2A38]'
-          return (
-            <button
-              key={index}
-              type="button"
-              disabled={item.disabled}
-              onClick={() => {
-                if (item.disabled) return
-                item.onClick()
-                onClose()
-              }}
-              className={`group flex w-full items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1 text-left !text-[14px] font-black transition-all disabled:cursor-not-allowed disabled:opacity-45 ${
-                item.disabled
-                  ? 'text-slate-400'
-                  : isDanger
-                  ? `text-rose-600 ${hoverClass}`
-                  : `text-slate-700 ${hoverClass}`
-              } ${isDanger && index > 0 ? 'mt-0.5 border-t border-slate-100 pt-1.5' : ''}`}
-            >
-              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-white transition-transform group-hover:scale-105 ${
-                item.iconTone
-                  ? iconToneClass[item.iconTone]
-                  : isDanger
-                  ? 'bg-rose-600'
-                  : 'bg-slate-500'
-              }`}>
-                {item.icon && <span className="flex items-center justify-center [&_svg]:h-3.5 [&_svg]:w-3.5">{item.icon}</span>}
-              </div>
-              {item.label}
-            </button>
-          )
-        })}
-      </div>
+      <ActionMenuItems items={items} onAfterSelect={onClose} />
     </div>,
     document.body
   )
@@ -4068,6 +4034,10 @@ type ApplicationTypeOption = { value: string; label: string; themeKey: string }
 // SOLDA her zaman gorunur bir liste halinde durur - hangisine tiklanirsa
 // secim ANINDA degisir (kesme/kaydirma/tasma sorunu prensipte olusmaz,
 // cunku artik hicbir sey "acilip kapanmiyor", her zaman tam gorunurdur).
+// 2026-10-15: bu turler "Ekle" ile eklenince hemen yardima donusturulur
+// (bkz. lib/assistance/otomatikDonusum.ts).
+const OTOMATIK_YARDIM_TURLERI = new Set(['Ekmek', 'Gıda Bankası', 'Destek Paketi', 'Hazır Yemek'])
+
 function ApplicationTypeList({
   value,
   options,
@@ -4080,7 +4050,7 @@ function ApplicationTypeList({
   onSelect: (value: string) => void
 }) {
   return (
-    <div className={`flex flex-col gap-1 rounded-xl border-2 border-slate-200 bg-white p-1.5 shadow-sm ${disabled ? 'opacity-60' : ''}`}>
+    <div className={`flex flex-col gap-0.5 ${disabled ? 'opacity-60' : ''}`}>
       {options.map((option) => {
         const isSelected = option.value === value
         const optionTheme = option.value ? getAidTypeTheme(option.value) : null
@@ -4090,16 +4060,20 @@ function ApplicationTypeList({
             type="button"
             disabled={disabled}
             onClick={() => onSelect(option.value)}
-            className={`flex items-center gap-2.5 rounded-lg px-3 py-3 text-left text-[15px] font-bold uppercase tracking-wide transition ${
+            className={`relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-left !text-[14px] font-semibold leading-tight transition ${
               disabled ? 'cursor-not-allowed' : ''
             } ${
-              isSelected && optionTheme
-                ? `${optionTheme.badgeBg} ${optionTheme.headText} font-black ring-2 ring-inset ${optionTheme.panelBorder}`
-                : 'text-slate-700 hover:bg-slate-50'
+              isSelected
+                ? 'bg-[#1E2A38] font-bold text-white shadow-sm'
+                : 'bg-white text-[#1E2A38] hover:bg-[#F6F3EA]'
             }`}
           >
             <span className={`h-3 w-3 shrink-0 rounded-full ${APPLICATION_TYPE_OPTION_DOT[option.themeKey] || 'bg-slate-400'}`} />
+            {isSelected && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-r bg-[#D4B26A]" />}
             <span className="min-w-0 flex-1 truncate">{option.label}</span>
+            {OTOMATIK_YARDIM_TURLERI.has(option.value) && (
+              <span title="Eklenince otomatik olarak yardıma dönüştürülür" className={`shrink-0 rounded px-1.5 py-0.5 !text-[10.5px] font-bold uppercase tracking-wide ${isSelected ? 'bg-[#D4B26A] text-[#1E2A38]' : 'bg-[#EEF2F6] text-[#2A3B4D]'}`}>Otomatik</span>
+            )}
             {isSelected && (
               <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                 <path d="M5 10.5l3 3 7-8" />
@@ -4648,6 +4622,7 @@ function DocumentsPageContent() {
   const { activeTabId, addTab, removeTab } = useTabs()
   const initialSearch = searchParams.get('search')
   const initialFileId = searchParams.get('fileId') || searchParams.get('requestId')
+  const initialRefreshToken = searchParams.get('yenile')
   const isTahkikatEvaluationFlow = searchParams.get('workflow') === 'tahkikat'
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -4749,6 +4724,20 @@ function DocumentsPageContent() {
     ro.observe(element)
     return () => ro.disconnect()
   }, [])
+  // 2026-10-15 kullanici istegi: Haberleşme penceresinde elle buyutme/kucultme
+  // (baslikta − % +). Otomatik olcekle CARPILIR; tercih tarayicida saklanir.
+  const [communicationUserZoom, setCommunicationUserZoom] = useState(1)
+  useEffect(() => {
+    try {
+      const stored = Number(window.localStorage.getItem('netsosyal:haberlesme:zoom'))
+      if (Number.isFinite(stored) && stored >= 0.7 && stored <= 1.6) setCommunicationUserZoom(stored)
+    } catch { /* yoksay */ }
+  }, [])
+  const changeCommunicationUserZoom = (next: number) => {
+    const value = Math.min(1.6, Math.max(0.7, Math.round(next * 10) / 10))
+    setCommunicationUserZoom(value)
+    try { window.localStorage.setItem('netsosyal:haberlesme:zoom', String(value)) } catch { /* yoksay */ }
+  }
   // Kullanici istegi (Ekim 2026): Belgeler / Dosya Yönetimi (Yeni Dosya/
   // Güncelle) / Yardım Hareketleri / Müracaat pencereleri de "Kurum İçi
   // Haberleşme" gibi bağımsız taşınabilir/yeniden boyutlandırılabilir birer
@@ -5276,6 +5265,35 @@ function DocumentsPageContent() {
   // Kullanici istegi (Ekim 2026): "Kısayollar" paneli programdan TAMAMEN
   // kaldirildi - ilgili state / katalog / yerel depolama da silindi.
   const [belgeRecords, setBelgeRecords] = useState<BelgeRecord[]>([])
+  // Kullanici istegi (2026-10-15): Belge listesinde basliga tiklayarak belge
+  // sahibine (ada) ve tarihe gore siralama. null = sunucudan gelen sira.
+  // Tiklama dongusu: 1. tik varsayilan yon (ad A-Z, tarih yeni->eski),
+  // 2. tik ters yon, 3. tik siralamayi kaldirir. Sadece gosterim sirasi -
+  // veri / kayit islemleri etkilenmez.
+  const [belgeSort, setBelgeSort] = useState<{ key: 'ad' | 'tarih'; dir: 'asc' | 'desc' } | null>(null)
+  const sortedBelgeRecords = useMemo(() => {
+    if (!belgeSort) return belgeRecords
+    const tarihDegeri = (record: BelgeRecord) => {
+      const ham = record.islemtarihi || record.ilkislemtarihi || ''
+      const zaman = Date.parse(ham)
+      return Number.isNaN(zaman) ? 0 : zaman
+    }
+    const carpan = belgeSort.dir === 'asc' ? 1 : -1
+    return [...belgeRecords].sort((a, b) => {
+      if (belgeSort.key === 'ad') {
+        return carpan * (a.baslik || '').localeCompare(b.baslik || '', 'tr', { sensitivity: 'base', numeric: true })
+      }
+      return carpan * (tarihDegeri(a) - tarihDegeri(b))
+    })
+  }, [belgeRecords, belgeSort])
+  const toggleBelgeSort = (key: 'ad' | 'tarih') => {
+    const varsayilan = key === 'ad' ? 'asc' : 'desc'
+    setBelgeSort((current) => {
+      if (!current || current.key !== key) return { key, dir: varsayilan }
+      if (current.dir === varsayilan) return { key, dir: varsayilan === 'asc' ? 'desc' : 'asc' }
+      return null
+    })
+  }
   const [belgeStatus, setBelgeStatus] = useState<'idle' | 'loading' | 'saving'>('idle')
   const [belgeMessage, setBelgeMessage] = useState('')
   const [selectedBelgeId, setSelectedBelgeId] = useState('')
@@ -6230,6 +6248,20 @@ function DocumentsPageContent() {
         throw new Error(payload.error || 'Müracaat kaydı veritabanına eklenemedi.')
       }
 
+      // 2026-10-15 kullanici istegi: YENI eklenen Gıda Bankası / Destek
+      // Paketi / Ekmek / Hazır Yemek muracaati HEMEN ayni bilgilerle yardima
+      // donusturulur ve donemi acilir (Kış Dönemi haric - bkz. otomatikDonusum.ts).
+      let otomatikDonusum: OtomatikDonusumSonucu | null = null
+      const yeniKayit = payload.data as { id?: string; sourceTable?: string } | undefined
+      if (!isEditingApplication && yeniKayit?.id && yeniKayit.sourceTable && OTOMATIK_DONUSEN_TABLOLAR.has(yeniKayit.sourceTable)) {
+        otomatikDonusum = await muracaatiYardimaDonustur({
+          fileId: displayedPerson.fileId,
+          recordId: String(yeniKayit.id),
+          sourceTable: yeniKayit.sourceTable,
+          period: addApplicationForm.period,
+        })
+      }
+
       setEditingApplicationRow(null)
       setIsAddApplicationModalOpen(false)
       // Kullanici istegi (bug fix): kaydet -> ayni kaydi HEMEN tekrar ac ->
@@ -6263,6 +6295,12 @@ function DocumentsPageContent() {
           convertAfterEditRecord.sourceTable,
           { successMessage: 'Müracaat güncellendi ve yeni bilgilerle yardıma dönüştürüldü.' },
         )
+      } else if (otomatikDonusum?.durum === 'donusturuldu') {
+        alert(`${addApplicationForm.type} müracaatı eklendi ve yardıma dönüştürüldü${yeniKayit?.sourceTable === 'yrd_gidabankasi' || yeniKayit?.sourceTable === 'yrd_destekpaketi' ? '; bu ayın dönemi oluşturuldu' : ''}.`)
+      } else if (otomatikDonusum?.durum === 'hata') {
+        alert(`Müracaat eklendi ancak yardıma dönüştürülemedi:\n${otomatikDonusum.mesaj}\n\nMüracaat "Müracaatlar" listesinde bekliyor; sorunu giderip "Yardıma Dönüştür" ile tamamlayabilirsiniz.`)
+      } else if (otomatikDonusum?.durum === 'atlandi' && otomatikDonusum.neden === 'kis-donemi') {
+        alert('Kış Dönemi müracaatı eklendi. Yardım, dönem başlangıcında (1 Kasım) otomatik olarak açılacaktır.')
       } else {
         alert(isEditingApplication ? 'Müracaat kaydı başarıyla güncellendi.' : 'Müracaat kaydı veritabanına başarıyla eklendi.')
       }
@@ -7585,9 +7623,25 @@ function DocumentsPageContent() {
       return new Date(rightMessages.at(-1)?.createdAt || 0).getTime() - new Date(leftMessages.at(-1)?.createdAt || 0).getTime()
     })
 
+  // 2026-10-15 kullanici istegi: Kurum İçi Haberleşme kurumsal yeniden
+  // tasarim - kisi satiri: bas harf rozeti, ad, son mesaj ozeti + saati,
+  // okunmamis sayisi (altin rozet). Secim/acma mantigi AYNI.
+  const communicationInitials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase('tr-TR')
+  const formatCommunicationTime = (value: string) => {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ''
+    const now = new Date()
+    return date.toDateString() === now.toDateString()
+      ? date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+      : date.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: date.getFullYear() === now.getFullYear() ? undefined : '2-digit' })
+  }
+
   const renderCommunicationUser = (user: { id: string; name: string }, compact = false) => {
     const conversation = communicationMessagesForUser(user.id)
     const unreadCount = conversation.filter((message) => message.direction === 'incoming' && !message.readAt).length
+    const lastMessage = conversation.at(-1)
+    const isSelected = selectedCommunicationId === user.id
+    const isChecked = communicationRecipientIds.includes(user.id)
     return (
       <div
         key={`${compact ? 'incoming' : 'all'}-${user.id}`}
@@ -7597,40 +7651,45 @@ function DocumentsPageContent() {
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') void openEmbeddedMessage(user.id)
         }}
-        className={`relative block w-full border-b px-2.5 py-0.5 text-left transition ${
-          selectedCommunicationId === user.id
-            ? 'border-cyan-200 bg-cyan-100'
-            : unreadCount > 0
-              ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100'
-              : compact
-                ? 'border-emerald-100 bg-emerald-50/60 hover:bg-emerald-100'
-                : 'border-sky-100 bg-sky-50/60 hover:bg-sky-100'
+        className={`relative flex w-full cursor-pointer items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left transition ${
+          isSelected ? 'bg-[#EEF2F6]' : 'bg-white hover:bg-[#F7F8FA]'
         }`}
       >
-        {unreadCount > 0 && <span className="absolute inset-y-0 left-0 w-1 bg-emerald-500" />}
-        <div className="flex min-w-0 items-center gap-2">
-          {!compact && (
-            <input
-              type="checkbox"
-              checked={communicationRecipientIds.includes(user.id)}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(event) => setCommunicationRecipientIds((current) => (
-                event.target.checked
-                  ? [...new Set([...current, user.id])]
-                  : current.filter((id) => id !== user.id)
-              ))}
-              aria-label={`${user.name} kullanıcısını seç`}
-              className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-cyan-700"
-            />
-          )}
-          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full !text-[16px] font-black ${unreadCount > 0 ? 'bg-emerald-500 text-white' : 'bg-cyan-100 text-cyan-800'}`}>
-            {user.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase('tr-TR')}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className={`truncate !text-[16px] text-slate-900 ${unreadCount > 0 ? 'font-black' : 'font-bold'}`}>{user.name}</span>
-              {unreadCount > 0 && <span className="ml-auto flex min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 py-0.5 !text-[16px] font-black text-white">{unreadCount}</span>}
-            </div>
+        {isSelected && <span className="absolute inset-y-0 left-0 w-[3px] bg-[#D4B26A]" />}
+        {!compact && (
+          <input
+            type="checkbox"
+            checked={isChecked}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => setCommunicationRecipientIds((current) => (
+              event.target.checked
+                ? [...new Set([...current, user.id])]
+                : current.filter((id) => id !== user.id)
+            ))}
+            aria-label={`${user.name} kullanıcısını alıcılara ekle`}
+            title="Alıcılara ekle"
+            className="h-4 w-4 shrink-0 cursor-pointer accent-[#1E2A38]"
+          />
+        )}
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full !text-[13px] font-bold ${
+          unreadCount > 0 ? 'bg-[#1E2A38] text-[#D4B26A] ring-2 ring-[#D4B26A]/50' : 'bg-[#E3E9F0] text-[#1E2A38]'
+        }`}>
+          {communicationInitials(user.name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className={`min-w-0 flex-1 truncate !text-[15px] text-[#1E2A38] ${unreadCount > 0 ? 'font-bold' : 'font-semibold'}`}>{user.name}</span>
+            {lastMessage && <span className={`shrink-0 !text-[12px] ${unreadCount > 0 ? 'font-bold text-[#8A6D2B]' : 'font-medium text-slate-400'}`}>{formatCommunicationTime(lastMessage.createdAt)}</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`min-w-0 flex-1 truncate !text-[13px] ${unreadCount > 0 ? 'font-semibold text-slate-700' : 'font-medium text-slate-400'}`}>
+              {lastMessage
+                ? `${lastMessage.direction === 'outgoing' ? 'Siz: ' : ''}${lastMessage.content || (lastMessage.attachments?.length ? '📎 Ek dosya' : '')}`
+                : 'Henüz yazışma yok'}
+            </span>
+            {unreadCount > 0 && (
+              <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[#D4B26A] px-1.5 !text-[11.5px] font-bold text-[#1E2A38]">{unreadCount}</span>
+            )}
           </div>
         </div>
       </div>
@@ -10607,7 +10666,9 @@ function DocumentsPageContent() {
         if (!userResponse.ok || !userId) return
 
         if (!isCancelled) {
-          setCurrentUserName(cleanDisplayValue(userPayload?.data?.name || userPayload?.data?.username))
+          // Tahkikat ekip hesabinda tableti kullanan personel secildiyse
+          // formlarda/baskilarda ekip adi yerine o personelin adi gecer.
+          setCurrentUserName(cleanDisplayValue(userPayload?.data?.ekipPersoneli?.name || userPayload?.data?.name || userPayload?.data?.username))
         }
 
         const permissionResponse = await fetch(`/api/settings/${USER_PERMISSIONS_SETTING_KEY}`)
@@ -11250,7 +11311,10 @@ function DocumentsPageContent() {
       date: displayDateToInputDate(serviceRow.date) || getTodayInputDate(),
       startDate,
       endDate,
-      period: period.includes('Ay') || period === 'Süreli' || period === 'Periyodik' || period === KIS_DONEMI_PERIOD_LABEL ? period : inferredPeriod,
+      // 2026-10-15: kesilmis yardimda (Devam/Bekliyor disi) donem "Kapalı" (dönemli 4 tur)
+      period: KIS_DONEMI_TABLOLAR.includes(serviceRow.sourceTable || '') && !donemAcikMi(cleanDisplayValue(serviceRow.status))
+        ? KAPALI_DONEM
+        : period.includes('Ay') || period === 'Süreli' || period === 'Periyodik' || period === KIS_DONEMI_PERIOD_LABEL ? period : inferredPeriod,
       amount: cleanDisplayValue(serviceRow.mealAmount || serviceRow.amount),
       breakfastAmount: cleanDisplayValue(serviceRow.breakfastAmount),
       label: cleanDisplayValue(serviceRow.label),
@@ -11280,6 +11344,8 @@ function DocumentsPageContent() {
 
     await openEditAssistanceModal(row)
     setIsRestartAssistanceFlow(true)
+    // 2026-10-15: yeniden baslatmada "Kapalı" donem bos acilir - periyot secilmeli
+    setEditAssistanceForm((prev) => (prev.period === KAPALI_DONEM ? { ...prev, period: '' } : prev))
   }
 
   const handleAssistancePeriodChange = (periodVal: string) => {
@@ -11298,12 +11364,13 @@ function DocumentsPageContent() {
       //    winterSeasonalAid.service.ts - ikisi de ayni zamanlanmis
       //    gorevle calisir).
       const isOngoing = editAssistanceForm.status === '2'
-      setEditAssistanceForm((prev) => ({
-        ...prev,
-        period: periodVal,
-        startDate: isOngoing ? prev.startDate : `${yil}-11-01`,
-        endDate: `${yil + 1}-04-30`,
-      }))
+      setEditAssistanceForm((prev) => {
+        const startDate = isOngoing ? prev.startDate : `${yil}-11-01`
+        const endDate = `${yil + 1}-04-30`
+        // 2026-10-15: durum tarihlere gore - baslangic gelmediyse 7 "Bekliyor"
+        // (bkz. lib/constants/kisDonemi.ts; sunucu da ayni kurali uygular)
+        return { ...prev, period: periodVal, startDate, endDate, status: kisDonemiDurumu(startDate, endDate) }
+      })
       return
     }
 
@@ -11338,7 +11405,7 @@ function DocumentsPageContent() {
     // "Yardımı Yeniden Başlat" akışında, yardım tekrar aktif hale
     // getirilmeden önce dönem ve miktar bilgisinin girilmiş/doğrulanmış
     // olması zorunlu - eksikse kaydetmeyi engelleyip uyarı veriyoruz.
-    if (isRestartAssistanceFlow && (!editAssistanceForm.period.trim() || !editAssistanceForm.amount.trim())) {
+    if (isRestartAssistanceFlow && (!editAssistanceForm.period.trim() || editAssistanceForm.period === KAPALI_DONEM || !editAssistanceForm.amount.trim())) {
       alert('Yardımı yeniden başlatmak için lütfen Dönem Bilgisi ve Miktar alanlarını doldurun.')
       return
     }
@@ -13041,7 +13108,9 @@ function DocumentsPageContent() {
       // guncellenmis olabilir (sekme degistirme/kapatma sonrasi) - bu
       // durumda ayni dosyayi GEREKSIZ YERE tekrar sunucudan cekmeye gerek
       // yok, zaten ekranda dogru dosya acik.
-      if (initialFileId === displayedPerson.fileId) return
+      // 2026-10-15: "?yenile=<zaman>" (ör. Sonuç Bekleyen'de Kaydet sonrasi)
+      // ayni dosya acik olsa bile sunucudan TAZE bilgiyle yeniden yukletir.
+      if (initialFileId === displayedPerson.fileId && !initialRefreshToken) return
       queueMicrotask(() => {
         void fetchFileDetails(initialFileId)
       })
@@ -13054,7 +13123,7 @@ function DocumentsPageContent() {
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFileId, initialSearch, fetchFileDetails, searchFile])
+  }, [initialFileId, initialSearch, initialRefreshToken, fetchFileDetails, searchFile])
 
   useEffect(() => {
     if (displayedPerson.fileId) {
@@ -13320,7 +13389,11 @@ function DocumentsPageContent() {
           // ADLANDIRILMIS periyotlar icin artik HAM deger (periodInfo)
           // ONCELIKLI - digerlerinde (N Ay / Gıda Bankası takvim ayi vb.)
           // eski hesaplanan-sure davranisi AYNEN korunur.
-          periodDurationDisplay: (a.periodInfo === 'Kış Dönemi' || a.periodInfo === 'Süreli' || a.periodInfo === 'Periyodik')
+          // 2026-10-15 kullanici istegi: yalniz Devam Ediyor (2) / Bekliyor (5)
+          // yardimin donemi gorunur; kesilmis yardimda (eski kayitlar dahil) "Kapalı".
+          periodDurationDisplay: !donemAcikMi(a.status)
+            ? KAPALI_DONEM
+            : (a.periodInfo === 'Kış Dönemi' || a.periodInfo === 'Süreli' || a.periodInfo === 'Periyodik')
             ? a.periodInfo
             : formatPeriodDurationInMonths(a.startDate, a.endDate) || a.periodInfo || '-',
         }))
@@ -15361,10 +15434,14 @@ function DocumentsPageContent() {
         const shouldStop = ['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(event.error || '')
         const errorText = event.error === 'no-speech'
           ? 'Mikrofon acik. Ses algilanmadiysa daha net ve yakindan konusun.'
-          : event.error === 'not-allowed'
-            ? 'Mikrofon izni verilmedi. Tarayici adres cubugundaki mikrofon iznini acin.'
+          : event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture'
+            ? 'Mikrofon kontrol ediliyor...'
             : `Mikrofonla yazma basarisiz oldu${event.error ? `: ${event.error}` : '.'}`
         setEvaluationMessage(errorText)
+        // 2026-10-15: izin/cihaz hatasinda nedeni teshis edip dogru talimati goster
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
+          void mikrofonHataMesaji().then(setEvaluationMessage)
+        }
         if (shouldStop) {
           evaluationDictationShouldRunRef.current = false
           setEvaluationDictationActive(false)
@@ -15950,7 +16027,6 @@ function DocumentsPageContent() {
     { id: 'gulkart', label: 'Gülkart İşlemleri', icon: 'gift', color: '#C1453B' },
     { id: 'sms', label: 'SMS İşlemleri', icon: 'message', color: '#24384A' },
   ] as const
-  const fileSubBtn = 'inline-flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[13px] font-medium text-[#16232B] transition hover:bg-[#F1F3EF] disabled:opacity-40'
 
   const openActionGroup = (id: 'file' | 'nvi' | 'gulkart' | 'sms') => {
     if (activeDocumentActionGroup === id) {
@@ -16349,28 +16425,32 @@ function DocumentsPageContent() {
     <>
       <div className="fixed inset-0 z-[1900]" onClick={() => setActiveDocumentActionGroup(null)} />
       <div
-        className="fixed z-[1901] flex w-60 flex-col gap-0.5 rounded-lg border border-[#E2E5DE] bg-white p-1.5 shadow-[0_16px_40px_rgba(16,30,43,0.16)]"
+        role="menu"
+        tabIndex={-1}
+        ref={(el) => { if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true }) }}
+        onKeyDown={(event) => handleMenuKeyDown(event, () => setActiveDocumentActionGroup(null))}
+        className="ns-amenu ns-amenu-kaydir fixed z-[1901] flex w-64 flex-col gap-px"
         style={{ top: actionMenuPos.top, left: actionMenuPos.left }}
       >
         {activeDocumentActionGroup === 'file' && <>
-          {canUseAction('documents.create') && <button type="button" onClick={() => { setFileFormMode('create'); resetNewFileForm(); setIsCreateFileModalOpen(true) }} className={fileSubBtn}><ActionIcon name="fileAdd" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Yeni Dosya</span></button>}
-          {canUseAction('documents.update') && <button type="button" onClick={openUpdateFileForm} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="fileEdit" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Dosya Güncelle</span></button>}
-          {canUseAction('documents.status') && <button type="button" onClick={openFileStatusModal} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="refresh" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Dosya Durumu</span></button>}
-          {canUseAction('documents.print') && <button type="button" onClick={handlePrintFile} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="print" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Dosya Yazdır</span></button>}
-          {canUseAction('documents.attachments') && <button type="button" onClick={openBelgeModal} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="report" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Belgeler</span></button>}
-          {canUseAction('documents.evaluation') && <button type="button" onClick={openEvaluationForm} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="note" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Tahkikat Formu</span></button>}
-          <button type="button" onClick={openFormsReportTab} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="report" className="h-4 w-4 shrink-0 text-[#0A5F67]" /><span className="truncate">Formlar</span></button>
+          {canUseAction('documents.create') && <button type="button" onClick={() => { setFileFormMode('create'); resetNewFileForm(); setIsCreateFileModalOpen(true) }} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="emerald"><ActionIcon name="fileAdd" /></span><span className="ns-amenu-etiket">Yeni Dosya</span></button>}
+          {canUseAction('documents.update') && <button type="button" onClick={openUpdateFileForm} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="sky"><ActionIcon name="fileEdit" /></span><span className="ns-amenu-etiket">Dosya Güncelle</span></button>}
+          {canUseAction('documents.status') && <button type="button" onClick={openFileStatusModal} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="amber"><ActionIcon name="refresh" /></span><span className="ns-amenu-etiket">Dosya Durumu</span></button>}
+          {canUseAction('documents.print') && <button type="button" onClick={handlePrintFile} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="indigo"><ActionIcon name="print" /></span><span className="ns-amenu-etiket">Dosya Yazdır</span></button>}
+          {canUseAction('documents.attachments') && <button type="button" onClick={openBelgeModal} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="cyan"><ActionIcon name="report" /></span><span className="ns-amenu-etiket">Belgeler</span></button>}
+          {canUseAction('documents.evaluation') && <button type="button" onClick={openEvaluationForm} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="violet"><ActionIcon name="note" /></span><span className="ns-amenu-etiket">Tahkikat Formu</span></button>}
+          <button type="button" onClick={openFormsReportTab} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="gold"><ActionIcon name="report" /></span><span className="ns-amenu-etiket">Formlar</span></button>
         </>}
         {activeDocumentActionGroup === 'nvi' && <>
-          {canUseAction('documents.nvi') && <button type="button" onClick={handleRefreshFromNvi} disabled={!hasSelectedFile || nviRefreshStatus === 'loading'} className={fileSubBtn}><ActionIcon name="idCard" className="h-4 w-4 shrink-0 text-[#B98A34]" /><span className="truncate">{nviRefreshStatus === 'loading' ? 'Güncelleniyor...' : 'Nüfus Sorgula'}</span></button>}
-          {canUseAction('documents.nvi') && <button type="button" onClick={() => void openSelectedFileFamilyRegistryDocument()} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="report" className="h-4 w-4 shrink-0 text-[#B98A34]" /><span className="truncate">Nüfus Kayıt Örneği</span></button>}
+          {canUseAction('documents.nvi') && <button type="button" onClick={handleRefreshFromNvi} disabled={!hasSelectedFile || nviRefreshStatus === 'loading'} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="gold"><ActionIcon name="idCard" /></span><span className="ns-amenu-etiket">{nviRefreshStatus === 'loading' ? 'Güncelleniyor...' : 'Nüfus Sorgula'}</span></button>}
+          {canUseAction('documents.nvi') && <button type="button" onClick={() => void openSelectedFileFamilyRegistryDocument()} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="gold"><ActionIcon name="report" /></span><span className="ns-amenu-etiket">Nüfus Kayıt Örneği</span></button>}
         </>}
         {activeDocumentActionGroup === 'gulkart' && <>
-          {canUseAction('documents.gulkart') && <button type="button" onClick={openGulkartModal} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="gift" className="h-4 w-4 shrink-0 text-[#C1453B]" /><span className="truncate">Gülkart İşlemleri</span></button>}
+          {canUseAction('documents.gulkart') && <button type="button" onClick={openGulkartModal} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="rose"><ActionIcon name="gift" /></span><span className="ns-amenu-etiket">Gülkart İşlemleri</span></button>}
         </>}
         {activeDocumentActionGroup === 'sms' && <>
-          {canUseAction('documents.sms') && <button type="button" onClick={openSmsModal} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="message" className="h-4 w-4 shrink-0 text-[#24384A]" /><span className="truncate">SMS Gönder</span></button>}
-          {canUseAction('documents.sms') && <button type="button" onClick={() => void openMessageLogModal()} disabled={!hasSelectedFile} className={fileSubBtn}><ActionIcon name="report" className="h-4 w-4 shrink-0 text-[#24384A]" /><span className="truncate">Mesaj Raporları</span></button>}
+          {canUseAction('documents.sms') && <button type="button" onClick={openSmsModal} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="sky"><ActionIcon name="message" /></span><span className="ns-amenu-etiket">SMS Gönder</span></button>}
+          {canUseAction('documents.sms') && <button type="button" onClick={() => void openMessageLogModal()} disabled={!hasSelectedFile} role="menuitem" className="ns-amenu-item"><span className="ns-amenu-ico" data-ns-ton="sky"><ActionIcon name="report" /></span><span className="ns-amenu-etiket">Mesaj Raporları</span></button>}
         </>}
       </div>
     </>,
@@ -16580,89 +16660,93 @@ function DocumentsPageContent() {
               maxWidth: 'calc(100vw - 8px)',
               maxHeight: 'calc(100dvh - 8px)',
             }}
-            className="dy-modal-xcompact dy-modal-df-12 dy-modal-eq16 fixed min-h-[420px] min-w-[640px] resize overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
+            className="dy-modal-xcompact dy-modal-df-12 dy-modal-eq16 dfm fixed min-h-[420px] min-w-[640px] resize overflow-hidden rounded-2xl border border-[#C9D2DC] bg-[#F4F6F8] shadow-[0_30px_80px_-20px_rgba(10,20,35,0.55)] max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
           >
           <div style={{ zoom: createFileWindow.scale }} className="flex h-full w-full flex-col overflow-hidden">
-            {/* Modal Header */}
+            {/* Modal Header - kurumsal lacivert + altin alt cizgi (2026-10-15) */}
             <div
               onPointerDown={createFileWindow.startDrag}
               onPointerMove={createFileWindow.onDrag}
               onPointerUp={(event) => { createFileWindow.endDrag(event) }}
-              className="flex cursor-move touch-none select-none items-center justify-between border-b border-[#2A3B4D] bg-[#1E2A38] px-5 py-3 text-white">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 text-white">
+              className="dfm-ust flex cursor-move touch-none select-none items-center justify-between gap-3 px-5 py-3 text-white">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="dfm-ust-ikon">
                   <ActionIcon name={fileFormMode === 'update' ? 'fileEdit' : 'fileAdd'} className="h-5 w-5" />
                 </div>
-                <div>
-                  <h3 className="text-lg font-black uppercase tracking-wide">{fileFormMode === 'update' ? 'Dosya Güncelle' : 'Yeni Dosya Kaydı'}</h3>
-                  <p className="text-xs font-bold text-white/70 uppercase tracking-wider">{fileFormMode === 'update' ? 'Dosya sahibi ve hane bilgilerini güncelleyin' : 'Dosya ve hane bilgilerini sisteme tanımlayın'}</p>
+                <div className="min-w-0">
+                  <h3 className="dfm-ust-baslik">{fileFormMode === 'update' ? 'Dosya Güncelle' : 'Yeni Dosya Kaydı'}</h3>
+                  <p className="dfm-ust-alt">{fileFormMode === 'update' ? 'Dosya sahibi ve hane bilgilerini güncelleyin' : 'Dosya ve hane bilgilerini sisteme tanımlayın'}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <WindowMaximizeButton isMaximized={createFileWindow.isMaximized} onToggle={createFileWindow.toggleMaximize} />
-                <button type="button" onClick={() => { setIsCreateFileModalOpen(false); setFileFormMode('create') }} className="flex h-8 w-8 items-center justify-center rounded-full text-2xl font-black text-white/70 transition-colors hover:bg-white/15 hover:text-white">×</button>
+                <button type="button" aria-label="Kapat" title="Kapat" onClick={() => { setIsCreateFileModalOpen(false); setFileFormMode('create') }} className="dfm-kapat"><ActionIcon name="close" className="h-4 w-4" /></button>
               </div>
             </div>
 
-            <div className="overflow-y-auto space-y-3 p-3 sm:p-4">
-              {createFileError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 shadow-sm flex items-center gap-3"><ActionIcon name="cancel" /> {createFileError}</div>}
-              {citizenLookupMessage && <div className={`rounded-lg border px-3 py-2 text-sm font-bold shadow-sm flex items-center gap-3 ${citizenLookupMessage.includes('Hata') ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}><ActionIcon name="idCard" /> {citizenLookupMessage}</div>}
+            <div className="flex-1 overflow-y-auto space-y-3 p-3 sm:p-4">
+              {createFileError && <div className="dfm-uyari dfm-uyari-hata"><ActionIcon name="cancel" /> {createFileError}</div>}
+              {citizenLookupMessage && <div className={`dfm-uyari ${citizenLookupMessage.includes('Hata') ? 'dfm-uyari-hata' : 'dfm-uyari-bilgi'}`}><ActionIcon name="idCard" /> {citizenLookupMessage}</div>}
               
               {/* Bölüm 1: Temel Dosya Bilgileri */}
-              <div className="rounded-lg border border-[#D7DEE3] bg-[#F7F8F9] p-2 shadow-sm">
-                <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] p-2.5 shadow-sm">
-                  <div className="grid items-center gap-2 sm:grid-cols-[84px_3.4cm_minmax(0,1fr)]">
-                    <span className="rounded-lg border border-white/30 bg-white/15 px-2 py-2 text-center text-xs font-black uppercase tracking-wide text-white">Dosya No</span>
-                    <input
-                      aria-label="Dosya No"
-                      value={newFileForm.fileNo}
-                      onChange={(e) => updateNewFileField('fileNo', e.target.value)}
-                      placeholder="Sistem tarafından atanır"
-                      className="h-9 w-full rounded-lg border-2 border-white/70 bg-white px-2.5 text-center text-sm font-black tracking-wide text-[#1E2A38] shadow-sm outline-none transition-all focus:border-white focus:ring-4 focus:ring-white/30"
-                    />
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <button type="button" onClick={fileFormMode === 'update' ? openUpdateFileForm : resetNewFileForm} className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-500 bg-amber-500 px-3 text-xs font-black text-white shadow-sm transition hover:bg-amber-600">
-                        <ActionIcon name={fileFormMode === 'update' ? 'refresh' : 'clean'} />
-                        {fileFormMode === 'update' ? 'FORMU YENİLE' : 'FORMU TEMİZLE'}
-                      </button>
-                    </div>
+              <div className="dfm-kart dfm-dosyano">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <span className="dfm-dosyano-etiket">Dosya No</span>
+                  <input
+                    aria-label="Dosya No"
+                    value={newFileForm.fileNo}
+                    onChange={(e) => updateNewFileField('fileNo', e.target.value)}
+                    placeholder="Sistem tarafından atanır"
+                    className="dfm-dosyano-girdi"
+                  />
+                  {fileFormMode === 'update' && newFileForm.applicant.firstName && (
+                    <span className="dfm-dosyano-kisi" title="Dosya sahibi">
+                      <ActionIcon name="idCard" className="h-4 w-4" />
+                      {[newFileForm.applicant.firstName, newFileForm.applicant.lastName].filter(Boolean).join(' ')}
+                    </span>
+                  )}
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={fileFormMode === 'update' ? openUpdateFileForm : resetNewFileForm} className="dfm-btn dfm-btn-cizgi" title={fileFormMode === 'update' ? 'Kaydedilmemiş değişiklikleri atıp dosyanın kayıtlı bilgilerini yeniden yükler' : 'Formdaki tüm alanları temizler'}>
+                      <ActionIcon name={fileFormMode === 'update' ? 'refresh' : 'clean'} className="h-4 w-4" />
+                      {fileFormMode === 'update' ? 'Formu Yenile' : 'Formu Temizle'}
+                    </button>
                   </div>
                 </div>
               </div>
 
-              <div className="grid gap-2 xl:grid-cols-1 xl:gap-2">
+              <div className="grid gap-3 xl:grid-cols-1">
               {/* Bölüm 2: Kişi Bilgileri (dosya sahibi + hane bireyleri TEK ALANDAN) */}
-              <div className="overflow-hidden rounded-lg border border-[#D7DEE3] bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#2A3B4D] bg-[#1E2A38] px-4 py-3 text-white">
-                  <div className="flex items-center gap-2">
-                    <span className="h-5 w-1.5 rounded-full bg-white/40"></span>
+              <div className="dfm-kart">
+                <div className="dfm-bolum-ust">
+                  <div className="flex items-center gap-2.5">
+                    <span className="dfm-bolum-ikon"><ActionIcon name="userAdd" className="h-4 w-4" /></span>
                     <div>
-                      <h4 className="text-sm font-black uppercase tracking-wide text-white">Kişi Bilgileri</h4>
+                      <h4 className="dfm-bolum-baslik">Kişi Bilgileri</h4>
                       {/* Kullanici istegi (Ekim 2026): "Musracaat Sahibi" ve
                           "Birey Bilgileri" tek alanda birlestirildi - Yakinlik
                           Derecesi "Kendisi" secilirse dosya sahibine (applicant),
                           digerlerinde hane bireyleri listesine eklenir. */}
-                      <p className="mt-0.5 text-[10px] font-bold text-white/70">Yakınlık derecesine göre dosya sahibine veya hane bireylerine eklenir</p>
+                      <p className="dfm-bolum-alt">Yakınlık derecesine göre dosya sahibine veya hane bireylerine eklenir</p>
                     </div>
                   </div>
-                  <button type="button" onClick={() => void lookupHouseholdDraftFromNvi()} className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-white/40 bg-white/15 px-3 py-1.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-white/25 max-sm:w-full max-sm:justify-center">
-                    <ActionIcon name="idCard" /> NVİ'DEN BİLGİLERİ GETİR
+                  <button type="button" onClick={() => void lookupHouseholdDraftFromNvi()} className="dfm-btn dfm-btn-cizgi max-sm:w-full max-sm:justify-center">
+                    <ActionIcon name="idCard" className="h-4 w-4" /> NVİ'den Bilgileri Getir
                   </button>
                 </div>
-                <div className="p-2.5">
-                  <div className="grid items-start gap-x-2 gap-y-1 sm:grid-cols-2 xl:grid-cols-4 [&_label]:!flex-row [&_label]:items-center [&_label]:gap-1.5 [&_label>span]:w-24 [&_label>span]:shrink-0 [&_label>span]:!m-0 [&_label>span]:!text-[12px] [&_input]:min-w-0 [&_input]:flex-1 [&_input]:!py-1 [&_input]:!leading-[16px] [&_input]:!text-[12px] [&_select]:min-w-0 [&_select]:flex-1 [&_select]:!py-1 [&_select]:!leading-[16px] [&_select]:!text-[12px] [&_textarea]:min-w-0 [&_textarea]:flex-1 [&_textarea]:!text-[12px] [&_textarea]:!leading-[16px]">
+                <div className="p-3">
+                  <div className="dfm-alanlar grid items-center gap-x-3 gap-y-1 sm:grid-cols-2 xl:grid-cols-4">
                     {/* Kullanici istegi (Ekim 2026): "sadece tc, dogum tarihi
                         ve yakinlik derecesi yan yana olsun, bu bilgiler
                         girildikten sonra digerleri nufustan gelsin" - ilk
                         satirda SADECE bu 3 alan var (3 sutunlu grid ile dogal
                         olarak yan yana dusuyor); geri kalanlar NVI'den otomatik
                         doluyor (bkz. updateHouseholdDraftIdentityField). */}
-                    <div className="rounded-lg border border-[#D7DEE3] bg-[#EEF1F3] px-3 py-2 !text-[12px] font-black uppercase tracking-wide text-[#1E2A38] sm:col-span-2 xl:col-span-4">Kimlik Bilgileri</div>
+                    <div className="dfm-grup sm:col-span-2 xl:col-span-4"><span className="dfm-grup-no">1</span>Kimlik Bilgileri<span className="dfm-grup-ipucu">T.C. ve doğum tarihini girip Tab'a basın, kalan bilgiler nüfustan gelir</span></div>
                     {/* Kullanici istegi (Ekim 2026): "yakinlik, tc ve dogum
                         tarihi alanlari biraz renklendirilsin, digerlerinden
                         farkli gorunsun" - bu 3 "tetikleyici" alan sky/mavi
                         vurguyla kutulandi (diger beyaz alanlardan ayristi). */}
-                    <label className="flex flex-col gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1.5">
+                    <label className="dfm-anahtar flex flex-col gap-1">
                       <span className="text-[11px] font-black text-sky-700 uppercase ml-1">
                         {predefinedValueTitles.relationship || 'Yakınlık Derecesi'}
                       </span>
@@ -16692,7 +16776,7 @@ function DocumentsPageContent() {
                       </select>
                     </label>
                     {/* �NEMLİ: TC VE DOĞUM TARİHİ PEŞ PEŞE OLMALI (TAB SIRASI İ�!İN) */}
-                    <label className="flex flex-col gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1.5">
+                    <label className="dfm-anahtar flex flex-col gap-1">
                       <span className="text-[11px] font-black text-sky-700 uppercase ml-1">T.C. Kimlik No</span>
                       <input
                         maxLength={11}
@@ -16702,7 +16786,7 @@ function DocumentsPageContent() {
                         className="rounded-lg border border-sky-300 bg-white px-1.5 py-1 text-xs font-black text-slate-950 shadow-sm outline-none focus:border-sky-500 ring-offset-1 focus:ring-2 focus:ring-sky-100"
                       />
                     </label>
-                    <label className="flex flex-col gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1.5">
+                    <label className="dfm-anahtar flex flex-col gap-1">
                       <span className="text-[11px] font-black text-sky-700 uppercase ml-1">Doğum Tarihi</span>
                       <input
                         type="date"
@@ -16712,7 +16796,7 @@ function DocumentsPageContent() {
                         className="rounded-lg border border-sky-300 bg-white px-1.5 py-1 text-xs font-bold text-slate-950 shadow-sm outline-none focus:border-sky-500"
                       />
                     </label>
-                    <div className="rounded-lg border border-[#D7DEE3] bg-[#EEF1F3] px-3 py-2 !text-[12px] font-black uppercase tracking-wide text-[#1E2A38] sm:col-span-2 xl:col-span-4">Nüfustan Gelen Bilgiler (Otomatik Doldurulur)</div>
+                    <div className="dfm-grup sm:col-span-2 xl:col-span-4"><span className="dfm-grup-no">2</span>Nüfustan Gelen Bilgiler<span className="dfm-grup-ipucu">Otomatik doldurulur, gerekirse düzeltilebilir</span></div>
                     <label className="flex flex-col gap-1">
                       <span className="text-[11px] font-black text-slate-500 uppercase ml-1">Aile Niteliği</span>
                       <select
@@ -16853,7 +16937,7 @@ function DocumentsPageContent() {
                     </label>
                   </div>
                   {householdDraftFileLookupStatus === 'loading' && (
-                    <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-black text-sky-800">
+                    <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 font-semibold text-sky-800">
                       TC Kimlik No eski dosyalarda sorgulanıyor...
                     </div>
                   )}
@@ -16867,57 +16951,59 @@ function DocumentsPageContent() {
                       />
                     </div>
                   )}
-                  <div className="mt-3 flex justify-end gap-2">
+                  <div className="dfm-eylemler">
                     {editingNewFileHouseholdIndex !== null && (
-                      <button type="button" onClick={cancelHouseholdPersonEdit} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-black text-slate-600 hover:bg-slate-200">
-                        <ActionIcon name="close" />
-                        VAZGEÇ
+                      <button type="button" onClick={cancelHouseholdPersonEdit} className="dfm-btn dfm-btn-sade">
+                        <ActionIcon name="close" className="h-4 w-4" />
+                        Vazgeç
                       </button>
                     )}
-                    <button type="button" onClick={() => void lookupHouseholdDraftFromNvi()} className="inline-flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-1.5 text-[11px] font-black text-[#0076b6] hover:bg-sky-100">
-                      <ActionIcon name="idCard" />
-                      NVİ SORGULA
+                    <button type="button" onClick={() => void lookupHouseholdDraftFromNvi()} className="dfm-btn dfm-btn-cizgi">
+                      <ActionIcon name="idCard" className="h-4 w-4" />
+                      NVİ Sorgula
                     </button>
                     <button
                       type="button"
                       onClick={addHouseholdPerson}
                       disabled={householdDraftFileLookupStatus === 'loading'}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#6fb744] px-3 py-1.5 text-[11px] font-black text-white shadow-sm hover:bg-[#5da237] disabled:cursor-wait disabled:opacity-50"
+                      className="dfm-btn dfm-btn-yesil"
                     >
-                      <ActionIcon name={editingNewFileHouseholdIndex !== null ? 'save' : 'userAdd'} />
+                      <ActionIcon name={editingNewFileHouseholdIndex !== null ? 'save' : 'userAdd'} className="h-4 w-4" />
                       {editingNewFileHouseholdIndex !== null
-                        ? (householdDraft.relation === OWNER_RELATION_ID ? 'DOSYA SAHİBİNİ GÜNCELLE' : 'BİREYİ GÜNCELLE')
+                        ? (householdDraft.relation === OWNER_RELATION_ID ? 'Dosya Sahibini Güncelle' : 'Bireyi Güncelle')
                         : householdDraftFileStatus && !householdDraftFileStatus.isInCurrentFile
-                          ? 'BU DOSYAYA TAŞI'
-                          : householdDraft.relation === OWNER_RELATION_ID ? 'DOSYA SAHİBİNİ KAYDET' : 'BİREYİ EKLE'}
+                          ? 'Bu Dosyaya Taşı'
+                          : householdDraft.relation === OWNER_RELATION_ID ? 'Dosya Sahibini Kaydet' : 'Bireyi Ekle'}
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-[#D7DEE3] bg-white shadow-sm xl:col-span-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#2A3B4D] bg-[#1E2A38] px-4 py-3 text-white">
-                  <div className="flex items-center gap-2">
-                    <span className="h-5 w-1.5 rounded-full bg-white/40"></span>
-                    <h4 className="text-sm font-black uppercase tracking-wide text-white">Dosyadaki Bireyler</h4>
-                    <span className="rounded-full border border-white/30 bg-white/20 px-2.5 py-1 text-[11px] font-black text-white">{newFileForm.household.length + 1} kişi</span>
+              <div className="dfm-kart xl:col-span-3">
+                <div className="dfm-bolum-ust">
+                  <div className="flex items-center gap-2.5">
+                    <span className="dfm-bolum-ikon"><ActionIcon name="home" className="h-4 w-4" /></span>
+                    <div>
+                      <h4 className="dfm-bolum-baslik">Dosyadaki Bireyler <span className="dfm-sayi">{newFileForm.household.length + 1} kişi</span></h4>
+                      <p className="dfm-bolum-alt">Düzenlemek için satıra tıklayın, bilgiler yukarıdaki forma yüklenir</p>
+                    </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => void fetchNewFileFamilyRegistry('manage')}
                     disabled={newFileFamilyRegistryStatus === 'loading'}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/40 bg-white/15 px-3 py-1.5 text-[11px] font-black text-white shadow-sm hover:bg-white/25 disabled:cursor-wait disabled:opacity-60"
+                    className="dfm-btn dfm-btn-cizgi"
                   >
-                    <ActionIcon name="refresh" />
-                    {newFileFamilyRegistryStatus === 'loading' ? 'SORGULANIYOR...' : "HANEYİ NVİ'DEN GÜNCELLE"}
+                    <ActionIcon name="refresh" className="h-4 w-4" />
+                    {newFileFamilyRegistryStatus === 'loading' ? 'Sorgulanıyor...' : "Haneyi NVİ'den Güncelle"}
                   </button>
                 </div>
-                <div className="min-h-[255px] bg-[#F7F8F9] p-3">
+                <div className="min-h-[220px] p-3">
                   {(() => {
                     const ownerMaritalStatusLabel = getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, newFileForm.applicant.maritalStatus)
                     const isOwnerRowActive = editingNewFileHouseholdIndex === OWNER_DRAFT_INDEX
                     return (
-                    <div className="max-h-[300px] overflow-auto rounded-lg border border-[#2A3B4D] pr-0">
+                    <div className="dfm-tablo-kap max-h-[300px] overflow-auto">
                       {/* Kullanici istegi (Ekim 2026): "sutun genislikleri
                           icindeki verinin uzunlugu ile sinirlansin, veriler tek
                           satirda tam okunabilsin" - sabit px grid-template
@@ -16925,33 +17011,33 @@ function DocumentsPageContent() {
                           whitespace-nowrap: her sutun KENDI en uzun verisine
                           gore otomatik genisler, Adres sutunu ise kalan alani
                           kullanip gerekirse tek satirda kirpilir (title ile tam metin). */}
-                      <table className="w-full border-collapse text-[12px]">
+                      <table className="dfm-tablo w-full border-collapse">
                         <thead className="sticky top-0 z-10">
-                          <tr className="bg-[#1E2A38] text-[10px] font-black uppercase tracking-wide text-white">
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">#</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Yak.</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">TC</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Adı</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Soyadı</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Baba</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Ana</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">D. Tarihi</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">D. Yeri</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Cins.</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Medeni</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Telefon</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Adres No</th>
-                            <th className="w-full border-b border-[#2A3B4D] px-2 py-2 text-center">Adres</th>
-                            <th className="whitespace-nowrap border-b border-[#2A3B4D] px-2 py-2 text-center">Sil</th>
+                          <tr>
+                            <th className="whitespace-nowrap">#</th>
+                            <th className="whitespace-nowrap">Yak.</th>
+                            <th className="whitespace-nowrap">TC</th>
+                            <th className="whitespace-nowrap">Adı</th>
+                            <th className="whitespace-nowrap">Soyadı</th>
+                            <th className="whitespace-nowrap">Baba</th>
+                            <th className="whitespace-nowrap">Ana</th>
+                            <th className="whitespace-nowrap">D. Tarihi</th>
+                            <th className="whitespace-nowrap">D. Yeri</th>
+                            <th className="whitespace-nowrap">Cins.</th>
+                            <th className="whitespace-nowrap">Medeni</th>
+                            <th className="whitespace-nowrap">Telefon</th>
+                            <th className="whitespace-nowrap">Adres No</th>
+                            <th className="w-full text-left">Adres</th>
+                            <th className="whitespace-nowrap">Sil</th>
                           </tr>
                         </thead>
                         <tbody>
                           {/* Kullanici istegi (Ekim 2026): dosya sahibi de ARTIK
                               bu TEK listede (ilk satir, "Kendisi") gorunuyor -
                               silinemez, tiklaninca birlesik giris alanina yuklenir. */}
-                          <tr onClick={editApplicantPerson} className={`cursor-pointer border-b border-amber-100 transition-colors ${isOwnerRowActive ? 'bg-amber-100 ring-2 ring-inset ring-amber-300' : 'bg-amber-50/70 hover:bg-amber-100'}`}>
-                            <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-200 font-black text-amber-800">1</span></td>
-                            <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="rounded-full bg-amber-200 px-2 py-0.5 font-black uppercase text-amber-900">Kendisi</span></td>
+                          <tr onClick={editApplicantPerson} className={`cursor-pointer transition-colors ${isOwnerRowActive ? 'dfm-satir-secili' : 'dfm-satir-sahip'}`}>
+                            <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="dfm-sira dfm-sira-sahip">1</span></td>
+                            <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="dfm-yakinlik dfm-yakinlik-sahip">Kendisi</span></td>
                             <td className="whitespace-nowrap px-2 py-1.5 font-bold text-slate-600">{newFileForm.applicant.tc || '-'}</td>
                             <td className="whitespace-nowrap px-2 py-1.5 font-black text-slate-900">{newFileForm.applicant.firstName || '-'}</td>
                             <td className="whitespace-nowrap px-2 py-1.5 font-black text-slate-900">{newFileForm.applicant.lastName || '-'}</td>
@@ -16964,7 +17050,7 @@ function DocumentsPageContent() {
                             <td className="whitespace-nowrap px-2 py-1.5 font-bold text-slate-500">{newFileForm.applicant.phone || '-'}</td>
                             <td className="whitespace-nowrap px-2 py-1.5 font-black text-slate-500">{newFileForm.applicant.addressNo || '-'}</td>
                             <td className="max-w-0 truncate px-2 py-1.5 font-bold text-slate-600" title={newFileForm.applicant.address || '-'}>{newFileForm.applicant.address || '-'}</td>
-                            <td className="whitespace-nowrap px-2 py-1.5 text-center" title="Dosya sahibi silinemez"><span className="text-[9px] font-black uppercase text-amber-700">Sahip</span></td>
+                            <td className="whitespace-nowrap px-2 py-1.5 text-center" title="Dosya sahibi silinemez"><span className="dfm-sahip-etiket">Sahip</span></td>
                           </tr>
                           {newFileForm.household.map((person, index) => {
                             const applicantAddressNo = cleanDisplayValue(newFileForm.applicant.addressNo)
@@ -16972,17 +17058,15 @@ function DocumentsPageContent() {
                             const maritalStatusLabel = getMaritalStatusDisplayLabel(predefinedValues, predefinedValueTitles, person.maritalStatus)
                             const hasDifferentAddressNo = Boolean(applicantAddressNo && personAddressNo && applicantAddressNo !== personAddressNo)
                             const rowStateClass = editingNewFileHouseholdIndex === index
-                              ? 'bg-amber-100 ring-2 ring-inset ring-amber-300'
+                              ? 'dfm-satir-secili'
                               : hasDifferentAddressNo
-                                ? 'bg-cyan-50 hover:bg-cyan-100'
-                                : index % 2 === 0
-                                  ? 'bg-white hover:bg-emerald-50'
-                                  : 'bg-teal-50/50 hover:bg-emerald-50'
+                                ? 'dfm-satir-farkli-adres'
+                                : 'dfm-satir'
 
                             return (
-                              <tr key={`${person.tc}-${index}`} onClick={() => editHouseholdPerson(index)} className={`cursor-pointer border-b border-slate-100 transition-colors ${rowStateClass}`}>
-                                <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 font-black text-emerald-700">{index + 2}</span></td>
-                                <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="rounded-full bg-teal-100 px-2 py-0.5 font-black uppercase text-teal-800">{relationValueLabel(person.relation)}</span></td>
+                              <tr key={`${person.tc}-${index}`} onClick={() => editHouseholdPerson(index)} className={`cursor-pointer transition-colors ${rowStateClass}`}>
+                                <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="dfm-sira">{index + 2}</span></td>
+                                <td className="whitespace-nowrap px-2 py-1.5 text-center"><span className="dfm-yakinlik">{relationValueLabel(person.relation)}</span></td>
                                 <td className="whitespace-nowrap px-2 py-1.5 font-bold text-slate-600">{person.tc || '-'}</td>
                                 <td className="whitespace-nowrap px-2 py-1.5 font-black text-slate-900">{person.firstName || '-'}</td>
                                 <td className="whitespace-nowrap px-2 py-1.5 font-black text-slate-900">{person.lastName || '-'}</td>
@@ -16994,11 +17078,11 @@ function DocumentsPageContent() {
                                 <td className="whitespace-nowrap px-2 py-1.5 font-bold text-slate-500">{maritalStatusLabel}</td>
                                 <td className="whitespace-nowrap px-2 py-1.5 font-bold text-slate-500">{person.phone || '-'}</td>
                                 <td className="whitespace-nowrap px-2 py-1.5 font-black text-slate-500">
-                                  {hasDifferentAddressNo ? <span className="rounded-lg bg-blue-600 px-1.5 py-0.5 text-white">{person.addressNo || '-'}</span> : (person.addressNo || '-')}
+                                  {hasDifferentAddressNo ? <span className="dfm-farkli-adres" title="Dosya sahibinden farklı adres numarası">{person.addressNo || '-'}</span> : (person.addressNo || '-')}
                                 </td>
                                 <td className="max-w-0 truncate px-2 py-1.5 font-bold text-slate-600" title={person.address || '-'}>{person.address || '-'}</td>
                                 <td className="whitespace-nowrap px-2 py-1.5 text-center">
-                                  <button type="button" onClick={(event) => { event.stopPropagation(); void removeHouseholdPerson(index) }} className="rounded-lg bg-rose-50 px-1.5 py-1 text-[10px] font-black text-rose-600 hover:bg-rose-100">Sil</button>
+                                  <button type="button" onClick={(event) => { event.stopPropagation(); void removeHouseholdPerson(index) }} className="dfm-satir-sil" title="Bireyi dosyadan çıkar"><ActionIcon name="delete" className="h-3.5 w-3.5" />Sil</button>
                                 </td>
                               </tr>
                             )
@@ -17058,24 +17142,24 @@ function DocumentsPageContent() {
               </div>
             </div>
 
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-t border-slate-100 bg-slate-50 px-4 py-2.5">
-              <div></div>
+            <div className="dfm-alt grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 py-2.5 max-sm:grid-cols-1">
+              <div className="dfm-alt-ipucu max-sm:hidden"><kbd>F2</kbd> Kaydet</div>
               <button
                 type="button"
                 onClick={() => void openNewFileFamilyRegistryDocument()}
                 disabled={newFileFamilyRegistryStatus === 'loading'}
-                className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-extrabold text-emerald-700 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
+                className="dfm-btn dfm-btn-cizgi"
               >
-                <ActionIcon name="report" />
+                <ActionIcon name="report" className="h-4 w-4" />
                 {newFileFamilyRegistryStatus === 'loading' ? 'Sorgulanıyor...' : 'Nüfus Kayıt Örneği'}
               </button>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => { setIsCreateFileModalOpen(false); setFileFormMode('create') }} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-100">
-                  <ActionIcon name="close" />
+                <button type="button" onClick={() => { setIsCreateFileModalOpen(false); setFileFormMode('create') }} className="dfm-btn dfm-btn-sade">
+                  <ActionIcon name="close" className="h-4 w-4" />
                   İptal
                 </button>
-                <button type="button" onClick={handleCreateFile} disabled={createFileStatus === 'saving'} className="inline-flex items-center gap-2 rounded-lg bg-[#0076b6] px-4 py-2 text-sm font-extrabold text-white hover:bg-[#005f95] disabled:cursor-wait disabled:opacity-60">
-                  <ActionIcon name="save" />
+                <button type="button" onClick={handleCreateFile} disabled={createFileStatus === 'saving'} className="dfm-btn dfm-btn-ana">
+                  <ActionIcon name="save" className="h-4 w-4" />
                   {createFileStatus === 'saving' ? 'Kaydediliyor...' : fileFormMode === 'update' ? 'Dosyayı Kaydet' : 'Kaydet'}
                 </button>
               </div>
@@ -17473,234 +17557,220 @@ function DocumentsPageContent() {
         </div>
       )}
 
+      {/* Gülkart İşlemleri penceresi - kurumsal görünüm (2026-10-15, kullanici
+          istegi: "daha kurumsal, anlasilir ve profesyonel"). Dosya Güncelle /
+          Belgeler ile ayni .dfm/.dbm tasarim dili; Gülkart kimligi icin gul
+          (rose) vurgu. SADECE gorunum - tum handler'lar aynen. */}
       {isGulkartModalOpen && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm">
-          <div className="dy-modal-xcompact dy-modal-lg dy-modal-strong flex max-h-[92vh] w-full max-w-[1120px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 bg-rose-50 px-4 py-3">
-              <div>
-                <h3 className="text-lg font-extrabold text-rose-700">Gülkart İşlemleri</h3>
-                <p className="text-xs font-bold text-slate-500">
-                  Dosya ID: {displayedPerson.fileId} - {displayedPerson.firstName} {displayedPerson.lastName}
-                </p>
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm max-sm:p-0">
+          <div className="dy-modal-xcompact dy-modal-lg dy-modal-strong dfm dbm gkm flex max-h-[92vh] w-full max-w-[1180px] flex-col overflow-hidden rounded-2xl border border-[#C9D2DC] bg-[#F4F6F8] shadow-[0_30px_80px_-20px_rgba(10,20,35,0.55)] max-sm:h-[100dvh] max-sm:max-h-none max-sm:rounded-none">
+            <div className="dfm-ust flex shrink-0 items-center justify-between gap-3 px-5 py-3 text-white max-sm:px-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="dfm-ust-ikon gkm-ust-ikon max-sm:!hidden">
+                  <ActionIcon name="gift" className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="dfm-ust-baslik">Gülkart İşlemleri</h3>
+                  <p className="dfm-ust-alt truncate">
+                    {displayedPerson.firstName} {displayedPerson.lastName}<span className="dbm-ust-ayrac">|</span>Dosya No: <b className="dbm-ust-dosyano">{formatFileNo(displayedPerson.cardNo) || displayedPerson.cardNo || '-'}</b>
+                  </p>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsGulkartModalOpen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-rose-100 hover:text-rose-600"
-              >
-                <ActionIcon name="close" className="h-5 w-5" />
+              <button type="button" aria-label="Kapat" title="Kapat" onClick={() => setIsGulkartModalOpen(false)} className="dfm-kapat">
+                <ActionIcon name="close" className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
               {gulkartMessage && (
-                <div className={`rounded-lg border px-3 py-2 text-sm font-bold ${gulkartMessage.includes('eklendi') || gulkartMessage.includes('güncellendi') ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                <div className={`dfm-uyari ${gulkartMessage.includes('eklendi') || gulkartMessage.includes('güncellendi') ? 'dbm-uyari-basari' : 'dfm-uyari-bilgi'}`}>
+                  <ActionIcon name={gulkartMessage.includes('eklendi') || gulkartMessage.includes('güncellendi') ? 'save' : 'card'} className="h-4 w-4 shrink-0" />
                   {gulkartMessage}
                 </div>
               )}
 
-              <div className="rounded-lg border border-slate-200 bg-white">
-                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                  <h4 className="text-sm font-black uppercase text-slate-800">Nakitkart Kayıtları</h4>
-                  <button
-                    type="button"
-                    onClick={() => void fetchGulkartRecords()}
-                    disabled={gulkartStatus === 'loading'}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    {gulkartStatus === 'loading' ? 'Yükleniyor...' : 'Yenile'}
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full table-fixed text-left text-xs font-semibold">
-                    <colgroup>
-                      <col style={{ width: '22%' }} />
-                      <col style={{ width: '15%' }} />
-                      <col style={{ width: '20%' }} />
-                      <col style={{ width: '14%' }} />
-                      <col style={{ width: '15%' }} />
-                      <col style={{ width: '14%' }} />
-                    </colgroup>
-                    <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500">
-                      <tr>
-                        <th className="px-2 py-2">Kart No</th>
-                        <th className="px-2 py-2">TC</th>
-                        <th className="px-2 py-2">Adı Soyadı</th>
-                        <th className="px-2 py-2">Doğum Tarihi</th>
-                        <th className="px-2 py-2">Cep Tel</th>
-                        <th className="px-2 py-2">İşlem</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gulkartRecords.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-3 py-6 text-center text-sm font-bold text-slate-400">
-                            Bu dosyaya ait Gülkart kaydı bulunamadı.
-                          </td>
-                        </tr>
-                      ) : gulkartRecords.map((record) => (
-                        <tr key={record.id} className={`border-t border-slate-100 align-top ${selectedGulkartId === record.id ? 'bg-rose-50' : 'hover:bg-slate-50'}`}>
-                          <td className="break-all px-2 py-2 font-black text-rose-700">{record.kartno || '-'}</td>
-                          <td className="break-all px-2 py-2">{record.tckimlikno || '-'}</td>
-                          <td className="break-words px-2 py-2">{record.adisoadi || '-'}</td>
-                          <td className="break-words px-2 py-2">{record.dogumtarihi || '-'}</td>
-                          <td className="break-all px-2 py-2">{record.ceptel || '-'}</td>
-                          <td className="px-2 py-2">
-                            <div className="flex flex-col gap-1">
-                            <button
-                              type="button"
-                              onClick={() => selectGulkartRecord(record)}
-                              className="rounded-md bg-rose-600 px-2 py-1 text-[10px] font-black text-white hover:bg-rose-700"
-                            >
-                              Güncelle
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void deleteGulkartRecord(record)}
-                              disabled={gulkartStatus === 'saving'}
-                              className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-black text-rose-700 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-60"
-                            >
-                              Sil
-                            </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="rounded-xl border-2 border-rose-200 bg-gradient-to-b from-rose-50/80 to-white p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between gap-3 border-b border-rose-100 pb-3">
-                  <div>
-                    <h4 className="text-base font-black uppercase tracking-wide text-rose-800">
-                      {gulkartForm.id ? 'Seçili Kartı Güncelle' : 'Dosyaya Yeni Kart Ver'}
-                    </h4>
-                    <p className="mt-1 text-sm font-bold text-slate-500">
-                      Kişi seçildiğinde TC, ad soyad, doğum tarihi ve telefon otomatik doldurulur.
-                    </p>
+              <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,430px)_minmax(0,1fr)]">
+                {/* SOL: kart verme / guncelleme formu */}
+                <div className="dfm-kart">
+                  <div className="dfm-bolum-ust">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="dfm-bolum-ikon gkm-ikon"><ActionIcon name={gulkartForm.id ? 'edit' : 'card'} className="h-4 w-4" /></span>
+                      <div className="min-w-0">
+                        <h4 className="dfm-bolum-baslik">{gulkartForm.id ? 'Seçili Kartı Güncelle' : 'Dosyaya Yeni Kart Ver'}</h4>
+                        <p className="dfm-bolum-alt">{gulkartForm.id ? 'Bilgileri değiştirip Güncelle\'ye basın' : 'Kişiyi seçin, kart numarasını girin, Kart Ver'}</p>
+                      </div>
+                    </div>
+                    {gulkartForm.id && (
+                      <button type="button" onClick={resetGulkartForm} title="Düzenlemeyi bırakıp yeni kart girişine döner" className="dfm-btn dfm-btn-sade shrink-0">
+                        <ActionIcon name="close" className="h-4 w-4" />
+                        Vazgeç
+                      </button>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={resetGulkartForm}
-                    className="shrink-0 rounded-lg border border-rose-200 bg-white px-3.5 py-2 text-sm font-black text-rose-700 hover:bg-rose-50"
-                  >
-                    Yeni Kayıt
-                  </button>
+
+                  <div className="dbm-form grid gap-2.5 p-3">
+                    <section className="dbm-bolge ton-mavi">
+                      <h5 className="dfm-grup"><span className="dfm-grup-no">1</span>Kişi Seçimi</h5>
+                      {/* Kullanici istegi (2026-09-16): uzun "AD SOYAD - Yakinlik" metni
+                          sigsin diye secim kutusu tam genislik. */}
+                      <label className="dbm-alan">
+                        <span>Dosyadaki Kişi</span>
+                        <select
+                          value={gulkartForm.bireyid}
+                          onChange={(event) => handleSelectGulkartPerson(event.target.value)}
+                        >
+                          <option value="">Kişi seçiniz…</option>
+                          {gulkartPeople.map((person) => (
+                            <option key={`${person.id}-${person.identityNumber}`} value={person.id}>
+                              {person.fullName || person.identityNumber} - {relationValueLabel(person.relation)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <p className="gkm-ipucu">Seçince T.C., ad soyad, doğum tarihi ve telefon otomatik dolar.</p>
+                    </section>
+
+                    <section className="dbm-bolge ton-altin">
+                      <h5 className="dfm-grup"><span className="dfm-grup-no">2</span>Kart Sahibi Bilgileri</h5>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="dbm-alan">
+                          <span>T.C. Kimlik No</span>
+                          <input value={gulkartForm.tckimlikno} onChange={(event) => setGulkartForm((current) => ({ ...current, tckimlikno: event.target.value }))} />
+                        </label>
+                        <label className="dbm-alan">
+                          <span>Doğum Tarihi</span>
+                          <input value={gulkartForm.dogumtarihi} onChange={(event) => setGulkartForm((current) => ({ ...current, dogumtarihi: event.target.value }))} />
+                        </label>
+                        <label className="dbm-alan">
+                          <span>Adı Soyadı</span>
+                          <input value={gulkartForm.adisoadi} onChange={(event) => setGulkartForm((current) => ({ ...current, adisoadi: event.target.value }))} />
+                        </label>
+                        <label className="dbm-alan">
+                          <span>Cep Telefonu</span>
+                          <input value={gulkartForm.ceptel} onChange={(event) => setGulkartForm((current) => ({ ...current, ceptel: event.target.value }))} />
+                        </label>
+                      </div>
+                    </section>
+
+                    <section className="dbm-bolge gkm-ton-gul">
+                      <h5 className="dfm-grup"><span className="dfm-grup-no">3</span>Kart ve Barkod</h5>
+                      {/* Kullanici istegi (Ekim 2026): kart no girilince rezerv
+                          barkod bilgisi kart no alaninin YANINDA gorunur. */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="dbm-alan">
+                          <span>Kart No</span>
+                          <input
+                            value={gulkartForm.kartno}
+                            onChange={(event) => updateGulkartKartNo(event.target.value)}
+                            className="gkm-kartno"
+                            placeholder="Kart numarası"
+                          />
+                        </label>
+                        <div className="dbm-alan">
+                          <span>Rezerv Barkod</span>
+                          {gulkartBarkod ? (
+                            <div className="gkm-barkod">
+                              <code title={gulkartBarkod}>{gulkartBarkod}</code>
+                              <button type="button" onClick={() => void copyGulkartBarkod()} title="Barkodu panoya kopyala" className={`gkm-kopyala${gulkartBarkodCopied ? ' tamam' : ''}`}>
+                                {gulkartBarkodCopied ? '✓ Kopyalandı' : 'Kopyala'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className={`gkm-barkod-durum${gulkartBarkodStatus === 'notFound' ? ' yok' : ''}`}>
+                              {gulkartBarkodStatus === 'loading'
+                                ? 'Barkod aranıyor…'
+                                : gulkartBarkodStatus === 'notFound'
+                                  ? 'Rezerv barkod bulunamadı'
+                                  : 'Kart no girilince gösterilir'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* Kullanici istegi (2026-09-16): "veriler alana sığmıyor,
-                      tam görünmüyor" - eskiden 4 sutunlu tek siz grid,
-                      ozellikle "AHMET POYRAZ EKİCİ - Oğlu" gibi uzun ad+
-                      yakinlik etiketi tasiyan bu alani asiri daraltiyordu.
-                      Artik 2 sutun + bu alan TEK BASINA TAM GENISLIK (uzun
-                      metnin sigmasi icin en cok ihtiyaci olan alan).
-                      Kullanici istegi (devami, 2026-09-16): dar pencerede
-                      TAM GENISLIKTE bile uzun ad+yakinlik metni hala
-                      sigmiyordu - "w-full" ile secim kutusunun kendi
-                      etiketinin (label) TUM genisligini kullanmasi
-                      GARANTI edildi, yazi boyutu da (text-base -> text-sm)
-                      biraz kucultulup metnin sigma ihtimalini artirdi. */}
-                  <label className="flex w-full flex-col gap-1.5 md:col-span-2">
-                    <span className="text-[12px] font-black uppercase tracking-wide text-slate-600">Dosyadaki Kişi</span>
-                    <select
-                      value={gulkartForm.bireyid}
-                      onChange={(event) => handleSelectGulkartPerson(event.target.value)}
-                      // Kok neden (2026-09-16, bulundu): bu modal "dy-modal-
-                      // xcompact dy-modal-lg dy-modal-strong" siniflarini
-                      // tasiyor - globals.css'teki bu sistem TUM <select>
-                      // elemanlarinin yazi boyutunu ".dy-modal-xcompact.
-                      // dy-modal-lg select { font-size: 15px }" (+ dy-modal-
-                      // strong ile 15.5px) kurali ile SABITLIYOR - Tailwind
-                      // "text-sm" sinifimi SESSIZCE EZIYORDU (kullanici
-                      // "hic degisiklik yok" dedigi icin, gizli pencerede
-                      // bile, bu yuzden kesin bir once cache degildi).
-                      // INLINE style, ayni ozgunlukte (!important olmayan)
-                      // harici bir CSS kuralini HER ZAMAN yener - bu yuzden
-                      // font boyutu ve genislik burada DOGRUDAN inline
-                      // verildi, sinif yerine.
-                      style={{ width: '100%', fontSize: '13px' }}
-                      className="rounded-lg border-2 border-slate-200 bg-white px-3 py-2.5 font-bold text-slate-900 outline-none focus:border-rose-400"
+                {/* SAG: dosyanin kart kayitlari */}
+                <div className="dfm-kart">
+                  <div className="dfm-bolum-ust">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="dfm-bolum-ikon"><ActionIcon name="report" className="h-4 w-4" /></span>
+                      <div className="min-w-0">
+                        <h4 className="dfm-bolum-baslik">Kart Kayıtları <span className="dfm-sayi">{gulkartRecords.length}</span></h4>
+                        <p className="dfm-bolum-alt hidden sm:block">Bu dosyaya verilmiş Gülkart / nakit kartlar</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void fetchGulkartRecords()}
+                      disabled={gulkartStatus === 'loading'}
+                      className="dfm-btn dfm-btn-cizgi shrink-0"
                     >
-                      <option value="">Seçiniz...</option>
-                      {gulkartPeople.map((person) => (
-                        <option key={`${person.id}-${person.identityNumber}`} value={person.id}>
-                          {person.fullName || person.identityNumber} - {relationValueLabel(person.relation)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[12px] font-black uppercase tracking-wide text-slate-600">TC Kimlik No</span>
-                    <input value={gulkartForm.tckimlikno} onChange={(event) => setGulkartForm((current) => ({ ...current, tckimlikno: event.target.value }))} className="rounded-lg border-2 border-slate-200 bg-white px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-rose-400" />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[12px] font-black uppercase tracking-wide text-slate-600">Doğum Tarihi</span>
-                    <input value={gulkartForm.dogumtarihi} onChange={(event) => setGulkartForm((current) => ({ ...current, dogumtarihi: event.target.value }))} className="rounded-lg border-2 border-slate-200 bg-white px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-rose-400" />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[12px] font-black uppercase tracking-wide text-slate-600">Cep Tel</span>
-                    <input value={gulkartForm.ceptel} onChange={(event) => setGulkartForm((current) => ({ ...current, ceptel: event.target.value }))} className="rounded-lg border-2 border-slate-200 bg-white px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-rose-400" />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[12px] font-black uppercase tracking-wide text-slate-600">Adı Soyadı</span>
-                    <input value={gulkartForm.adisoadi} onChange={(event) => setGulkartForm((current) => ({ ...current, adisoadi: event.target.value }))} className="rounded-lg border-2 border-slate-200 bg-white px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-rose-400" />
-                  </label>
-
-                  {/* Kullanici istegi (Ekim 2026): kart no girilince rezerv
-                      barkod bilgisi INPUT'UN SAGINDA gorunsun (altinda degil). */}
-                  <div className="grid gap-4 md:col-span-2 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
-                    <label className="flex flex-col gap-1.5">
-                      <span className="text-[12px] font-black uppercase tracking-wide text-slate-600">Kart No</span>
-                      <input
-                        value={gulkartForm.kartno}
-                        onChange={(event) => updateGulkartKartNo(event.target.value)}
-                        className="rounded-lg border-2 border-slate-200 bg-white px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-rose-400"
-                      />
-                    </label>
-                    <div className="flex flex-col justify-end gap-1.5">
-                      {gulkartBarkodStatus === 'loading' && (
-                        <span className="rounded-lg border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-500">Barkod aranıyor...</span>
-                      )}
-                      {gulkartBarkodStatus === 'notFound' && (
-                        <span className="rounded-lg border-2 border-amber-200 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-700">Bu kart no için rezerv barkod bulunamadı.</span>
-                      )}
-                      {gulkartBarkod && (
-                        <div className="rounded-lg border-2 border-rose-200 bg-white px-3 py-2.5">
-                          <span className="mb-1 block text-[11px] font-black uppercase tracking-wide text-rose-700">Barkod</span>
-                          <div className="flex items-center gap-2">
-                            <code className="min-w-0 flex-1 truncate rounded-lg bg-rose-50 px-2.5 py-1.5 text-sm font-black text-slate-900">
-                              {gulkartBarkod}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => void copyGulkartBarkod()}
-                              className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-black text-white hover:bg-rose-700"
-                            >
-                              {gulkartBarkodCopied ? 'Kopyalandı' : 'Kopyala'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <ActionIcon name="refresh" className="h-4 w-4" />
+                      {gulkartStatus === 'loading' ? 'Yükleniyor…' : 'Yenile'}
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto p-3">
+                    <div className="dfm-tablo-kap overflow-hidden">
+                      <table className="dfm-tablo dbm-tablo w-full min-w-[620px] table-auto text-left">
+                        <thead>
+                          <tr>
+                            <th>Kart No</th>
+                            <th>Kart Sahibi</th>
+                            <th>Doğum Tarihi</th>
+                            <th>Cep Tel</th>
+                            <th className="w-px !text-center">İşlemler</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {gulkartRecords.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="dbm-bos">
+                                Bu dosyaya ait Gülkart kaydı bulunamadı. Soldaki formdan kart verebilirsiniz.
+                              </td>
+                            </tr>
+                          ) : gulkartRecords.map((record) => (
+                            <tr key={record.id} className={`align-top transition-colors ${selectedGulkartId === record.id ? 'dfm-satir-secili' : 'dfm-satir'}`}>
+                              <td className="gkm-kart-hucre whitespace-nowrap"><span className="gkm-kart-no">{record.kartno || '-'}</span></td>
+                              <td>
+                                <span className="gkm-ad">{record.adisoadi || '-'}</span>
+                                <span className="gkm-tc">{record.tckimlikno || '-'}</span>
+                              </td>
+                              <td className="dbm-tarih whitespace-nowrap"><span className="dbm-tarih-deger">{record.dogumtarihi || '-'}</span></td>
+                              <td className="whitespace-nowrap">{record.ceptel || '-'}</td>
+                              <td className="dbm-islem-hucre w-px whitespace-nowrap">
+                                <div className="dbm-islemler">
+                                  <button type="button" title="Düzenle (bilgiler soldaki forma yüklenir)" aria-label="Düzenle" onClick={() => selectGulkartRecord(record)} className="dbm-ikon-btn ton-duzenle">
+                                    <ActionIcon name="edit" className="h-4 w-4" />
+                                  </button>
+                                  <button type="button" title="Kartı sil" aria-label="Kartı sil" onClick={() => void deleteGulkartRecord(record)} disabled={gulkartStatus === 'saving'} className="dbm-ikon-btn ton-sil">
+                                    <ActionIcon name="delete" className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-3">
-              <button type="button" onClick={() => setIsGulkartModalOpen(false)} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-100">
+            <div className="dfm-alt flex shrink-0 items-center justify-end gap-2 px-4 py-2.5 sm:px-6">
+              <button type="button" onClick={() => setIsGulkartModalOpen(false)} className="dfm-btn dfm-btn-sade">
+                <ActionIcon name="close" className="h-4 w-4" />
                 Kapat
               </button>
               <button
                 type="button"
                 onClick={() => void saveGulkartRecord()}
                 disabled={gulkartStatus === 'saving'}
-                className="rounded-lg bg-rose-600 px-5 py-2 text-sm font-extrabold text-white hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
+                className="dfm-btn dfm-btn-ana gkm-btn-ana"
               >
-                {gulkartStatus === 'saving' ? 'Kaydediliyor...' : gulkartForm.id ? 'Güncelle' : 'Kart Ver'}
+                <ActionIcon name={gulkartForm.id ? 'save' : 'card'} className="h-4 w-4" />
+                {gulkartStatus === 'saving' ? 'Kaydediliyor…' : gulkartForm.id ? 'Güncelle' : 'Kart Ver'}
               </button>
             </div>
           </div>
@@ -17722,22 +17792,22 @@ function DocumentsPageContent() {
               maxWidth: 'calc(100vw - 8px)',
               maxHeight: 'calc(100dvh - 8px)',
             }}
-            className="dy-modal-xcompact dy-modal-lg dy-modal-strong dy-modal-eq16 dy-belge-modal fixed min-h-[420px] min-w-[640px] resize overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
+            className="dy-modal-xcompact dy-modal-lg dy-modal-strong dy-modal-eq16 dy-belge-modal dfm dbm fixed min-h-[420px] min-w-[640px] resize overflow-hidden rounded-2xl border border-[#C9D2DC] bg-[#F4F6F8] shadow-[0_30px_80px_-20px_rgba(10,20,35,0.55)] max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
           >
           <div style={{ zoom: belgeWindow.scale }} className="flex h-full w-full flex-col overflow-hidden">
             <div
               onPointerDown={belgeWindow.startDrag}
               onPointerMove={belgeWindow.onDrag}
               onPointerUp={(event) => { belgeWindow.endDrag(event) }}
-              className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 border-b border-violet-400 bg-gradient-to-r from-violet-400 via-purple-400 to-fuchsia-400 px-3 py-2.5 text-white sm:px-5 sm:py-3">
+              className="dfm-ust flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 px-3 py-2.5 text-white sm:px-5 sm:py-3">
               <div className="flex min-w-0 items-center gap-2.5">
-                <span className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/25 bg-white/15 sm:flex">
-                  <ActionIcon name="report" className="h-4 w-4" />
+                <span className="dfm-ust-ikon max-sm:!hidden">
+                  <ActionIcon name="report" className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
-                  <h3 className="!text-[12px] font-black uppercase tracking-wide leading-tight">Belgeler</h3>
-                  <p className="truncate !text-[12px] font-bold text-white/80">
-                    {displayedPerson.firstName} {displayedPerson.lastName} · Dosya No: {formatFileNo(displayedPerson.cardNo) || displayedPerson.cardNo || '-'}
+                  <h3 className="dfm-ust-baslik">Belgeler</h3>
+                  <p className="dfm-ust-alt truncate">
+                    {displayedPerson.firstName} {displayedPerson.lastName}<span className="dbm-ust-ayrac">|</span>Dosya No: <b className="dbm-ust-dosyano">{formatFileNo(displayedPerson.cardNo) || displayedPerson.cardNo || '-'}</b>
                   </p>
                 </div>
               </div>
@@ -17746,41 +17816,53 @@ function DocumentsPageContent() {
                 <button
                   type="button"
                   onClick={() => setIsBelgeModalOpen(false)}
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/25 bg-white/10 text-white transition hover:bg-white/25"
+                  aria-label="Kapat"
+                  title="Kapat"
+                  className="dfm-kapat"
                 >
-                  <ActionIcon name="close" className="h-4.5 w-4.5" />
+                  <ActionIcon name="close" className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3 sm:p-4 lg:flex lg:flex-col lg:space-y-0 lg:overflow-hidden">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4 lg:flex lg:flex-col lg:space-y-0 lg:overflow-hidden">
               {belgeMessage && (
-                <div className={`rounded-lg border px-3 py-2 !text-[12px] font-bold lg:mb-3 lg:shrink-0 ${belgeMessage.includes('eklendi') || belgeMessage.includes('güncellendi') || belgeMessage.includes('silindi') ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                <div className={`dfm-uyari lg:mb-3 lg:shrink-0 ${belgeMessage.includes('eklendi') || belgeMessage.includes('güncellendi') || belgeMessage.includes('silindi') ? 'dbm-uyari-basari' : 'dfm-uyari-bilgi'}`}>
                   {belgeMessage}
                 </div>
               )}
 
-              <div className="grid min-w-0 items-start gap-3 sm:gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)] lg:items-stretch xl:grid-cols-[minmax(0,335px)_minmax(0,1fr)]">
-                <div className="overflow-hidden rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 shadow-[0_10px_28px_rgba(217,70,239,0.1)] lg:flex lg:min-h-0 lg:flex-col">
-                  <div className="flex items-center justify-between gap-2 bg-gradient-to-r from-fuchsia-400 to-violet-400 px-3 py-2.5 text-white sm:px-4 sm:py-3 lg:shrink-0">
-                    <div>
-                      <h4 className="!text-[12px] font-black uppercase tracking-wide">
+              <div className="grid min-w-0 items-start gap-3 sm:gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-stretch xl:grid-cols-[minmax(0,410px)_minmax(0,1fr)]">
+                <div className="dfm-kart lg:flex lg:min-h-0 lg:flex-col">
+                  <div className="dfm-bolum-ust lg:shrink-0">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="dfm-bolum-ikon"><ActionIcon name={belgeForm.id ? 'edit' : 'fileAdd'} className="h-4 w-4" /></span>
+                      <div className="min-w-0">
+                      <h4 className="dfm-bolum-baslik">
                         {belgeForm.id ? 'Seçili Belgeyi Düzenle' : 'Yeni Belge Ekle'}
                       </h4>
-                      <p className="mt-0.5 hidden !text-[12px] font-bold text-white/80 sm:block">
-                        Kayıtlar sosyalyardimdkm veritabanındaki belge tablosuna yazılır.
+                      <p className="dfm-bolum-alt hidden sm:block">
+                        {belgeForm.id ? 'Bilgileri değiştirip Güncelle\'ye basın' : 'Belgeyi seçin, bilgileri doldurun, Kaydet'}
                       </p>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={resetBelgeForm}
-                      className="shrink-0 rounded-lg border border-white/30 bg-white/15 px-3 py-1.5 !text-[12px] font-black text-white hover:bg-white/25"
-                    >
-                      Yeni Belge
-                    </button>
+                    {/* Kullanici istegi (2026-10-15): "Yeni Belge" butonu kaldirildi
+                        (bu alan zaten yeni belge ekleme alani). Sadece listeden bir
+                        belge DUZENLEME icin acildiginda yeni belge moduna donebilmek
+                        icin "Vazgeç" gorunur (ayni resetBelgeForm). */}
+                    {belgeForm.id && (
+                      <button
+                        type="button"
+                        onClick={resetBelgeForm}
+                        title="Düzenlemeyi bırakıp yeni belge girişine döner" className="dfm-btn dfm-btn-sade shrink-0"
+                      >
+                        <ActionIcon name="close" className="h-4 w-4" />
+                        Vazgeç
+                      </button>
+                    )}
                   </div>
 
-                  <div className="grid gap-1.5 p-2.5 sm:gap-2 sm:p-3 lg:min-h-0 lg:flex-1 lg:content-start lg:overflow-y-auto">
+                  <div className="dbm-form grid gap-2 p-3 lg:min-h-0 lg:flex-1 lg:content-start lg:overflow-y-auto">
                     {/* Kullanici istegi (15 Eylul 2026, 34. tur): "Belge Sahibi"
                         alani (secim kutusu) tamamen kaldirildi - artik manuel
                         secim/onay gerekmiyor. Her belgenin sahibi, KAYIT
@@ -17789,7 +17871,8 @@ function DocumentsPageContent() {
                         kullanir, ARTIK ortak belgeForm.baslik'i PAYLASMAZ).
                         Boylece ayni anda birden fazla belge eklenirken her biri
                         kendi dosya adiyla kaydedilir. */}
-                    <h5 className="mt-0.5 !text-[12px] font-black uppercase tracking-wide text-violet-700">Ailenin Gelir Durumu</h5>
+                    <section className="dbm-bolge ton-mavi">
+                    <h5 className="dfm-grup"><span className="dfm-grup-no">1</span>Ailenin Gelir Durumu</h5>
                     {/* Kullanici istegi (15 Eylul 2026, 36. tur): "alt alta
                         yapalim, basliklari ve alanlari renk tonu ile
                         ayiralim" - 2 sutunlu grid yerine TEK sutun (alt alta),
@@ -17800,7 +17883,7 @@ function DocumentsPageContent() {
                         sutunlu grid'e donduruldu (siralama AYNI kaldi). */}
                     <div className="space-y-2">
                       <div className="grid grid-cols-2 gap-2">
-                        <label className="flex flex-col gap-1 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2">
+                        <label className="dbm-alan">
                           <span className="!text-[12px] font-black uppercase text-emerald-700">Geliri</span>
                           <input
                             type="text"
@@ -17810,7 +17893,7 @@ function DocumentsPageContent() {
                             className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1.5 !text-[12px] font-bold text-slate-900 outline-none focus:border-emerald-400"
                           />
                         </label>
-                        <label className="flex flex-col gap-1 rounded-lg border border-sky-200 bg-sky-50/60 p-2">
+                        <label className="dbm-alan">
                           <span className="!text-[12px] font-black uppercase text-sky-700">Araç Modeli</span>
                           <input
                             type="text"
@@ -17822,7 +17905,7 @@ function DocumentsPageContent() {
                         </label>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                        <label className="flex flex-col gap-1 rounded-lg border border-amber-200 bg-amber-50/60 p-2">
+                        <label className="dbm-alan">
                           <span className="!text-[12px] font-black uppercase text-amber-700">Tapu Bilgisi</span>
                           <input
                             type="text"
@@ -17832,7 +17915,7 @@ function DocumentsPageContent() {
                             className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 !text-[12px] font-bold text-slate-900 outline-none focus:border-amber-400"
                           />
                         </label>
-                        <label className="flex flex-col gap-1 rounded-lg border border-fuchsia-200 bg-fuchsia-50/60 p-2">
+                        <label className="dbm-alan">
                           <span className="!text-[12px] font-black uppercase text-fuchsia-700">Vergi Mükellefiyeti</span>
                           <select
                             value={belgeForm.vergiMukellefiyeti}
@@ -17846,6 +17929,7 @@ function DocumentsPageContent() {
                         </label>
                       </div>
                     </div>
+                    </section>
                     {/* Kullanici istegi (2026-09-15): "Durumu" ve "Tarihi"
                         alanlari yeniden eklendi - Tarihi GUNUN TARIHI ile
                         otomatik dolu gelir (elle degistirilebilir). Durumu
@@ -17853,8 +17937,10 @@ function DocumentsPageContent() {
                         kullanici acikca "UYGUNDUR/UYGUN DEĞİL acilir liste
                         olsun" dedi - artik "tipi" kolonuna (0=UYGUNDUR,
                         1=UYGUN DEĞİL) yazan sabit secimli bir <select>. */}
+                    <section className="dbm-bolge ton-altin">
+                    <h5 className="dfm-grup"><span className="dfm-grup-no">2</span>Belge Bilgisi</h5>
                     <div className="grid grid-cols-2 gap-2">
-                      <label className="flex flex-col gap-1 rounded-lg border border-indigo-200 bg-indigo-50/60 p-2">
+                      <label className="dbm-alan">
                         <span className="!text-[12px] font-black uppercase text-indigo-700">Durumu</span>
                         <select
                           value={belgeForm.tipi}
@@ -17865,7 +17951,7 @@ function DocumentsPageContent() {
                           <option value="1">UYGUN DEĞİL</option>
                         </select>
                       </label>
-                      <label className="flex flex-col gap-1 rounded-lg border border-indigo-200 bg-indigo-50/60 p-2">
+                      <label className="dbm-alan">
                         <span className="!text-[12px] font-black uppercase text-indigo-700">Tarihi</span>
                         <input
                           type="date"
@@ -17875,16 +17961,17 @@ function DocumentsPageContent() {
                         />
                       </label>
                     </div>
-                    <label className="flex flex-col gap-1">
+                    <label className="dbm-alan">
                       <span className="!text-[12px] font-black uppercase text-fuchsia-700">Açıklama</span>
                       <textarea
                         value={belgeForm.icerik}
                         onChange={(event) => setBelgeForm((current) => ({ ...current, icerik: event.target.value }))}
-                        rows={4}
+                        rows={3}
                         className="resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 !text-[12px] font-bold text-slate-900 outline-none focus:border-violet-400"
                       />
                     </label>
-                    <div>
+                    </section>
+                    <section className="dbm-bolge ton-yesil">
                       <input
                         ref={belgeFileInputRef}
                         type="file"
@@ -17902,19 +17989,20 @@ function DocumentsPageContent() {
                         onChange={(event) => void handleBelgeCameraCapture(event)}
                         className="hidden"
                       />
-                      <div className="rounded-lg border border-fuchsia-100 bg-fuchsia-50/60 px-2.5 py-1.5">
-                        <span className="block !text-[12px] font-black uppercase text-fuchsia-700">
+                      <h5 className="dfm-grup"><span className="dfm-grup-no">3</span>Belge Dosyası</h5>
+                      <div className={`dbm-dosya ${belgeAttachments.length > 0 ? 'dolu' : ''}`}>
+                        <span className="dbm-dosya-baslik">
                           Belge Dosyaları{belgeAttachments.length > 0 ? ` (${belgeAttachments.length})` : ''}
                         </span>
                         {belgeAttachments.length === 0 ? (
-                          <span className="block truncate !text-[12px] font-extrabold text-slate-800">
-                            {belgeForm.id ? 'Mevcut belge korunur' : 'Dosya seçilmedi'}
+                          <span className="dbm-dosya-bos">
+                            {belgeForm.id ? 'Mevcut belge korunur' : 'Henüz dosya seçilmedi — aşağıdaki "Belge Ekle" ile seçin'}
                           </span>
                         ) : (
                           <ul className="mt-1 space-y-1">
                             {belgeAttachments.map((attachment, index) => (
-                              <li key={`${attachment.name}-${index}`} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1">
-                                <span className="truncate !text-[12px] font-extrabold text-slate-800">{attachment.name}</span>
+                              <li key={`${attachment.name}-${index}`} className="dbm-dosya-satir">
+                                <span className="flex min-w-0 items-center gap-1.5"><ActionIcon name="note" className="h-4 w-4 shrink-0 text-[#8F6420]" /><span className="truncate">{attachment.name}</span></span>
                                 <button
                                   type="button"
                                   onClick={() => removeSelectedBelgeAttachment(index)}
@@ -17940,7 +18028,7 @@ function DocumentsPageContent() {
                           onClick={() => openBelgeScanner()}
                           disabled={belgeStatus === 'saving'}
                           title="Kamera açılır; belgeyi tarayıp kenarlarını otomatik kırpar ve küçültür"
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-2 py-1.5 !text-[12px] font-black text-white hover:bg-emerald-600 disabled:cursor-wait disabled:opacity-60"
+                          className="dfm-btn dfm-btn-cizgi justify-center"
                         >
                           <ActionIcon name="camera" />
                           Belge Tara
@@ -17949,7 +18037,7 @@ function DocumentsPageContent() {
                           type="button"
                           onClick={() => openBelgeCamera()}
                           disabled={belgeStatus === 'saving'}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-violet-500 px-2 py-1.5 !text-[12px] font-black text-white hover:bg-violet-600 disabled:cursor-wait disabled:opacity-60"
+                          className="dfm-btn dfm-btn-cizgi justify-center"
                         >
                           <ActionIcon name="camera" />
                           Fotoğraf
@@ -17957,12 +18045,12 @@ function DocumentsPageContent() {
                       </div>
                       {/* "Belge Ekle" (eski adi "Dosyadan Seç") + "Kaydet" -
                           HER ZAMAN (hem mobil hem masaustu) yan yana. */}
-                      <div className="mt-1.5 grid grid-cols-2 gap-2">
+                      <div className="mt-2 grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => void handlePickBelgeFile()}
                           disabled={belgeStatus === 'saving'}
-                          className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 px-2 py-2 !text-[12px] font-black text-white shadow-sm hover:brightness-105 disabled:cursor-wait disabled:opacity-60"
+                          title="Bilgisayardan belge (PDF veya resim) seçer; birden fazla seçilebilir" className="dfm-btn dfm-btn-cizgi justify-center"
                         >
                           <ActionIcon name="image" />
                           Belge Ekle
@@ -17972,7 +18060,7 @@ function DocumentsPageContent() {
                           onClick={() => void saveBelgeFromFormNow()}
                           disabled={belgeStatus === 'saving' || (belgeAttachments.length === 0 && !belgeForm.id)}
                           title={belgeForm.id ? 'Seçili belgeyi (mevcut dosya korunarak) günceller' : 'Girilen bilgilerle belgeyi kaydeder ve sağdaki listeye ekler'}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-3 py-2 !text-[12px] font-black text-white shadow-sm hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="dfm-btn dfm-btn-yesil justify-center"
                         >
                           <ActionIcon name="save" />
                           {belgeStatus === 'saving'
@@ -17984,16 +18072,16 @@ function DocumentsPageContent() {
                                 : 'Kaydet'}
                         </button>
                       </div>
-                    </div>
+                    </section>
 
                     {pendingBelgeItems.length > 0 && (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
-                        <span className="block !text-[12px] font-black uppercase text-emerald-700">
+                      <div className="dbm-sira">
+                        <span className="dbm-sira-baslik">
                           Eklenecek Belgeler ({pendingBelgeItems.length})
                         </span>
                         <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
                           {pendingBelgeItems.map((item) => (
-                            <li key={item.tempId} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5">
+                            <li key={item.tempId} className="dbm-dosya-satir">
                               <div className="min-w-0">
                                 <span className="block truncate !text-[12px] font-extrabold text-slate-800">{item.name}</span>
                                 <span className="block truncate !text-[12px] font-bold text-slate-500">
@@ -18016,15 +18104,22 @@ function DocumentsPageContent() {
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-indigo-200 bg-white shadow-[0_10px_28px_rgba(99,102,241,0.1)] lg:flex lg:min-h-0 lg:flex-col">
-                  <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 px-4 py-3 text-white lg:shrink-0">
-                    <h4 className="!text-[12px] font-black uppercase tracking-wide">Belge Kayıtları</h4>
+                <div className="dfm-kart lg:flex lg:min-h-0 lg:flex-col">
+                  <div className="dfm-bolum-ust lg:shrink-0">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="dfm-bolum-ikon"><ActionIcon name="report" className="h-4 w-4" /></span>
+                      <div className="min-w-0">
+                        <h4 className="dfm-bolum-baslik">Belge Kayıtları <span className="dfm-sayi">{belgeRecords.length}</span></h4>
+                        <p className="dfm-bolum-alt hidden sm:block">Görmek için satıra çift tıklayın; düzenleme ve silme “İşlem” menüsünde</p>
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => void fetchBelgeRecords()}
                       disabled={belgeStatus === 'loading'}
-                      className="rounded-lg border border-white/30 bg-white/15 px-3 py-1.5 !text-[12px] font-black text-white hover:bg-white/25 disabled:opacity-50"
+                      className="dfm-btn dfm-btn-cizgi shrink-0"
                     >
+                      <ActionIcon name="refresh" className="h-4 w-4" />
                       {belgeStatus === 'loading' ? 'Yükleniyor...' : 'Yenile'}
                     </button>
                   </div>
@@ -18065,76 +18160,86 @@ function DocumentsPageContent() {
                       zorlanir - konteyner zaten yatay kaydirdigi icin
                       (yukaridaki mobil duzeltmesi) hicbir veri kirpilmaz. */}
                   <div className="max-h-[55vh] overflow-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
-                    <table className="w-full min-w-[760px] table-auto text-left font-bold text-slate-900">
-                      <thead className="sticky top-0 z-10 bg-indigo-100 font-black uppercase text-indigo-900 shadow-sm">
+                    <table className="dfm-tablo dbm-tablo w-full min-w-[760px] table-auto text-left">
+                      <thead className="sticky top-0 z-10">
                         <tr>
-                          <th className="px-2.5 py-2.5">Belge Sahibi</th>
-                          <th className="px-2.5 py-2.5">Açıklama</th>
-                          <th className="w-px whitespace-nowrap px-2.5 py-2.5">Durumu</th>
-                          <th className="w-px whitespace-nowrap px-2.5 py-2.5">Tarihi</th>
-                          <th className="w-px whitespace-nowrap px-2.5 py-2.5">İşlem</th>
-                          <th className="w-px whitespace-nowrap px-2.5 py-2.5">Ekleyen</th>
+                          <th className="px-2.5 py-2.5" aria-sort={belgeSort?.key === 'ad' ? (belgeSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                            <button type="button" onClick={() => toggleBelgeSort('ad')} className="dbm-sirala" title="Belge sahibine göre sırala (A-Z / Z-A / kaldır)">
+                              Belge · Durumu · Açıklama <span className={`dbm-sirala-ok ${belgeSort?.key === 'ad' ? 'aktif' : ''}`} aria-hidden="true">{belgeSort?.key === 'ad' ? (belgeSort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                            </button>
+                          </th>
+                          <th className="w-px whitespace-nowrap px-2.5 py-2.5" aria-sort={belgeSort?.key === 'tarih' ? (belgeSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                            <button type="button" onClick={() => toggleBelgeSort('tarih')} className="dbm-sirala" title="Tarihe göre sırala (yeni-eski / eski-yeni / kaldır)">
+                              Tarih · Ekleyen <span className={`dbm-sirala-ok ${belgeSort?.key === 'tarih' ? 'aktif' : ''}`} aria-hidden="true">{belgeSort?.key === 'tarih' ? (belgeSort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+                            </button>
+                          </th>
+                          <th className="w-px whitespace-nowrap px-2.5 py-2.5 !text-center">İşlemler</th>
                         </tr>
                       </thead>
                       <tbody>
                         {belgeRecords.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="px-3 py-6 text-center font-bold text-slate-400">
-                              Bu dosyaya ait belge kaydı bulunamadı.
+                            <td colSpan={3} className="dbm-bos">
+                              Bu dosyaya ait belge kaydı bulunamadı. Soldaki formdan ilk belgeyi ekleyebilirsiniz.
                             </td>
                           </tr>
-                        ) : belgeRecords.map((record) => (
+                        ) : sortedBelgeRecords.map((record) => (
                           <tr
                             key={record.id}
                             onDoubleClick={() => void openBelgePreview(record)}
                             title="Belgeyi gormek icin cift tiklayin"
-                            className={`cursor-pointer border-t border-slate-100 align-top ${selectedBelgeId === record.id ? 'bg-violet-50' : 'odd:bg-white even:bg-slate-50/60 hover:bg-indigo-50/60'}`}
+                            className={`cursor-pointer align-top transition-colors ${selectedBelgeId === record.id ? 'dfm-satir-secili' : 'dfm-satir'}`}
                           >
-                            <td className="px-2.5 py-2.5 font-black text-violet-800">
-                              <span className="block truncate" title={record.baslik || '-'}>{record.baslik || '-'}</span>
+                            {/* Kullanici istegi (2026-10-15): belge sahibi (renkli, belirgin) + yaninda
+                                durum rozeti, altinda aciklama - hepsi TEK hucrede. */}
+                            <td className="dbm-belge px-2.5 py-2.5">
+                              <div className="dbm-belge-ust">
+                                <span className="dbm-belge-ad line-clamp-2 break-words" title={record.baslik || '-'}>{record.baslik || '-'}</span>
+                                {(() => { const durum = displayBelgeDurumu(record); const olumsuz = /DEĞİL|DEGIL/i.test(String(durum)); return <span className={`dbm-durum ${olumsuz ? 'olumsuz' : 'olumlu'}`}>{durum}</span> })()}
+                              </div>
+                              <span className="dbm-belge-aciklama line-clamp-3 whitespace-pre-wrap break-words" title={record.icerik || '-'}>{record.icerik || '-'}</span>
                             </td>
-                            {/* Hata raporu (2026-09-12): "tarih hala okunmuyor,
-                                beyaz yazi olsun" - bu hucreler DIGERLERININ
-                                aksine kendi text-rengi SINIFINI tasimiyordu,
-                                tablonun "text-slate-900" sinifindan MIRAS
-                                almaya guveniyordu - gece modu CSS'i miras
-                                alinan rengi degil, dogrudan SINIF tasiyan
-                                elemanlari hedefledigi icin bu hucreler koyu
-                                (ham) renkte KALIYORDU. Artik diger hucrelerle
-                                AYNI sekilde kendi acik "text-slate-900"
-                                sinifini tasiyorlar.
-                                Kullanici istegi (devami): "Aciklama en fazla
-                                3 satir olsun, uzunsa 3 satira sigacak sekilde
-                                genislesin, kisaysa daralsin" - "table-fixed"
-                                satirlar arasi AYNI genisligi ZORUNLU kildigi
-                                icin (hizalanma bozulmasin diye) sutun
-                                GENISLIGI tek tek satira gore degisemez, ama
-                                YUKSEKLIGI (line-clamp-3 ile en fazla 3 satir,
-                                uzunsa "..." ile kirpilir, kisaysa oldugu
-                                kadar kisa kalir) degisebilir. */}
-                            <td className="px-2.5 py-2.5 leading-relaxed text-slate-900">
-                              <span className="line-clamp-3 whitespace-pre-wrap break-words" title={record.icerik || '-'}>{record.icerik || '-'}</span>
+                            {/* Kullanici istegi (2026-10-15): tarih ve ekleyen ayni hucrede, ust uste 2 satir */}
+                            <td className="dbm-tarih w-px whitespace-nowrap px-2.5 py-2.5">
+                              <span className="dbm-tarih-deger">{displayDateTime(record.islemtarihi || record.ilkislemtarihi).split(' ')[0]}</span>
+                              <span className="dbm-ekleyen">{record.addedByName || '-'}</span>
                             </td>
-                            <td className="w-px whitespace-nowrap px-2.5 py-2.5 font-black text-slate-800">{displayBelgeDurumu(record)}</td>
-                            <td className="w-px whitespace-nowrap px-2.5 py-2.5 font-bold text-slate-900">{displayDateTime(record.islemtarihi || record.ilkislemtarihi).split(' ')[0]}</td>
-                            <td className="w-px whitespace-nowrap px-1.5 py-2.5">
-                              <ActionDropdown
-                                items={[
-                                  { label: 'Düzenle', onClick: () => selectBelgeRecord(record), icon: <ActionIcon name="edit" />, iconTone: 'sky' },
-                                  { label: 'Gör', onClick: () => void openBelgePreview(record), icon: <ActionIcon name="image" />, iconTone: 'indigo', disabled: belgePreviewStatus === 'loading' },
-                                  { label: 'Sil', onClick: () => void deleteBelgeRecord(record), icon: <ActionIcon name="delete" />, variant: 'danger', iconTone: 'rose', disabled: belgeStatus === 'saving' },
-                                ]}
-                              >
+                            {/* Kullanici istegi (2026-10-15): "islem alani daha estetik ve kullanisli" -
+                                sik kullanilan Gor + Duzenle dogrudan ikon butonu; Sil (ve
+                                hepsi) "..." acilir menusunde. Ayni handler'lar. */}
+                            <td className="dbm-islem-hucre w-px whitespace-nowrap px-2 py-2.5">
+                              <div className="dbm-islemler" onDoubleClick={(event) => event.stopPropagation()}>
                                 <button
                                   type="button"
-                                  className="rounded-md bg-violet-500 px-2 py-1 font-black text-white hover:bg-violet-600"
+                                  title="Belgeyi gör"
+                                  aria-label="Belgeyi gör"
+                                  disabled={belgePreviewStatus === 'loading'}
+                                  onClick={(event) => { event.stopPropagation(); void openBelgePreview(record) }}
+                                  className="dbm-ikon-btn ton-gor"
                                 >
-                                  Güncelle
+                                  <ActionIcon name="eye" className="h-4 w-4" />
                                 </button>
-                              </ActionDropdown>
-                            </td>
-                            <td className="w-px whitespace-nowrap px-2.5 py-2.5 font-black text-slate-700">
-                              {record.addedByName || '-'}
+                                <button
+                                  type="button"
+                                  title="Düzenle (bilgiler soldaki forma yüklenir)"
+                                  aria-label="Düzenle"
+                                  onClick={(event) => { event.stopPropagation(); selectBelgeRecord(record) }}
+                                  className="dbm-ikon-btn ton-duzenle"
+                                >
+                                  <ActionIcon name="edit" className="h-4 w-4" />
+                                </button>
+                                <ActionDropdown
+                                  items={[
+                                    { label: 'Belgeyi Gör', onClick: () => void openBelgePreview(record), icon: <ActionIcon name="eye" />, iconTone: 'indigo', disabled: belgePreviewStatus === 'loading' },
+                                    { label: 'Düzenle', onClick: () => selectBelgeRecord(record), icon: <ActionIcon name="edit" />, iconTone: 'sky' },
+                                    { label: 'Belgeyi Sil', onClick: () => void deleteBelgeRecord(record), icon: <ActionIcon name="delete" />, variant: 'danger', iconTone: 'rose', disabled: belgeStatus === 'saving' },
+                                  ]}
+                                >
+                                  <button type="button" title="Diğer işlemler (Sil)" aria-label="Diğer işlemler" className="dbm-ikon-btn ton-diger">
+                                    <ActionIcon name="more" className="h-4 w-4" />
+                                  </button>
+                                </ActionDropdown>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -18145,15 +18250,16 @@ function DocumentsPageContent() {
               </div>
             </div>
 
-            <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 sm:px-6">
-              <button type="button" onClick={() => setIsBelgeModalOpen(false)} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 !text-[12px] font-black text-slate-600 hover:bg-slate-100">
+            <div className="dfm-alt flex shrink-0 items-center justify-end gap-2 px-4 py-2.5 sm:px-6">
+              <button type="button" onClick={() => setIsBelgeModalOpen(false)} className="dfm-btn dfm-btn-sade">
+                <ActionIcon name="close" className="h-4 w-4" />
                 Kapat
               </button>
               <button
                 type="button"
                 onClick={() => void saveBelgeRecord()}
                 disabled={belgeStatus === 'saving'}
-                className="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-5 py-2.5 !text-[12px] font-black text-white shadow-sm hover:bg-violet-600 disabled:cursor-wait disabled:opacity-60"
+                className="dfm-btn dfm-btn-ana"
               >
                 <ActionIcon name="save" className="h-4 w-4" />
                 {belgeStatus === 'saving'
@@ -21308,9 +21414,9 @@ function DocumentsPageContent() {
               maxWidth: 'calc(100vw - 8px)',
               maxHeight: 'calc(100dvh - 8px)',
             }}
-            className="dy-modal-xcompact fixed min-h-[480px] min-w-[680px] resize overflow-hidden rounded-2xl bg-[#f4f7f8] shadow-2xl max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
+            className="dy-modal-xcompact fixed min-h-[480px] min-w-[680px] resize overflow-hidden rounded-2xl border border-[#1E2A38]/20 bg-white shadow-[0_24px_64px_rgba(16,30,43,0.35)] max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-none max-sm:!w-full max-sm:!min-w-0 max-sm:!rounded-lg"
           >
-          <div style={{ zoom: communicationScale }} className="flex h-full w-full flex-col overflow-hidden">
+          <div style={{ zoom: +(communicationScale * communicationUserZoom).toFixed(3) }} className="flex h-full w-full flex-col overflow-hidden">
             <header
               onPointerDown={startCommunicationDrag}
               onPointerMove={moveCommunicationWindow}
@@ -21318,17 +21424,50 @@ function DocumentsPageContent() {
                 communicationDragRef.current = null
                 event.currentTarget.releasePointerCapture(event.pointerId)
               }}
-              className="flex min-h-16 cursor-move touch-none select-none items-center justify-between gap-3 border-b border-[#2A3B4D] bg-[#1E2A38] px-4 text-white sm:px-5"
+              className="flex min-h-[4.25rem] cursor-move touch-none select-none items-center justify-between gap-3 border-b-[3px] border-b-[#D4B26A] bg-[#1E2A38] px-4 text-white sm:px-5"
             >
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/15"><ActionIcon name="message" /></span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/10 text-[#D4B26A]"><ActionIcon name="message" /></span>
                 <div className="min-w-0">
-                  <h2 className="truncate !text-[16px] font-black">Kurum İçi Haberleşme</h2>
-                  <p className="truncate !text-[16px] font-semibold text-white/80">Size gelen mesajlar ve kurum duyuruları</p>
+                  <p className="!text-[11px] font-bold uppercase tracking-[0.18em] text-[#D4B26A]">Kurum İçi</p>
+                  <h2 className="truncate !text-[17px] font-bold tracking-wide">Haberleşme ve Duyurular</h2>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <WindowMaximizeButton isMaximized={isCommunicationMaximized} onToggle={toggleCommunicationMaximize} className="h-7 w-7 rounded-full border-0 bg-white/10 hover:bg-white/20" />
+                {/* Yazi/pencere icerigi buyut-kucult (surukleme baslatmasin diye pointerdown durdurulur) */}
+                <div
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="flex h-9 items-center overflow-hidden rounded-lg border border-white/20 bg-white/10"
+                  title="Yazı boyutu"
+                >
+                  <button
+                    type="button"
+                    onClick={() => changeCommunicationUserZoom(communicationUserZoom - 0.1)}
+                    disabled={communicationUserZoom <= 0.7}
+                    aria-label="Küçült"
+                    className="flex h-full w-8 items-center justify-center !text-[17px] font-bold text-white transition hover:bg-white/15 disabled:opacity-35"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeCommunicationUserZoom(1)}
+                    aria-label="Yazı boyutunu %100'e döndür"
+                    className="h-full min-w-[3.25rem] border-x border-white/20 px-1 font-mono !text-[12.5px] font-bold text-[#D4B26A] transition hover:bg-white/15"
+                  >
+                    %{Math.round(communicationUserZoom * 100)}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeCommunicationUserZoom(communicationUserZoom + 0.1)}
+                    disabled={communicationUserZoom >= 1.6}
+                    aria-label="Büyüt"
+                    className="flex h-full w-8 items-center justify-center !text-[17px] font-bold text-white transition hover:bg-white/15 disabled:opacity-35"
+                  >
+                    +
+                  </button>
+                </div>
+                <WindowMaximizeButton isMaximized={isCommunicationMaximized} onToggle={toggleCommunicationMaximize} className="h-9 w-9 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20" />
                 <button
                   type="button"
                   onClick={() => {
@@ -21336,51 +21475,67 @@ function DocumentsPageContent() {
                     setIsCommunicationModalOpen(false)
                   }}
                   aria-label="Haberleşme penceresini kapat"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-base font-bold transition hover:bg-white/20"
+                  title="Kapat"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 transition hover:bg-white/20"
                 >
-                  ×
+                  <ActionIcon name="close" className="h-4 w-4" />
                 </button>
               </div>
             </header>
 
             {communicationModalError && (
-              <div className="border-b border-rose-200 bg-rose-50 px-4 py-1 !text-[16px] font-bold text-rose-700">
+              <div className="border-b border-rose-200 border-l-4 border-l-rose-500 bg-rose-50 px-4 py-2 !text-[14px] font-semibold text-rose-800">
                 {communicationModalError}
               </div>
             )}
 
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[520px_minmax(0,1fr)]">
-              <aside className={`${selectedCommunicationId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r border-slate-200 bg-white`}>
-                <div className="border-b border-slate-200 px-2.5 py-1.5">
-                  <h3 className="!text-[16px] font-black text-slate-900">Kişiler</h3>
-                  <p className="!text-[16px] font-bold text-slate-400">Sohbet etmek için bir kullanıcı seçin</p>
-                  <label className="relative mt-1.5 block">
-                    <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-slate-400" aria-hidden="true">⌕</span>
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[380px_minmax(0,1fr)]">
+              <aside className={`${selectedCommunicationId ? 'hidden lg:flex' : 'flex'} min-h-0 flex-col border-r border-[#D5DDE2] bg-white`}>
+                <div className="border-b border-[#D5DDE2] bg-[#F7F8FA] px-3 py-3">
+                  <label className="relative block">
+                    <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-4 w-4"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                    </span>
                     <input
                       type="search"
                       value={communicationUserSearch}
                       onChange={(event) => setCommunicationUserSearch(event.target.value)}
-                      placeholder="Kişi ara..."
+                      placeholder="Personel ara..."
                       aria-label="Kişilerde ara"
-                      className="h-7 w-full rounded-lg border border-slate-300 bg-slate-50 pl-7 pr-7 !text-[16px] font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-cyan-500 focus:bg-white focus:ring-2 focus:ring-cyan-100"
+                      className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-8 !text-[14.5px] font-semibold text-[#1E2A38] outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
                     />
                     {communicationUserSearch && (
                       <button
                         type="button"
                         onClick={() => setCommunicationUserSearch('')}
                         aria-label="Aramayı temizle"
-                        className="absolute inset-y-0 right-1 flex w-5 items-center justify-center text-xs font-bold text-slate-400 hover:text-slate-700"
+                        className="absolute inset-y-0 right-1.5 flex w-6 items-center justify-center !text-[16px] font-bold text-slate-400 hover:text-slate-700"
                       >
                         ×
                       </button>
                     )}
                   </label>
                 </div>
-                <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-slate-200">
-                  <section className="flex min-h-0 flex-col bg-sky-50/40">
-                    <div className="border-b border-sky-300 bg-sky-100 px-2 py-1">
-                      <div className="flex items-center justify-between gap-1.5">
-                        <h4 className="!text-[16px] font-black uppercase text-sky-900">Tüm Kullanıcılar</h4>
+
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  {communicationModalLoading ? (
+                    <p className="p-6 text-center !text-[14px] font-semibold text-slate-400">Yükleniyor...</p>
+                  ) : (
+                    <>
+                      {/* 1) Yazismalar - mesaj gelen kisiler (okunmamis once) */}
+                      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[#D5DDE2] bg-[#EEF2F6] px-3 py-2">
+                        <span className="!text-[11.5px] font-bold uppercase tracking-[0.12em] text-[#1E2A38]">Yazışmalar</span>
+                        <span className="!text-[12px] font-semibold text-slate-500">{communicationIncomingUsers.length} kişi</span>
+                      </div>
+                      {communicationIncomingUsers.length === 0 ? (
+                        <p className="px-3 py-4 text-center !text-[13px] font-medium text-slate-400">Size gelen mesaj yok.</p>
+                      ) : communicationIncomingUsers.map((user) => renderCommunicationUser(user, true))}
+
+                      {/* 2) Tum personel - kutucukla coklu alici secimi */}
+                      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-y border-[#D5DDE2] bg-[#EEF2F6] px-3 py-2">
+                        <span className="!text-[11.5px] font-bold uppercase tracking-[0.12em] text-[#1E2A38]">
+                          Tüm Personel <span className="font-semibold normal-case tracking-normal text-slate-500">· {filteredCommunicationUsers.length}</span>
+                        </span>
                         <button
                           type="button"
                           onClick={() => setCommunicationRecipientIds(
@@ -21388,143 +21543,152 @@ function DocumentsPageContent() {
                               ? []
                               : communicationUsers.map((user) => user.id),
                           )}
-                          className="shrink-0 rounded-md border border-sky-700 px-1.5 py-0.5 !text-[16px] font-black text-sky-800 transition hover:bg-sky-700 hover:text-white"
+                          className="shrink-0 rounded-md border border-[#1E2A38]/30 bg-white px-2 py-0.5 !text-[12px] font-bold text-[#1E2A38] transition hover:bg-[#1E2A38] hover:text-white"
+                          title="Duyuru için tüm personeli alıcı olarak seç / seçimi kaldır"
                         >
-                          Tümü
+                          {communicationUsers.length > 0 && communicationUsers.every((user) => communicationRecipientIds.includes(user.id)) ? 'Seçimi kaldır' : 'Tümünü seç'}
                         </button>
                       </div>
-                      <p className="!text-[16px] font-bold text-sky-700">{filteredCommunicationUsers.length} kişi · {communicationRecipientIds.length} seçili</p>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto">
-                      {communicationModalLoading ? (
-                        <p className="p-3 text-center !text-[16px] font-bold text-slate-400">Yükleniyor...</p>
-                      ) : filteredCommunicationUsers.length === 0 ? (
-                        <p className="p-3 text-center !text-[16px] font-bold text-slate-400">Kullanıcı bulunamadı.</p>
+                      {filteredCommunicationUsers.length === 0 ? (
+                        <p className="px-3 py-4 text-center !text-[13px] font-medium text-slate-400">Personel bulunamadı.</p>
                       ) : [...filteredCommunicationUsers].sort((left, right) => left.name.localeCompare(right.name, 'tr-TR')).map((user) => renderCommunicationUser(user))}
-                    </div>
-                  </section>
-                  <section className="flex min-h-0 flex-col bg-emerald-50/50">
-                    <div className="border-b border-emerald-300 bg-emerald-100 px-2 py-1">
-                      <h4 className="!text-[16px] font-black uppercase text-emerald-900">Mesaj Gelenler</h4>
-                      <p className="!text-[16px] font-bold text-emerald-700">{communicationIncomingUsers.length} kişi</p>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-y-auto">
-                      {communicationModalLoading ? (
-                        <p className="p-3 text-center !text-[16px] font-bold text-slate-400">Yükleniyor...</p>
-                      ) : communicationIncomingUsers.length === 0 ? (
-                        <p className="p-3 text-center !text-[16px] font-bold text-slate-400">Mesaj gelen kullanıcı bulunmuyor.</p>
-                      ) : communicationIncomingUsers.map((user) => renderCommunicationUser(user, true))}
-                    </div>
-                  </section>
+                    </>
+                  )}
                 </div>
+
+                <p className="border-t border-[#D5DDE2] bg-[#F7F8FA] px-3 py-2 !text-[12px] font-medium leading-snug text-slate-500">
+                  Bir kişiye tıklayınca yazışma açılır. Birden fazla kişiye aynı mesajı göndermek için kutucukları işaretleyin.
+                </p>
               </aside>
 
-              <main className={`${selectedCommunicationId ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col bg-[#e8eff1]`}>
+              <main className={`${selectedCommunicationId ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col bg-[#F2F4F7]`}>
                 {(() => {
                   const selectedUser = communicationUsers.find((user) => user.id === selectedCommunicationId)
-                  if (!selectedUser) return <div className="flex flex-1 items-center justify-center p-6 text-center !text-[16px] font-bold text-slate-500">Mesajlaşmak için soldan bir kullanıcı seçin.</div>
+                  if (!selectedUser) {
+                    return (
+                      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+                        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1E2A38] text-[#D4B26A] shadow-md"><ActionIcon name="message" /></span>
+                        <p className="!text-[16px] font-bold text-[#1E2A38]">Bir yazışma seçin</p>
+                        <p className="max-w-sm !text-[13.5px] font-medium text-slate-500">Soldaki listeden bir personel seçerek mesajlaşmaya başlayın. Duyuru için birden fazla kişiyi işaretleyebilirsiniz.</p>
+                      </div>
+                    )
+                  }
                   const conversation = communicationInbox.filter((message) => (
                     message.direction === 'incoming'
                       ? message.senderUserId === selectedUser.id
                       : message.recipients.some((recipient) => recipient.userId === selectedUser.id)
                   ))
+                  const otherRecipientCount = communicationRecipientIds.filter((id) => id !== selectedUser.id).length
                   return (
                     <>
-                      <div className="flex min-h-11 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4">
-                        <button type="button" onClick={() => setSelectedCommunicationId('')} className="flex h-7 w-7 items-center justify-center rounded-full text-base font-black text-cyan-800 hover:bg-cyan-50 lg:hidden">‹</button>
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-cyan-100 !text-[16px] font-black text-cyan-800">{selectedUser.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase('tr-TR')}</span>
-                        <div className="min-w-0">
-                          <h3 className="truncate !text-[16px] font-black text-slate-900">{selectedUser.name}</h3>
-                          <p className="truncate !text-[16px] font-bold text-emerald-600">Kurum içi kullanıcı</p>
+                      <div className="flex min-h-[3.75rem] items-center gap-3 border-b border-[#D5DDE2] bg-white px-3 sm:px-4">
+                        <button type="button" onClick={() => setSelectedCommunicationId('')} aria-label="Kişi listesine dön" className="flex h-8 w-8 items-center justify-center rounded-lg !text-[20px] font-bold text-[#1E2A38] hover:bg-slate-100 lg:hidden">‹</button>
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1E2A38] !text-[14px] font-bold text-[#D4B26A]">{communicationInitials(selectedUser.name)}</span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="truncate !text-[16px] font-bold text-[#1E2A38]">{selectedUser.name}</h3>
+                          <p className="truncate !text-[12.5px] font-medium text-slate-500">Kurum içi kullanıcı · {conversation.length} mesaj</p>
                         </div>
                       </div>
-                      <div className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_center,rgba(255,255,255,.7),transparent_70%)] p-3 sm:p-4">
+
+                      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
                         {conversation.length === 0 ? (
-                          <div className="flex h-full items-center justify-center text-center !text-[16px] font-bold text-slate-400">Henüz mesaj yok. İlk mesajı aşağıdan yazabilirsiniz.</div>
+                          <div className="flex h-full items-center justify-center text-center !text-[14px] font-medium text-slate-400">Henüz mesaj yok. İlk mesajı aşağıdan yazabilirsiniz.</div>
                         ) : (
-                          <div className="mx-auto flex max-w-3xl flex-col gap-1.5">
-                            {conversation.map((message) => (
-                              <div key={`${message.direction}-${message.id}`} className={`max-w-[85%] rounded-2xl px-3 py-2 shadow-sm sm:max-w-[72%] ${message.direction === 'outgoing' ? 'ml-auto rounded-br-sm bg-[#d9fdd3]' : 'mr-auto rounded-tl-sm bg-white'}`}>
-                                {message.subject && <p className="mb-1 !text-[16px] font-black text-cyan-900">{message.subject}</p>}
-                                <p className="whitespace-pre-wrap break-words !text-[16px] font-semibold leading-4 text-slate-700">{message.content}</p>
-                                {message.attachments?.length > 0 && (
-                                  <div className="mt-1.5 grid gap-1">
-                                    {message.attachments.map((attachment) => (
-                                      attachment.mimeType.startsWith('image/') ? (
-                                        <div key={attachment.id} className="overflow-hidden rounded-xl border border-black/10 bg-white/75 shadow-sm">
-                                          <img
-                                            src={`/api/communication/attachments/${attachment.id}`}
-                                            alt={attachment.fileName}
-                                            loading="lazy"
-                                            className="block max-h-80 w-full bg-slate-100 object-contain"
-                                          />
-                                          <div className="flex min-w-0 items-center gap-2 border-t border-slate-200 px-2.5 py-1.5">
-                                            <span className="min-w-0 flex-1">
-                                              <span className="block truncate !text-[16px] font-black text-slate-700">{attachment.fileName}</span>
-                                              <span className="block !text-[16px] font-bold text-slate-400">{(attachment.fileSize / 1024).toLocaleString('tr-TR', { maximumFractionDigits: 0 })} KB</span>
-                                            </span>
-                                            <a
-                                              href={`/api/communication/attachments/${attachment.id}?download=1`}
-                                              className="shrink-0 rounded-lg bg-cyan-700 px-2.5 py-1.5 !text-[16px] font-black text-white hover:bg-cyan-800"
-                                            >
-                                              İndir
-                                            </a>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div key={attachment.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-black/10 bg-white/70 px-2.5 py-1.5 text-left">
-                                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-rose-100 !text-[16px] font-black text-rose-700">PDF</span>
-                                          <span className="min-w-0 flex-1">
-                                            <span className="block truncate !text-[16px] font-black text-slate-700">{attachment.fileName}</span>
-                                            <span className="block !text-[16px] font-bold text-slate-400">{(attachment.fileSize / 1024).toLocaleString('tr-TR', { maximumFractionDigits: 0 })} KB</span>
-                                          </span>
-                                          <a href={`/api/communication/attachments/${attachment.id}`} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-cyan-200 bg-white px-2 py-1.5 !text-[16px] font-black text-cyan-800">Aç</a>
-                                          <a href={`/api/communication/attachments/${attachment.id}?download=1`} className="shrink-0 rounded-lg bg-cyan-700 px-2 py-1.5 !text-[16px] font-black text-white">İndir</a>
-                                        </div>
-                                      )
-                                    ))}
+                          <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+                            {conversation.map((message) => {
+                              const outgoing = message.direction === 'outgoing'
+                              return (
+                                <div key={`${message.direction}-${message.id}`} className={`group max-w-[85%] sm:max-w-[72%] ${outgoing ? 'ml-auto' : 'mr-auto'}`}>
+                                  <div className={`rounded-2xl px-3.5 py-2.5 shadow-[0_1px_2px_rgba(16,30,43,0.08)] ${outgoing ? 'rounded-br-md bg-[#1E2A38] text-white' : 'rounded-bl-md border border-[#D5DDE2] bg-white text-[#1E2A38]'}`}>
+                                    {message.subject && <p className={`mb-1 !text-[14px] font-bold ${outgoing ? 'text-[#D4B26A]' : 'text-[#8A6D2B]'}`}>{message.subject}</p>}
+                                    {message.content && <p className="whitespace-pre-wrap break-words !text-[15px] font-medium leading-snug">{message.content}</p>}
+                                    {message.attachments?.length > 0 && (
+                                      <div className="mt-2 grid gap-1.5">
+                                        {message.attachments.map((attachment) => (
+                                          attachment.mimeType.startsWith('image/') ? (
+                                            <div key={attachment.id} className="overflow-hidden rounded-xl border border-black/10 bg-white shadow-sm">
+                                              <img
+                                                src={`/api/communication/attachments/${attachment.id}`}
+                                                alt={attachment.fileName}
+                                                loading="lazy"
+                                                className="block max-h-80 w-full bg-slate-100 object-contain"
+                                              />
+                                              <div className="flex min-w-0 items-center gap-2 border-t border-slate-200 px-2.5 py-1.5">
+                                                <span className="min-w-0 flex-1">
+                                                  <span className="block truncate !text-[13px] font-semibold text-slate-700">{attachment.fileName}</span>
+                                                  <span className="block !text-[11.5px] font-medium text-slate-400">{(attachment.fileSize / 1024).toLocaleString('tr-TR', { maximumFractionDigits: 0 })} KB</span>
+                                                </span>
+                                                <a
+                                                  href={`/api/communication/attachments/${attachment.id}?download=1`}
+                                                  className="shrink-0 rounded-md bg-[#1E2A38] px-2.5 py-1 !text-[12.5px] font-bold text-white hover:bg-[#2A3B4D]"
+                                                >
+                                                  İndir
+                                                </a>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div key={attachment.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-black/10 bg-white px-2.5 py-1.5 text-left">
+                                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-rose-50 !text-[11px] font-bold text-rose-700">PDF</span>
+                                              <span className="min-w-0 flex-1">
+                                                <span className="block truncate !text-[13px] font-semibold text-slate-700">{attachment.fileName}</span>
+                                                <span className="block !text-[11.5px] font-medium text-slate-400">{(attachment.fileSize / 1024).toLocaleString('tr-TR', { maximumFractionDigits: 0 })} KB</span>
+                                              </span>
+                                              <a href={`/api/communication/attachments/${attachment.id}`} target="_blank" rel="noreferrer" className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 !text-[12.5px] font-bold text-[#1E2A38] hover:bg-slate-50">Aç</a>
+                                              <a href={`/api/communication/attachments/${attachment.id}?download=1`} className="shrink-0 rounded-md bg-[#1E2A38] px-2 py-1 !text-[12.5px] font-bold text-white hover:bg-[#2A3B4D]">İndir</a>
+                                            </div>
+                                          )
+                                        ))}
+                                      </div>
+                                    )}
+                                    <div className={`mt-1 flex items-center justify-end gap-1.5 !text-[11.5px] font-medium ${outgoing ? 'text-white/60' : 'text-slate-400'}`}>
+                                      <time>{new Date(message.createdAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</time>
+                                      {outgoing && <span className="font-bold text-[#D4B26A]" title="Gönderildi">✓✓</span>}
+                                    </div>
                                   </div>
-                                )}
-                                <div className="mt-1 flex flex-wrap items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => void deleteEmbeddedCommunication(message, 'me')}
-                                    className="rounded-lg px-1.5 py-0.5 !text-[16px] font-black text-rose-600 hover:bg-rose-50"
-                                  >
-                                    Benden Sil
-                                  </button>
-                                  {message.direction === 'outgoing' && (
+                                  {/* Silme baglantilari: sade, balonun altinda (fareyle uzerine gelince belirginlesir) */}
+                                  <div className={`mt-0.5 flex gap-3 px-1 opacity-60 transition group-hover:opacity-100 ${outgoing ? 'justify-end' : 'justify-start'}`}>
                                     <button
                                       type="button"
-                                      onClick={() => void deleteEmbeddedCommunication(message, 'everyone')}
-                                      className="rounded-lg bg-rose-600 px-1.5 py-0.5 !text-[16px] font-black text-white hover:bg-rose-700"
+                                      onClick={() => void deleteEmbeddedCommunication(message, 'me')}
+                                      className="!text-[12px] font-semibold text-slate-500 hover:text-rose-600 hover:underline"
                                     >
-                                      Herkesten Sil
+                                      Benden sil
                                     </button>
-                                  )}
-                                  <time className="!text-[16px] font-bold text-slate-400">{new Date(message.createdAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}</time>
-                                  {message.direction === 'outgoing' && <span className="!text-[16px] font-black text-sky-600">✓✓</span>}
+                                    {outgoing && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void deleteEmbeddedCommunication(message, 'everyone')}
+                                        className="!text-[12px] font-semibold text-rose-600 hover:underline"
+                                      >
+                                        Herkesten sil
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>
-                      <form onSubmit={sendEmbeddedCommunication} className="border-t border-slate-200 bg-white p-2">
+
+                      <form onSubmit={sendEmbeddedCommunication} className="border-t border-[#D5DDE2] bg-white px-3 py-3 sm:px-4">
                         <div className="mx-auto max-w-3xl">
-                          <div className="mb-1.5 flex items-center justify-between gap-2">
-                            <span className="rounded-full bg-cyan-50 px-2.5 py-1 !text-[16px] font-black text-cyan-800">
-                              {communicationRecipientIds.length > 0
-                                ? `${communicationRecipientIds.length} kullanıcıya gönderilecek`
-                                : 'Soldaki listeden alıcı seçin'}
+                          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 !text-[13px] font-semibold text-slate-600">
+                              <span className="!text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#8A6D2B]">Alıcı</span>
+                              {communicationRecipientIds.length === 0
+                                ? <span className="text-rose-600">Soldaki listeden alıcı seçin</span>
+                                : communicationRecipientIds.length === 1 && communicationRecipientIds[0] === selectedUser.id
+                                  ? <span className="font-bold text-[#1E2A38]">{selectedUser.name}</span>
+                                  : <span className="font-bold text-[#1E2A38]">{communicationRecipientIds.length} kişi{otherRecipientCount > 0 ? ' (toplu gönderim)' : ''}</span>}
                             </span>
                             {communicationRecipientIds.length > 1 && (
-                              <button type="button" onClick={() => setCommunicationRecipientIds([])} className="!text-[16px] font-black text-rose-600 hover:underline">
+                              <button type="button" onClick={() => setCommunicationRecipientIds([])} className="!text-[12.5px] font-semibold text-rose-600 hover:underline">
                                 Seçimi temizle
                               </button>
                             )}
                           </div>
-                          <div className="flex items-end gap-2 rounded-2xl bg-slate-100 p-1.5">
+                          <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white p-1.5 shadow-[inset_0_1px_2px_rgba(16,30,43,0.04)] focus-within:border-[#1E2A38] focus-within:ring-2 focus-within:ring-[#1E2A38]/10">
                             <input
                               ref={communicationFileInputRef}
                               type="file"
@@ -21539,22 +21703,55 @@ function DocumentsPageContent() {
                               }}
                               className="hidden"
                             />
-                            <button type="button" onClick={() => communicationFileInputRef.current?.click()} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-base font-black text-cyan-700 shadow-sm" aria-label="PDF veya ekran görüntüsü ekle">＋</button>
-                            <textarea value={communicationContent} onChange={(event) => setCommunicationContent(event.target.value)} onPaste={pasteCommunicationImages} maxLength={10000} rows={1} className="max-h-24 min-h-8 flex-1 resize-y bg-transparent px-2 py-1.5 !text-[16px] font-semibold outline-none" placeholder="Mesajınızı yazın..." />
-                            <button disabled={communicationSending || communicationRecipientIds.length === 0} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-cyan-700 text-sm font-black text-white transition hover:bg-cyan-800 disabled:opacity-40" aria-label="Mesajı gönder">
-                              {communicationSending ? '…' : '➤'}
+                            <button
+                              type="button"
+                              onClick={() => communicationFileInputRef.current?.click()}
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#1E2A38]"
+                              aria-label="PDF veya görsel ekle"
+                              title="PDF veya görsel ekle (en fazla 5 dosya, 5 MB)"
+                            >
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5" aria-hidden><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" /></svg>
+                            </button>
+                            <textarea
+                              value={communicationContent}
+                              onChange={(event) => setCommunicationContent(event.target.value)}
+                              onPaste={pasteCommunicationImages}
+                              onKeyDown={(event) => {
+                                // Enter = gonder, Shift+Enter = yeni satir
+                                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                                  event.preventDefault()
+                                  event.currentTarget.form?.requestSubmit()
+                                }
+                              }}
+                              maxLength={10000}
+                              rows={1}
+                              className="max-h-32 min-h-9 flex-1 resize-none bg-transparent px-1.5 py-2 !text-[15px] font-medium text-[#1E2A38] outline-none placeholder:text-slate-400"
+                              placeholder="Mesajınızı yazın..."
+                            />
+                            <button
+                              disabled={communicationSending || communicationRecipientIds.length === 0}
+                              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border-b-2 border-b-[#D4B26A] bg-[#1E2A38] px-3.5 !text-[13.5px] font-bold text-white transition hover:bg-[#2A3B4D] disabled:opacity-40"
+                              aria-label="Mesajı gönder"
+                            >
+                              {communicationSending ? 'Gönderiliyor...' : (
+                                <>
+                                  Gönder
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4" aria-hidden><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>
+                                </>
+                              )}
                             </button>
                           </div>
                           {communicationFiles.length > 0 && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
+                            <div className="mt-2 flex flex-wrap gap-1.5">
                               {communicationFiles.map((file, index) => (
-                                <span key={`${file.name}-${index}`} className="inline-flex max-w-52 items-center gap-1.5 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-1 !text-[16px] font-bold text-cyan-900">
+                                <span key={`${file.name}-${index}`} className="inline-flex max-w-56 items-center gap-1.5 rounded-md border border-slate-300 bg-[#F7F8FA] px-2 py-1 !text-[12.5px] font-semibold text-[#1E2A38]">
                                   <span className="truncate">{file.name}</span>
-                                  <button type="button" onClick={() => setCommunicationFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))} className="shrink-0 !text-[16px] font-black text-rose-600" aria-label={`${file.name} dosyasını kaldır`}>×</button>
+                                  <button type="button" onClick={() => setCommunicationFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))} className="shrink-0 !text-[14px] font-bold text-rose-600" aria-label={`${file.name} dosyasını kaldır`}>×</button>
                                 </span>
                               ))}
                             </div>
                           )}
+                          <p className="mt-1.5 !text-[11.5px] font-medium text-slate-400">Enter ile gönderin · Shift+Enter yeni satır · Ekran görüntüsünü yapıştırarak ekleyebilirsiniz</p>
                         </div>
                       </form>
                     </>
@@ -23139,7 +23336,17 @@ function DocumentsPageContent() {
                   <span className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Durumu</span>
                   <select
                     value={editAssistanceForm.status}
-                    onChange={(event) => setEditAssistanceForm((prev) => ({ ...prev, status: event.target.value }))}
+                    onChange={(event) => {
+                      const status = event.target.value
+                      // 2026-10-15: kesilmis duruma gecince donem "Kapalı"; Devam/Bekliyor'a
+                      // donunce periyot yeniden secilsin diye bos kalir (dönemli 4 tur)
+                      const donemli = KIS_DONEMI_TABLOLAR.includes(editingAssistanceRow?.sourceTable || '')
+                      setEditAssistanceForm((prev) => ({
+                        ...prev,
+                        status,
+                        period: !donemli ? prev.period : !donemAcikMi(status) ? KAPALI_DONEM : prev.period === KAPALI_DONEM ? '' : prev.period,
+                      }))
+                    }}
                     className="rounded-lg border-2 border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-950 outline-none focus:border-emerald-500"
                   >
                     <option value="">Seçiniz...</option>
@@ -23173,7 +23380,11 @@ function DocumentsPageContent() {
                 </label>
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[9px] font-bold uppercase tracking-wide text-slate-500">Dönem Bilgisi</span>
-                  <select value={editAssistanceForm.period} onChange={(event) => handleAssistancePeriodChange(event.target.value)} className="rounded-lg border-2 border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-950 outline-none focus:border-emerald-500">
+                  <select
+                    value={editAssistanceForm.period}
+                    onChange={(event) => handleAssistancePeriodChange(event.target.value)}
+                    className="rounded-lg border-2 border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-950 outline-none focus:border-emerald-500"
+                  >
                     <option value="">Periyot seçiniz...</option>
                     <option value="1 Ay">1 Ay</option>
                     <option value="2 Ay">2 Ay</option>
@@ -23183,6 +23394,10 @@ function DocumentsPageContent() {
                     <option value="6 Ay">6 Ay</option>
                     {KIS_DONEMI_TABLOLAR.includes(editingAssistanceRow?.sourceTable || '') && (
                       <option value={KIS_DONEMI_PERIOD_LABEL}>{KIS_DONEMI_PERIOD_LABEL}</option>
+                    )}
+                    {/* 2026-10-15: suresi bitmis/kesilmis yardim icin "Kapalı" (kilitli degil) */}
+                    {KIS_DONEMI_TABLOLAR.includes(editingAssistanceRow?.sourceTable || '') && (
+                      <option value={KAPALI_DONEM}>{KAPALI_DONEM}</option>
                     )}
                   </select>
                 </label>
@@ -23244,23 +23459,23 @@ function DocumentsPageContent() {
               onPointerDown={addApplicationWindow.startDrag}
               onPointerMove={addApplicationWindow.onDrag}
               onPointerUp={(event) => { addApplicationWindow.endDrag(event) }}
-              className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-5 py-3.5 text-white shadow-sm">
+              className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 border-b-[3px] border-b-[#D4B26A] bg-[#1E2A38] px-5 py-3 text-white">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/30 bg-white/15 shadow-inner">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-[#D4B26A]">
                   <ActionIcon name="fileAdd" className="h-4.5 w-4.5" />
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-[10px] font-black uppercase tracking-[0.16em] text-white/80">
+                  <p className="truncate !text-[11px] font-bold uppercase tracking-[0.16em] text-[#D4B26A]">
                     {addApplicationForm.type ? addApplicationForm.type : 'Müracaat İşlemleri'}
                   </p>
-                  <h3 className="truncate text-lg font-black leading-tight">
+                  <h3 className="truncate !text-[17px] font-bold leading-tight tracking-wide">
                     {editingApplicationRow ? 'Müracaat Düzenle' : addApplicationForm.type === 'Ayni/Nakdi' ? 'Ayni Nakti Yardım Müracaatı' : 'Yeni Müracaat Ekle'}
                   </h3>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <WindowMaximizeButton isMaximized={addApplicationWindow.isMaximized} onToggle={addApplicationWindow.toggleMaximize} className="h-8 w-8 rounded-full border-white/25" />
-                <button type="button" onClick={() => { setEditingApplicationRow(null); setIsAddApplicationModalOpen(false); setConvertAfterEditRecord(null) }} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/10 text-white transition hover:bg-white/25">
+                <WindowMaximizeButton isMaximized={addApplicationWindow.isMaximized} onToggle={addApplicationWindow.toggleMaximize} className="h-9 w-9 rounded-lg border-white/20" />
+                <button type="button" onClick={() => { setEditingApplicationRow(null); setIsAddApplicationModalOpen(false); setConvertAfterEditRecord(null) }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white transition hover:bg-white/20">
                   <ActionIcon name="close" className="h-5 w-5" />
                 </button>
               </div>
@@ -23278,17 +23493,66 @@ function DocumentsPageContent() {
                 }}
               />
             )}
-            <div className={`flex-1 overflow-y-auto p-3 md:p-4 bg-gradient-to-b ${applicationTypeTheme.headBg} via-white to-white`}>
+            <div className="flex-1 overflow-y-auto bg-[#F4F6F8] p-3 md:p-4">
               <div className="space-y-4">
                 {/* SABİT �SST B�L�SM: Müracaat Temel Bilgileri */}
-                {addApplicationForm.type !== 'Ayni/Nakdi' && (
-                <div className={`rounded-xl border-2 bg-white p-4 shadow-sm ${applicationTypeTheme.panelBorder}`}>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-[230px_minmax(0,1fr)]">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="flex items-center gap-2 text-xs font-black uppercase text-slate-600">
-                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white ${applicationTypeTheme.badgeText.replace('text-', 'bg-').replace('-800', '-600')}`}>1</span>
-                        Müracaat Türü
-                      </span>
+                <div className="rounded-xl border border-[#D5DDE2] bg-white p-4 shadow-[0_1px_2px_rgba(16,30,43,0.05)]">
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+                    <div className="flex flex-col gap-4">
+                      {/* 2026-10-15: 1) Müracaatçı (kişi + tarih) - lacivert tonlu cerceve */}
+                      <section className="overflow-hidden rounded-xl border border-[#B9C7D6] bg-[#EEF2F6]">
+                        <div className="flex items-center gap-2 border-b border-[#B9C7D6] bg-[#1E2A38] px-3 py-2 text-white">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#D4B26A] !text-[12px] font-bold text-[#1E2A38]">1</span>
+                          <span className="!text-[12px] font-bold uppercase tracking-[0.12em]">Müracaatçı</span>
+                        </div>
+                        <div className="flex flex-col gap-3 p-3">
+                          <label className="flex flex-col gap-1.5">
+                            <span className="!text-[11.5px] font-bold uppercase tracking-[0.08em] text-[#2A3B4D]">Müracaat Eden Kişi</span>
+                            <select
+                              value={addApplicationForm.beneficiaryTc}
+                              disabled={isApplicationModalReadOnly}
+                              onChange={(e) => {
+                                // Nakit bolumundeki secimle ayni: kisi degisince TC/telefon da o kisiye gore dolar
+                                const nextTc = e.target.value
+                                const nextPerson = nextTc === displayedPerson.identityNumber
+                                  ? displayedPerson
+                                  : (displayedPerson.household || []).find((member) => member.identityNumber === nextTc)
+                                const nextPhone = nextPerson && 'mobilePhone' in nextPerson ? nextPerson.mobilePhone : ''
+                                setAddApplicationForm(prev => ({ ...prev, beneficiaryTc: nextTc, phone: nextPhone, tc: nextTc }))
+                              }}
+                              className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
+                            >
+                              <option value={displayedPerson.identityNumber}>
+                                {displayedPerson.firstName} {displayedPerson.lastName} (DOSYA SAHİBİ)
+                              </option>
+                              {(displayedPerson.household || [])
+                                .filter(member => member.identityNumber !== displayedPerson.identityNumber)
+                                .map((member) => (
+                                  <option key={member.identityNumber} value={member.identityNumber}>
+                                    {member.firstName} {member.lastName} ({relationValueLabel(member.relation, 'HANE BIREYI')})
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className="!text-[11.5px] font-bold uppercase tracking-[0.08em] text-[#2A3B4D]">Müracaat Tarihi</span>
+                            <input
+                              type="date"
+                              readOnly={!editingApplicationRow}
+                              value={addApplicationForm.date}
+                              className={`h-11 w-full rounded-lg border px-3 !text-[14px] font-semibold outline-none ${editingApplicationRow ? 'border-slate-300 bg-white text-[#1E2A38] focus:border-[#1E2A38]' : 'cursor-not-allowed border-slate-200 bg-white/60 text-slate-500'}`}
+                            />
+                          </label>
+                        </div>
+                      </section>
+
+                      {/* 2) Müracaat Türü - altin/krem tonlu cerceve */}
+                      <section className="overflow-hidden rounded-xl border border-[#E2D3A6] bg-[#FBF7EC]">
+                        <div className="flex items-center gap-2 border-b border-[#E2D3A6] bg-[#F3EAD0] px-3 py-2 text-[#5C4710]">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#1E2A38] !text-[12px] font-bold text-[#D4B26A]">2</span>
+                          <span className="!text-[12px] font-bold uppercase tracking-[0.12em]">Müracaat Türü</span>
+                        </div>
+                        <div className="flex flex-col gap-1.5 p-1.5">
                       <ApplicationTypeList
                         value={addApplicationForm.type}
                         disabled={Boolean(editingApplicationRow)}
@@ -23308,706 +23572,683 @@ function DocumentsPageContent() {
                           Uygun Görüş İste akışında sadece Ekmek, Gıda Bankası, Destek Paketi ve Hazır Yemek türleri açılabilir.
                         </span>
                       )}
+                        </div>
+                      </section>
                     </div>
 
-                    <div className="flex flex-col gap-4">
-                      <label className="flex flex-col gap-1.5">
-                        <span className="flex items-center gap-2 text-xs font-black uppercase text-slate-600">
-                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white ${applicationTypeTheme.badgeText.replace('text-', 'bg-').replace('-800', '-600')}`}>2</span>
-                          Müracaat Eden Kişi
-                        </span>
-                        <select
-                          value={addApplicationForm.beneficiaryTc}
-                          onChange={(e) => setAddApplicationForm(prev => ({ ...prev, beneficiaryTc: e.target.value }))}
-                          className="w-full rounded-lg border-2 border-amber-200 bg-amber-50 px-2.5 py-2 text-[13px] font-black text-slate-950 outline-none focus:border-amber-400"
-                        >
-                          <option value={displayedPerson.identityNumber}>
-                            {displayedPerson.firstName} {displayedPerson.lastName} (DOSYA SAHİBİ)
-                          </option>
-                          {(displayedPerson.household || [])
-                            .filter(member => member.identityNumber !== displayedPerson.identityNumber)
-                            .map((member) => (
-                              <option key={member.identityNumber} value={member.identityNumber}>
-                                {member.firstName} {member.lastName} ({relationValueLabel(member.relation, 'HANE BIREYI')})
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      <label className="flex flex-col gap-1.5">
-                        <span className="flex items-center gap-2 text-xs font-black uppercase text-slate-600">
-                          <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white ${applicationTypeTheme.badgeText.replace('text-', 'bg-').replace('-800', '-600')}`}>3</span>
-                          Müracaat Tarihi
-                        </span>
-                        <input
-                          type="date"
-                          readOnly={!editingApplicationRow}
-                          value={addApplicationForm.date}
-                          className={`w-full rounded-lg border-2 px-2.5 py-2 text-[13px] font-bold outline-none ${editingApplicationRow ? 'border-slate-200 bg-white text-slate-950 focus:border-[#0076b6]' : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'}`}
-                        />
-                      </label>
+                    <div className="flex min-w-0 flex-col gap-3">
                       {!addApplicationForm.type && (
-                        <p className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs font-bold text-slate-400">
-                          Devam etmek için soldan bir yardım türü seçin.
+                        <p className="rounded-lg border border-dashed border-slate-300 bg-[#F7F8FA] px-3 py-5 text-center !text-[13.5px] font-medium text-slate-500">
+                          Devam etmek için soldan bir yardım türü seçin. <span className="font-semibold text-[#1E2A38]">&quot;Otomatik&quot;</span> işaretli türler eklendiği anda yardıma dönüştürülür.
                         </p>
+                      )}
+                      {addApplicationForm.type && (
+                        <>
+                        {Boolean(addApplicationForm.type) && (
+                        <div className="flex items-center gap-2 rounded-lg border border-[#D5DDE2] border-l-4 border-l-[#D4B26A] bg-white px-3 py-2.5 text-[#1E2A38]">
+                          <ActionIcon name="gift" className="h-4 w-4 shrink-0 text-[#8A6D2B]" />
+                          <span className="!text-[12.5px] font-bold uppercase tracking-[0.12em]">{addApplicationForm.type === 'Ayni/Nakdi' ? 'Nakit Yardımı' : addApplicationForm.type} · Yardım Bilgileri</span>
+                        </div>
+                        )}
+                        {addApplicationForm.type !== 'Ayni/Nakdi' && !editingApplicationRow && (
+                          <div className={`rounded-lg border-l-4 px-3.5 py-2.5 !text-[13px] font-medium leading-snug ${
+                            OTOMATIK_YARDIM_TURLERI.has(addApplicationForm.type) && addApplicationForm.period !== KIS_DONEMI_PERIOD_LABEL
+                              ? 'border-l-emerald-600 bg-emerald-50 text-emerald-900'
+                              : 'border-l-[#1E2A38] bg-[#EEF2F6] text-[#1E2A38]'
+                          }`}>
+                            {OTOMATIK_YARDIM_TURLERI.has(addApplicationForm.type)
+                              ? addApplicationForm.period === KIS_DONEMI_PERIOD_LABEL
+                                ? <><b>Kış Dönemi:</b> müracaat kaydedilir ve beklemede kalır; dönem başlangıcında (1 Kasım) otomatik olarak yardıma dönüştürülür.</>
+                                : <><b>Otomatik yardım:</b> &quot;Ekle&quot;ye bastığınızda müracaat kaydedilir ve aynı bilgilerle hemen yardıma dönüştürülür{addApplicationForm.type === 'Gıda Bankası' || addApplicationForm.type === 'Destek Paketi' ? '; bu ayın ödeme dönemi de açılır' : ''}. Ayrıca &quot;Yardıma Dönüştür&quot; demeniz gerekmez.</>
+                              : <><b>Müracaat olarak kaydedilir:</b> bu tür, onay/işlem sonrasında &quot;Yardıma Dönüştür&quot; ile yardıma çevrilir.</>}
+                          </div>
+                        )}
+
+                        {/* DİĞER YARDIM T�SRLERİ İ�!İN GENEL ALANLAR */}
+                        {addApplicationForm.type && addApplicationForm.type !== 'Ayni/Nakdi' && (
+                          <div className="space-y-3.5 rounded-xl border border-[#D5DDE2] bg-white p-4 shadow-[0_1px_2px_rgba(16,30,43,0.05)]">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <label className="flex flex-col gap-1">
+                                <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">Yardım Periyodu</span>
+                                <select
+                                  value={addApplicationForm.period}
+                                  onChange={(e) => handlePeriodChange(e.target.value)}
+                                  className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
+                                >
+                                  <option value="">Periyot seciniz...</option>
+                                  {addApplicationForm.period && !assistancePeriodOptions.includes(addApplicationForm.period) && (
+                                    <option value={addApplicationForm.period}>{addApplicationForm.period}</option>
+                                  )}
+                                  {assistancePeriodOptions.map((item) => (
+                                    <option key={item} value={item}>{item}</option>
+                                  ))}
+                                  <option value="Süreli">Süreli (Tek Seferlik)</option>
+                                  {KIS_DONEMI_MURACAAT_TURLERI.includes(addApplicationForm.type) && (
+                                    <option value={KIS_DONEMI_PERIOD_LABEL}>{KIS_DONEMI_PERIOD_LABEL}</option>
+                                  )}
+                                </select>
+                                {KIS_DONEMI_MURACAAT_TURLERI.includes(addApplicationForm.type) && addApplicationForm.period === KIS_DONEMI_PERIOD_LABEL && (
+                                  <span className="!text-[12px] font-semibold text-amber-700">
+                                    Müracaat beklemede kalır, başlangıç tarihi (01 Kasım) geldiğinde otomatik olarak yardıma dönüştürülür.
+                                  </span>
+                                )}
+                              </label>
+                              {addApplicationForm.type === 'Hazır Yemek' ? (
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                  <label className="flex flex-col gap-1">
+                                    <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">Yemek Miktarı</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={addApplicationForm.amount}
+                                      onChange={(e) => setAddApplicationForm(prev => ({ ...prev, amount: e.target.value }))}
+                                      placeholder="0"
+                                      className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
+                                    />
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">Kahvaltı Miktarı</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={addApplicationForm.breakfastAmount}
+                                      onChange={(e) => setAddApplicationForm(prev => ({ ...prev, breakfastAmount: e.target.value }))}
+                                      placeholder="0"
+                                      className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
+                                    />
+                                  </label>
+                                </div>
+                              ) : (
+                                <label className="flex flex-col gap-1">
+                                  <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">{addApplicationForm.type === 'Ekmek' ? 'Miktar (günlük adet)' : 'Miktar (₺)'}</span>
+                                  <input
+                                    type="text"
+                                    value={addApplicationForm.amount}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, amount: e.target.value }))}
+                                    placeholder="0.00"
+                                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
+                                  />
+                                </label>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <label className="flex flex-col gap-1">
+                                <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">Başlangıç Tarihi</span>
+                                <input
+                                  type="date"
+                                  readOnly={isAutoFilledPeriod(addApplicationForm.period)}
+                                  value={addApplicationForm.startDate}
+                                  onChange={(e) => setAddApplicationForm(prev => ({ ...prev, startDate: e.target.value }))}
+                                  className={`h-11 w-full rounded-lg border border-slate-300 px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10 ${
+                                    isAutoFilledPeriod(addApplicationForm.period) ? 'cursor-not-allowed bg-[#F4F6F8] text-slate-500' : 'bg-white'
+                                  }`}
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1">
+                                <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">Bitiş Tarihi</span>
+                                <input
+                                  type="date"
+                                  readOnly={isAutoFilledPeriod(addApplicationForm.period)}
+                                  value={addApplicationForm.endDate}
+                                  onChange={(e) => setAddApplicationForm(prev => ({ ...prev, endDate: e.target.value }))}
+                                  className={`h-11 w-full rounded-lg border border-slate-300 px-3 !text-[14px] font-semibold text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10 ${
+                                    isAutoFilledPeriod(addApplicationForm.period) ? 'cursor-not-allowed bg-[#F4F6F8] text-slate-500' : 'bg-white'
+                                  }`}
+                                />
+                              </label>
+                            </div>
+
+                            <label className="flex flex-col gap-1">
+                              <span className="!text-[12px] font-bold uppercase tracking-[0.08em] text-slate-600">Kısa Açıklama (Opsiyonel)</span>
+                              <textarea
+                                value={addApplicationForm.description}
+                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, description: e.target.value }))}
+                                className="min-h-[64px] w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 !text-[14px] font-medium text-[#1E2A38] outline-none transition focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/10"
+                                placeholder="Müracaatla ilgili notlar..."
+                              />
+                            </label>
+                          </div>
+                        )}
+                        {/* NAKİT YARDIMI �ZEL ALANLARI (3.png bazlı) */}
+                        {addApplicationForm.type === 'Ayni/Nakdi' && (
+                          <>
+                          {isApplicationModalReadOnly && (
+                            <div className="mb-2 rounded-lg border-2 border-amber-300 bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-800">
+                              🔒 Bu müracaat kaydı salt okunur olarak görüntüleniyor. Güncelleme yapabilmek için yetkili bir kullanıcı hesabı gereklidir.
+                            </div>
+                          )}
+                          <div className="dy-nakit-modal-14 grid grid-cols-1 gap-3 text-[13px] text-slate-900 lg:grid-cols-[1fr_340px] lg:items-start">
+                          <div className="space-y-2">
+                            <fieldset disabled={isApplicationModalReadOnly} className="rounded-lg border-2 border-blue-200 bg-blue-50/50 p-3 shadow-sm disabled:opacity-60">
+                              <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-blue-800">Müracaatçı Bilgisi</legend>
+                              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">TC Kimlikno</span>
+                                  <input
+                                    id="nakit-tc"
+                                    value={addApplicationForm.tc}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, tc: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
+                                    placeholder={selectedApplicationPerson?.identityNumber || 'TC Kimlik No'}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  />
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Müracaat Eden</span>
+                                  <select
+                                    id="nakit-muracaat-eden"
+                                    value={addApplicationForm.beneficiaryTc}
+                                    onChange={(e) => {
+                                      const nextTc = e.target.value
+                                      const nextPerson = nextTc === displayedPerson.identityNumber
+                                        ? displayedPerson
+                                        : (displayedPerson.household || []).find((member) => member.identityNumber === nextTc)
+                                      // Kisi degistiginde Telefon da o kisinin kendi
+                                      // bireyler.ceptel'ine gore YENIDEN doldurulur
+                                      // (eski turetilmis-deger davranisiyla ayni) -
+                                      // yine de asagidaki input duzenlenebilir.
+                                      const nextPhone = nextPerson && 'mobilePhone' in nextPerson ? nextPerson.mobilePhone : ''
+                                      setAddApplicationForm(prev => ({ ...prev, beneficiaryTc: nextTc, phone: nextPhone, tc: nextTc }))
+                                    }}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  >
+                                    <option value={displayedPerson.identityNumber}>
+                                      {displayedPerson.firstName} {displayedPerson.lastName}
+                                    </option>
+                                    {(displayedPerson.household || [])
+                                      .filter(member => member.identityNumber !== displayedPerson.identityNumber)
+                                      .map((member) => (
+                                        <option key={member.identityNumber} value={member.identityNumber}>
+                                          {member.firstName} {member.lastName}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Doğum Tarihi</span>
+                                  <input
+                                    id="nakit-dogum-tarihi"
+                                    type="date"
+                                    value={selectedApplicationBirthDateValue}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, applicantBirthDate: e.target.value }))}
+                                    className={dateInputClassName(selectedApplicationBirthDateValue, 'w-full')}
+                                  />
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Telefon</span>
+                                  <input
+                                    id="nakit-telefon"
+                                    value={addApplicationForm.phone}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, phone: e.target.value }))}
+                                    onBlur={(e) => { const n = normalizeTrPhone(e.target.value); if (n !== e.target.value) setAddApplicationForm(prev => ({ ...prev, phone: n })) }}
+                                    placeholder={selectedApplicationPhone || 'Telefon numarası'}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  />
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">IBAN</span>
+                                  <input
+                                    id="nakit-iban"
+                                    value={addApplicationForm.iban}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, iban: e.target.value.toUpperCase() }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  />
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Aylık Gelir</span>
+                                  <input
+                                    id="nakit-aylik-gelir"
+                                    type="number"
+                                    value={addApplicationForm.householdIncome}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, householdIncome: e.target.value }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  />
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Mülkiyet Bilgisi</span>
+                                  <select
+                                    id="nakit-mulkiyet"
+                                    value={addApplicationForm.propertyInfo}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, propertyInfo: e.target.value }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  >
+                                    <option value=""></option>
+                                    <option value="Kendi Evi">Kendi Evi</option>
+                                    <option value="Kira">Kira</option>
+                                    <option value="Yakınının Evi">Yakınının Evi</option>
+                                    <option value="Lojman">Lojman</option>
+                                    <option value="Diğer">Diğer</option>
+                                  </select>
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Araç Modeli</span>
+                                  <input
+                                    id="nakit-arac"
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    maxLength={4}
+                                    value={addApplicationForm.vehicleInfo}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, vehicleInfo: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                                    placeholder="Örn. 2015"
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
+                                  />
+                                </label>
+                              </div>
+                            </fieldset>
+
+                            <fieldset disabled={isApplicationModalReadOnly} className="rounded-lg border-2 border-rose-200 bg-rose-50/50 p-3 shadow-sm disabled:opacity-60">
+                              <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-rose-800">Yardım Bilgisi</legend>
+                              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Müracaat Tarihi</span>
+                                  <input
+                                    id="nakit-muracaat-tarihi"
+                                    type="date"
+                                    value={addApplicationForm.date}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, date: e.target.value }))}
+                                    className={dateInputClassName(addApplicationForm.date, 'w-full')}
+                                  />
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Dönem</span>
+                                  <select
+                                    id="nakit-donem"
+                                    value={addApplicationForm.period}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, period: e.target.value }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-rose-500"
+                                  >
+                                    <option value=""></option>
+                                    {addApplicationForm.period && !cashPeriodOptions.some((option) => option.id === addApplicationForm.period) && (
+                                      <option value={addApplicationForm.period}>{addApplicationForm.period}</option>
+                                    )}
+                                    {cashPeriodOptions.map((option) => (
+                                      <option key={option.id} value={option.id}>{option.name}</option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Etiket</span>
+                                  <select
+                                    id="nakit-etiket"
+                                    value={addApplicationForm.label}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, label: e.target.value }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-rose-500"
+                                  >
+                                    <option value=""></option>
+                                    {cashLabelOptions.map((option) => (
+                                      <option key={option.id} value={option.id}>{option.name}</option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Özel Kod</span>
+                                  <input
+                                    id="nakit-ozel-kod"
+                                    type="text"
+                                    value={addApplicationForm.specialCode}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, specialCode: e.target.value }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-rose-500"
+                                  />
+                                </label>
+
+                                {/* Kullanici istegi: Miktar ve Yardım Kişi Sayısı birlikte,
+                                    one bakışta ilişkileri anlaşılsın diye vurgulu tek bir
+                                    kart icinde, yan yana gosterilir - kisi sayisi girilince
+                                    Miktar (bkz. yukaridaki useEffect) OTOMATIK hesaplanir.
+                                    Kullanici istegi: Miktar artik MANUEL GİRİLEMEZ - sadece
+                                    Yardım Kişi Sayısı x Kişi Başı Ödenecek Miktar ile
+                                    OTOMATIK doldurulur (bkz. readOnly, onChange YOK). */}
+                                <div className="col-span-2 rounded-lg border-2 border-dashed border-rose-300 bg-white/70 p-2.5 lg:col-span-4">
+                                  <div className="grid grid-cols-2 items-end gap-2 sm:max-w-md">
+                                    <label className="flex min-w-0 flex-col gap-0.5">
+                                      <span className="truncate whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-slate-600" title="Miktar (kilitli - otomatik hesaplanır)">Miktar 🔒 Otomatik</span>
+                                      <input
+                                        id="nakit-miktar"
+                                        type="number"
+                                        readOnly
+                                        tabIndex={-1}
+                                        title="Bu alan manuel girilemez - Yardım Kişi Sayısı × Ayarlar > Yardım Kriterleri'ndeki Kişi Başı Ödenecek Miktar ile otomatik hesaplanır."
+                                        value={addApplicationForm.amount}
+                                        className="h-7 w-full cursor-not-allowed rounded-lg border-2 border-rose-300 bg-rose-100/70 px-2.5 text-[13px] font-black text-rose-900 outline-none"
+                                      />
+                                    </label>
+
+                                    <label className="flex min-w-0 flex-col gap-0.5">
+                                      <span className="truncate whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-slate-600" title="Yardım Kişi Sayısı">Yardım Kişi Sayısı</span>
+                                      <input
+                                        id="nakit-yardim-kisi-sayisi"
+                                        type="text"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={2}
+                                        value={addApplicationForm.assistPersonCount}
+                                        onChange={(e) => {
+                                          const digits = e.target.value.replace(/\D/g, '').slice(0, 2)
+                                          const count = digits ? Math.max(0, parseInt(digits, 10)) : 0
+                                          setAddApplicationForm(prev => ({
+                                            ...prev,
+                                            assistPersonCount: digits,
+                                            assistPersonTcs: Array.from({ length: count }, (_, i) => prev.assistPersonTcs[i] || ''),
+                                          }))
+                                        }}
+                                        placeholder="Örn. 2"
+                                        className="h-7 w-full rounded-lg border-2 border-rose-300 bg-white px-2.5 text-[13px] font-black text-rose-900 outline-none transition-colors focus:border-rose-500"
+                                      />
+                                    </label>
+                                  </div>
+
+                                  {/* Kullanici istegi: "Yardım Kişi Sayısı" alanina girilen rakam kadar
+                                      11 haneli TC kimlik no input'u dinamik olarak listelenir; kaydedince
+                                      bunlar "-" ile birlestirilip yardimkisitc kolonuna yazilir. */}
+                                  {addApplicationForm.assistPersonTcs.length > 0 && (
+                                    <div className="mt-2 border-t border-dashed border-rose-200 pt-2">
+                                      <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Yardım Kişileri (TC)</span>
+                                      <div className="mt-1 flex flex-wrap gap-1.5">
+                                        {addApplicationForm.assistPersonTcs.map((tc, index) => {
+                                          // Kullanici istegi: 11 haneli OLMASI YETERLI DEGIL - resmi TC
+                                          // kimlik no kontrol basamagi algoritmasiyla dogrulanir (bkz.
+                                          // lib/utils/tcKimlikNo.ts). Sadece GERCEKTEN GECERLI bir TC icin
+                                          // (bkz. yukaridaki candidateTcs filtresi) mukerrer-kayit kontrolu
+                                          // (conflict) yapilir.
+                                          const isComplete = tc.trim().length === 11
+                                          const isValid = isComplete && isValidTcKimlikNo(tc)
+                                          const conflict = isValid ? assistPersonTcConflicts[tc] : undefined
+                                          return (
+                                            <div key={index} className="flex flex-col gap-0.5">
+                                              <input
+                                                type="text"
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
+                                                maxLength={11}
+                                                value={tc}
+                                                onChange={(e) => {
+                                                  const digits = e.target.value.replace(/\D/g, '').slice(0, 11)
+                                                  setAddApplicationForm(prev => {
+                                                    const nextTcs = [...prev.assistPersonTcs]
+                                                    nextTcs[index] = digits
+                                                    return { ...prev, assistPersonTcs: nextTcs }
+                                                  })
+                                                }}
+                                                placeholder={`${index + 1}. Kişi TC No`}
+                                                title={
+                                                  conflict
+                                                    ? `Bu TC, Dosya No: ${conflict.dosyaNo} (${conflict.applicantName}) adlı bekleyen bir müracaatta zaten kayıtlı.`
+                                                    : isComplete && !isValid
+                                                      ? 'Geçerli bir TC Kimlik No değil.'
+                                                      : undefined
+                                                }
+                                                className={`h-7 w-32 rounded-lg border-2 px-2.5 text-[13px] font-bold outline-none transition-colors ${
+                                                  isComplete && !isValid
+                                                    ? 'border-rose-500 bg-rose-50 text-rose-900 focus:border-rose-600'
+                                                    : conflict
+                                                      ? 'border-amber-500 bg-amber-50 text-amber-900 focus:border-amber-600'
+                                                      : 'border-slate-300 bg-white text-slate-900 focus:border-rose-500'
+                                                }`}
+                                              />
+                                              {isComplete && !isValid && (
+                                                <span className="dy-nakit-chip-note max-w-[130px] text-[9px] font-bold leading-tight text-rose-700">
+                                                  ✕ Geçerli bir TC Kimlik No değil
+                                                </span>
+                                              )}
+                                              {conflict && (
+                                                <span className="dy-nakit-chip-note max-w-[130px] text-[9px] font-bold leading-tight text-amber-700">
+                                                  ⚠ Dosya No: {conflict.dosyaNo} ({conflict.applicantName}) - beklemede
+                                                </span>
+                                              )}
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <label className="col-span-2 flex flex-col gap-0.5 lg:col-span-4">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Açıklama</span>
+                                  <textarea
+                                    id="nakit-aciklama"
+                                    value={addApplicationForm.description}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, description: e.target.value }))}
+                                    className="h-10 w-full resize-none rounded-lg border-2 border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-slate-900 outline-none transition-colors focus:border-rose-500"
+                                  />
+                                </label>
+                              </div>
+                            </fieldset>
+
+                            <fieldset disabled={isApplicationModalReadOnly} className="rounded-lg border-2 border-indigo-200 bg-indigo-50/50 p-3 shadow-sm disabled:opacity-60">
+                              <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-indigo-800">Müracaat Aşamaları</legend>
+                              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                <label className="col-span-2 flex flex-col gap-0.5 lg:col-span-3">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Durumu</span>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <select
+                                      id="nakit-durumu"
+                                      value={addApplicationForm.stageStatus}
+                                      onChange={(e) => {
+                                        const nextValue = e.target.value
+                                        // Kullanici istegi: daha once "Otomatik Red" uygulanmis bir
+                                        // muracaatta kullanici Durumu'nu ELLE baska bir degere
+                                        // degistirirse, "Otomatik Red İptal Edildi" tiki OTOMATIK
+                                        // isaretlenir - boylece bu elle yapilan degisiklik, sonraki
+                                        // bir Otomatik Red kontrolunde (toplu buton / belge kaydi
+                                        // tetikli yeniden degerlendirme / bu penceredeki canli
+                                        // otomasyon) GERI Otomatik Red'e cevrilmez.
+                                        const otomatikRedId = resolvePredefinedOptionId(cashStageOptions, 'Otomatik Red')
+                                        const wasOtomatikRed = Boolean(otomatikRedId) && addApplicationForm.stageStatus === otomatikRedId
+                                        const changedAwayFromOtomatikRed = wasOtomatikRed && nextValue !== otomatikRedId
+                                        setAddApplicationForm(prev => ({
+                                          ...prev,
+                                          stageStatus: nextValue,
+                                          otomatikRedIptal: changedAwayFromOtomatikRed ? true : prev.otomatikRedIptal,
+                                        }))
+                                      }}
+                                      className="h-7 w-full max-w-xs rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-indigo-500"
+                                    >
+                                      <option value=""></option>
+                                      {cashStageOptions.map((option) => (
+                                        <option key={option.id} value={option.id}>{option.name}</option>
+                                      ))}
+                                    </select>
+                                    <label htmlFor="nakit-otomatik-red-iptal" className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border-2 border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700" title="İşaretlenirse bu müracaat Otomatik Red kontrolüne bir daha hiç dahil edilmez - Durumu alanına elle yazdığınız değer korunur.">
+                                      <input
+                                        id="nakit-otomatik-red-iptal"
+                                        type="checkbox"
+                                        checked={addApplicationForm.otomatikRedIptal}
+                                        onChange={(e) => setAddApplicationForm(prev => ({ ...prev, otomatikRedIptal: e.target.checked }))}
+                                        className="h-3.5 w-3.5 accent-rose-600"
+                                      />
+                                      Otomatik Red İptal Edildi
+                                    </label>
+                                  </div>
+                                </label>
+
+                                <label className="flex flex-col gap-0.5">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Özel Kod</span>
+                                  <input
+                                    id="nakit-asama-ozel-kod"
+                                    type="text"
+                                    value={addApplicationForm.stageCode}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, stageCode: e.target.value }))}
+                                    className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-indigo-500"
+                                  />
+                                </label>
+
+                                <label className="col-span-2 flex flex-col gap-0.5 lg:col-span-4">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Açıklama</span>
+                                  <textarea
+                                    id="nakit-asama-aciklama"
+                                    value={addApplicationForm.stageDescription}
+                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, stageDescription: e.target.value }))}
+                                    className="h-10 w-full resize-none rounded-lg border-2 border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-slate-900 outline-none transition-colors focus:border-indigo-500"
+                                  />
+                                </label>
+                              </div>
+                            </fieldset>
+                          </div>
+
+                          <div className="space-y-2">
+                            <fieldset className="rounded-lg border-2 border-sky-200 bg-sky-50/50 p-3 shadow-sm">
+                              <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-sky-800">Müracaat Sırasında Verilen Bilgiler</legend>
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between gap-2 border-b border-sky-100 py-0.5 text-[12px]">
+                                  <span className="font-semibold text-slate-700">Aylık Gelir</span>
+                                  <span className="font-black text-sky-700">
+                                    {declaredHouseholdIncome > 0
+                                      ? declaredHouseholdIncome.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                      : (addApplicationForm.householdIncome.trim() || '-')}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 border-b border-sky-100 py-0.5 text-[12px]">
+                                  <span className="font-semibold text-slate-700">Mülkiyet Bilgisi</span>
+                                  <span className="font-black text-sky-700">{addApplicationForm.propertyInfo.trim() || '-'}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 py-0.5 text-[12px]">
+                                  <span className="font-semibold text-slate-700">Araç Modeli</span>
+                                  <span className="font-black text-sky-700">{addApplicationForm.vehicleInfo.trim() || '-'}</span>
+                                </div>
+                              </div>
+                            </fieldset>
+
+                            <fieldset className="rounded-lg border-2 border-violet-200 bg-violet-50/50 p-3 shadow-sm">
+                              <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-violet-800">Diğer Kurumlardan Alınan Yardımlar</legend>
+                              {externalAidsCashSummary.items.length === 0 ? (
+                                <p className="py-1 text-[12px] font-semibold text-slate-500">Bu dosya için diğer kurumlardan alınan miktarı belirtilmiş bir yardım kaydı bulunamadı.</p>
+                              ) : (
+                                <div className="space-y-1">
+                                  {externalAidsCashSummary.items.map((item) => (
+                                    <div key={item.type} className="flex items-center justify-between gap-2 border-b border-violet-100 py-0.5 text-[12px]">
+                                      <span className="font-semibold text-slate-700">{item.type}</span>
+                                      <span className="font-black text-violet-700">{item.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    </div>
+                                  ))}
+                                  <div className="flex items-center justify-between gap-2 pt-1 text-[12px]">
+                                    <span className="font-black uppercase text-violet-900">Toplam</span>
+                                    <span className="font-black text-violet-900">{externalAidsCashSummary.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </fieldset>
+
+                            <fieldset className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 shadow-sm">
+                              <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-amber-800">Belgelerden Alınan Bilgiler</legend>
+                              {belgeCriteriaSummary.gelirEntries.length === 0
+                                && belgeCriteriaSummary.aracEntries.length === 0
+                                && belgeCriteriaSummary.tapuEntries.length === 0
+                                && belgeCriteriaSummary.vergiEntries.length === 0 ? (
+                                <p className="py-1 text-[12px] font-semibold text-slate-500">Bu dosya için belge eklenirken girilmiş gelir, araç, tapu ya da vergi mükellefiyeti bilgisi bulunamadı.</p>
+                              ) : (
+                                <div className="space-y-2.5">
+                                  {belgeCriteriaSummary.gelirEntries.length > 0 && (
+                                    <div>
+                                      <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Gelir</p>
+                                      <div className="space-y-1">
+                                        {belgeCriteriaSummary.gelirEntries.map((item, index) => (
+                                          <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
+                                            <span className="font-semibold text-slate-700">{item.label}</span>
+                                            <span className="font-black text-amber-700">{item.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                          </div>
+                                        ))}
+                                        <div className="flex items-center justify-between gap-2 pt-0.5 text-[12px]">
+                                          <span className="font-black uppercase text-amber-900">Belgelerdeki Gelir Toplamı</span>
+                                          <span className="font-black text-amber-900">{belgeCriteriaSummary.gelirTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {belgeCriteriaSummary.aracEntries.length > 0 && (
+                                    <div>
+                                      <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Araç Bilgisi</p>
+                                      <div className="space-y-1">
+                                        {belgeCriteriaSummary.aracEntries.map((item, index) => (
+                                          <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
+                                            <span className="font-semibold text-slate-700">{item.label}</span>
+                                            <span className="font-black text-amber-700">{item.value}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {belgeCriteriaSummary.tapuEntries.length > 0 && (
+                                    <div>
+                                      <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Tapu Bilgisi</p>
+                                      <div className="space-y-1">
+                                        {belgeCriteriaSummary.tapuEntries.map((item, index) => (
+                                          <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
+                                            <span className="font-semibold text-slate-700">{item.label}</span>
+                                            <span className="font-black text-amber-700">{item.value}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {belgeCriteriaSummary.vergiEntries.length > 0 && (
+                                    <div>
+                                      <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Vergi Mükellefiyeti</p>
+                                      <div className="space-y-1">
+                                        {belgeCriteriaSummary.vergiEntries.map((item, index) => (
+                                          <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
+                                            <span className="font-semibold text-slate-700">{item.label}</span>
+                                            <span className={`font-black ${item.value === 'Var' ? 'text-rose-700' : 'text-amber-700'}`}>{item.value}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </fieldset>
+
+                            <div className={`rounded-lg border-2 px-3 py-2 ${cashAidAutoRejectCheck.triggered ? 'border-rose-300 bg-rose-50' : 'border-emerald-300 bg-emerald-50'}`}>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`text-[12px] font-black uppercase ${cashAidAutoRejectCheck.triggered ? 'text-rose-900' : 'text-emerald-900'}`}>Genel Toplam</span>
+                                <span className={`text-sm font-black ${cashAidAutoRejectCheck.triggered ? 'text-rose-900' : 'text-emerald-900'}`}>
+                                  {(externalAidsCashSummary.grandTotal + (belgeCriteriaSummary.gelirTotal > 0 ? belgeCriteriaSummary.gelirTotal : declaredHouseholdIncome)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                              <p className={`mt-0.5 text-[10px] font-semibold ${cashAidAutoRejectCheck.triggered ? 'text-rose-700' : 'text-emerald-700'}`}>
+                                Diğer kurum yardımları toplamı + (belgelerdeki gelir toplamı varsa o, yoksa müracaatta beyan edilen aylık gelir)
+                              </p>
+                            </div>
+
+                            {cashAidAutoRejectCheck.triggered && (
+                              <div className="rounded-lg border-2 border-rose-300 bg-rose-50 px-3 py-2">
+                                <p className="text-[12px] font-black uppercase text-rose-900">⚠ Otomatik Red Uygulandı</p>
+                                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                                  {cashAidAutoRejectCheck.reasons.map((reason) => (
+                                    <li key={reason} className="text-[11px] font-semibold text-rose-700">{reason}</li>
+                                  ))}
+                                </ul>
+                                <p className="mt-1 text-[10px] font-semibold text-rose-600">
+                                  Müracaat Aşamaları / Durumu alanı "Otomatik Red" olarak işaretlenip kaydedildi. Gerekirse elle değiştirip tekrar "Güncelle"ye basabilirsiniz.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                          </div>
+                          </>
+                        )}
+                        </>
                       )}
                     </div>
                   </div>
                 </div>
-                )}
-
-                {/* DİNAMİK ALT B�L�SM: Seçilen Türe Göre De�xi�xen Alanlar */}
-                {addApplicationForm.type && (
-                  <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    {addApplicationForm.type !== 'Ayni/Nakdi' && (
-                    <div className={`flex items-center gap-2 rounded-lg bg-gradient-to-r px-3 py-2 text-white shadow-sm ${applicationTypeTheme.headerBar}`}>
-                      <ActionIcon name="gift" className="h-4 w-4 shrink-0" />
-                      <span className="text-[11px] font-black uppercase tracking-widest">{addApplicationForm.type} - Yardım Detayları</span>
-                    </div>
-                    )}
-
-                    {/* NAKİT YARDIMI �ZEL ALANLARI (3.png bazlı) */}
-                    {addApplicationForm.type === 'Ayni/Nakdi' && (
-                      <>
-                      {isApplicationModalReadOnly && (
-                        <div className="mb-2 rounded-lg border-2 border-amber-300 bg-amber-50 px-3 py-2 text-[12px] font-bold text-amber-800">
-                          🔒 Bu müracaat kaydı salt okunur olarak görüntüleniyor. Güncelleme yapabilmek için yetkili bir kullanıcı hesabı gereklidir.
-                        </div>
-                      )}
-                      <div className="dy-nakit-modal-14 grid grid-cols-1 gap-3 text-[13px] text-slate-900 lg:grid-cols-[1fr_340px] lg:items-start">
-                      <div className="space-y-2">
-                        <fieldset disabled={isApplicationModalReadOnly} className="rounded-lg border-2 border-blue-200 bg-blue-50/50 p-3 shadow-sm disabled:opacity-60">
-                          <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-blue-800">Müracaatçı Bilgisi</legend>
-                          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">TC Kimlikno</span>
-                              <input
-                                id="nakit-tc"
-                                value={addApplicationForm.tc}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, tc: e.target.value.replace(/\D/g, '').slice(0, 11) }))}
-                                placeholder={selectedApplicationPerson?.identityNumber || 'TC Kimlik No'}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              />
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Müracaat Eden</span>
-                              <select
-                                id="nakit-muracaat-eden"
-                                value={addApplicationForm.beneficiaryTc}
-                                onChange={(e) => {
-                                  const nextTc = e.target.value
-                                  const nextPerson = nextTc === displayedPerson.identityNumber
-                                    ? displayedPerson
-                                    : (displayedPerson.household || []).find((member) => member.identityNumber === nextTc)
-                                  // Kisi degistiginde Telefon da o kisinin kendi
-                                  // bireyler.ceptel'ine gore YENIDEN doldurulur
-                                  // (eski turetilmis-deger davranisiyla ayni) -
-                                  // yine de asagidaki input duzenlenebilir.
-                                  const nextPhone = nextPerson && 'mobilePhone' in nextPerson ? nextPerson.mobilePhone : ''
-                                  setAddApplicationForm(prev => ({ ...prev, beneficiaryTc: nextTc, phone: nextPhone, tc: nextTc }))
-                                }}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              >
-                                <option value={displayedPerson.identityNumber}>
-                                  {displayedPerson.firstName} {displayedPerson.lastName}
-                                </option>
-                                {(displayedPerson.household || [])
-                                  .filter(member => member.identityNumber !== displayedPerson.identityNumber)
-                                  .map((member) => (
-                                    <option key={member.identityNumber} value={member.identityNumber}>
-                                      {member.firstName} {member.lastName}
-                                    </option>
-                                  ))}
-                              </select>
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Doğum Tarihi</span>
-                              <input
-                                id="nakit-dogum-tarihi"
-                                type="date"
-                                value={selectedApplicationBirthDateValue}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, applicantBirthDate: e.target.value }))}
-                                className={dateInputClassName(selectedApplicationBirthDateValue, 'w-full')}
-                              />
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Telefon</span>
-                              <input
-                                id="nakit-telefon"
-                                value={addApplicationForm.phone}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, phone: e.target.value }))}
-                                onBlur={(e) => { const n = normalizeTrPhone(e.target.value); if (n !== e.target.value) setAddApplicationForm(prev => ({ ...prev, phone: n })) }}
-                                placeholder={selectedApplicationPhone || 'Telefon numarası'}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              />
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">IBAN</span>
-                              <input
-                                id="nakit-iban"
-                                value={addApplicationForm.iban}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, iban: e.target.value.toUpperCase() }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              />
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Aylık Gelir</span>
-                              <input
-                                id="nakit-aylik-gelir"
-                                type="number"
-                                value={addApplicationForm.householdIncome}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, householdIncome: e.target.value }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              />
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Mülkiyet Bilgisi</span>
-                              <select
-                                id="nakit-mulkiyet"
-                                value={addApplicationForm.propertyInfo}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, propertyInfo: e.target.value }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              >
-                                <option value=""></option>
-                                <option value="Kendi Evi">Kendi Evi</option>
-                                <option value="Kira">Kira</option>
-                                <option value="Yakınının Evi">Yakınının Evi</option>
-                                <option value="Lojman">Lojman</option>
-                                <option value="Diğer">Diğer</option>
-                              </select>
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Araç Modeli</span>
-                              <input
-                                id="nakit-arac"
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={4}
-                                value={addApplicationForm.vehicleInfo}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, vehicleInfo: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
-                                placeholder="Örn. 2015"
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-blue-500"
-                              />
-                            </label>
-                          </div>
-                        </fieldset>
-
-                        <fieldset disabled={isApplicationModalReadOnly} className="rounded-lg border-2 border-rose-200 bg-rose-50/50 p-3 shadow-sm disabled:opacity-60">
-                          <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-rose-800">Yardım Bilgisi</legend>
-                          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Müracaat Tarihi</span>
-                              <input
-                                id="nakit-muracaat-tarihi"
-                                type="date"
-                                value={addApplicationForm.date}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, date: e.target.value }))}
-                                className={dateInputClassName(addApplicationForm.date, 'w-full')}
-                              />
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Dönem</span>
-                              <select
-                                id="nakit-donem"
-                                value={addApplicationForm.period}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, period: e.target.value }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-rose-500"
-                              >
-                                <option value=""></option>
-                                {addApplicationForm.period && !cashPeriodOptions.some((option) => option.id === addApplicationForm.period) && (
-                                  <option value={addApplicationForm.period}>{addApplicationForm.period}</option>
-                                )}
-                                {cashPeriodOptions.map((option) => (
-                                  <option key={option.id} value={option.id}>{option.name}</option>
-                                ))}
-                              </select>
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Etiket</span>
-                              <select
-                                id="nakit-etiket"
-                                value={addApplicationForm.label}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, label: e.target.value }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-rose-500"
-                              >
-                                <option value=""></option>
-                                {cashLabelOptions.map((option) => (
-                                  <option key={option.id} value={option.id}>{option.name}</option>
-                                ))}
-                              </select>
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Özel Kod</span>
-                              <input
-                                id="nakit-ozel-kod"
-                                type="text"
-                                value={addApplicationForm.specialCode}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, specialCode: e.target.value }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-rose-500"
-                              />
-                            </label>
-
-                            {/* Kullanici istegi: Miktar ve Yardım Kişi Sayısı birlikte,
-                                one bakışta ilişkileri anlaşılsın diye vurgulu tek bir
-                                kart icinde, yan yana gosterilir - kisi sayisi girilince
-                                Miktar (bkz. yukaridaki useEffect) OTOMATIK hesaplanir.
-                                Kullanici istegi: Miktar artik MANUEL GİRİLEMEZ - sadece
-                                Yardım Kişi Sayısı x Kişi Başı Ödenecek Miktar ile
-                                OTOMATIK doldurulur (bkz. readOnly, onChange YOK). */}
-                            <div className="col-span-2 rounded-lg border-2 border-dashed border-rose-300 bg-white/70 p-2.5 lg:col-span-4">
-                              <div className="grid grid-cols-2 items-end gap-2 sm:max-w-md">
-                                <label className="flex min-w-0 flex-col gap-0.5">
-                                  <span className="truncate whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-slate-600" title="Miktar (kilitli - otomatik hesaplanır)">Miktar 🔒 Otomatik</span>
-                                  <input
-                                    id="nakit-miktar"
-                                    type="number"
-                                    readOnly
-                                    tabIndex={-1}
-                                    title="Bu alan manuel girilemez - Yardım Kişi Sayısı × Ayarlar > Yardım Kriterleri'ndeki Kişi Başı Ödenecek Miktar ile otomatik hesaplanır."
-                                    value={addApplicationForm.amount}
-                                    className="h-7 w-full cursor-not-allowed rounded-lg border-2 border-rose-300 bg-rose-100/70 px-2.5 text-[13px] font-black text-rose-900 outline-none"
-                                  />
-                                </label>
-
-                                <label className="flex min-w-0 flex-col gap-0.5">
-                                  <span className="truncate whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-slate-600" title="Yardım Kişi Sayısı">Yardım Kişi Sayısı</span>
-                                  <input
-                                    id="nakit-yardim-kisi-sayisi"
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    maxLength={2}
-                                    value={addApplicationForm.assistPersonCount}
-                                    onChange={(e) => {
-                                      const digits = e.target.value.replace(/\D/g, '').slice(0, 2)
-                                      const count = digits ? Math.max(0, parseInt(digits, 10)) : 0
-                                      setAddApplicationForm(prev => ({
-                                        ...prev,
-                                        assistPersonCount: digits,
-                                        assistPersonTcs: Array.from({ length: count }, (_, i) => prev.assistPersonTcs[i] || ''),
-                                      }))
-                                    }}
-                                    placeholder="Örn. 2"
-                                    className="h-7 w-full rounded-lg border-2 border-rose-300 bg-white px-2.5 text-[13px] font-black text-rose-900 outline-none transition-colors focus:border-rose-500"
-                                  />
-                                </label>
-                              </div>
-
-                              {/* Kullanici istegi: "Yardım Kişi Sayısı" alanina girilen rakam kadar
-                                  11 haneli TC kimlik no input'u dinamik olarak listelenir; kaydedince
-                                  bunlar "-" ile birlestirilip yardimkisitc kolonuna yazilir. */}
-                              {addApplicationForm.assistPersonTcs.length > 0 && (
-                                <div className="mt-2 border-t border-dashed border-rose-200 pt-2">
-                                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Yardım Kişileri (TC)</span>
-                                  <div className="mt-1 flex flex-wrap gap-1.5">
-                                    {addApplicationForm.assistPersonTcs.map((tc, index) => {
-                                      // Kullanici istegi: 11 haneli OLMASI YETERLI DEGIL - resmi TC
-                                      // kimlik no kontrol basamagi algoritmasiyla dogrulanir (bkz.
-                                      // lib/utils/tcKimlikNo.ts). Sadece GERCEKTEN GECERLI bir TC icin
-                                      // (bkz. yukaridaki candidateTcs filtresi) mukerrer-kayit kontrolu
-                                      // (conflict) yapilir.
-                                      const isComplete = tc.trim().length === 11
-                                      const isValid = isComplete && isValidTcKimlikNo(tc)
-                                      const conflict = isValid ? assistPersonTcConflicts[tc] : undefined
-                                      return (
-                                        <div key={index} className="flex flex-col gap-0.5">
-                                          <input
-                                            type="text"
-                                            inputMode="numeric"
-                                            pattern="[0-9]*"
-                                            maxLength={11}
-                                            value={tc}
-                                            onChange={(e) => {
-                                              const digits = e.target.value.replace(/\D/g, '').slice(0, 11)
-                                              setAddApplicationForm(prev => {
-                                                const nextTcs = [...prev.assistPersonTcs]
-                                                nextTcs[index] = digits
-                                                return { ...prev, assistPersonTcs: nextTcs }
-                                              })
-                                            }}
-                                            placeholder={`${index + 1}. Kişi TC No`}
-                                            title={
-                                              conflict
-                                                ? `Bu TC, Dosya No: ${conflict.dosyaNo} (${conflict.applicantName}) adlı bekleyen bir müracaatta zaten kayıtlı.`
-                                                : isComplete && !isValid
-                                                  ? 'Geçerli bir TC Kimlik No değil.'
-                                                  : undefined
-                                            }
-                                            className={`h-7 w-32 rounded-lg border-2 px-2.5 text-[13px] font-bold outline-none transition-colors ${
-                                              isComplete && !isValid
-                                                ? 'border-rose-500 bg-rose-50 text-rose-900 focus:border-rose-600'
-                                                : conflict
-                                                  ? 'border-amber-500 bg-amber-50 text-amber-900 focus:border-amber-600'
-                                                  : 'border-slate-300 bg-white text-slate-900 focus:border-rose-500'
-                                            }`}
-                                          />
-                                          {isComplete && !isValid && (
-                                            <span className="dy-nakit-chip-note max-w-[130px] text-[9px] font-bold leading-tight text-rose-700">
-                                              ✕ Geçerli bir TC Kimlik No değil
-                                            </span>
-                                          )}
-                                          {conflict && (
-                                            <span className="dy-nakit-chip-note max-w-[130px] text-[9px] font-bold leading-tight text-amber-700">
-                                              ⚠ Dosya No: {conflict.dosyaNo} ({conflict.applicantName}) - beklemede
-                                            </span>
-                                          )}
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
-                            <label className="col-span-2 flex flex-col gap-0.5 lg:col-span-4">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Açıklama</span>
-                              <textarea
-                                id="nakit-aciklama"
-                                value={addApplicationForm.description}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, description: e.target.value }))}
-                                className="h-10 w-full resize-none rounded-lg border-2 border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-slate-900 outline-none transition-colors focus:border-rose-500"
-                              />
-                            </label>
-                          </div>
-                        </fieldset>
-
-                        <fieldset disabled={isApplicationModalReadOnly} className="rounded-lg border-2 border-indigo-200 bg-indigo-50/50 p-3 shadow-sm disabled:opacity-60">
-                          <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-indigo-800">Müracaat Aşamaları</legend>
-                          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                            <label className="col-span-2 flex flex-col gap-0.5 lg:col-span-3">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Durumu</span>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <select
-                                  id="nakit-durumu"
-                                  value={addApplicationForm.stageStatus}
-                                  onChange={(e) => {
-                                    const nextValue = e.target.value
-                                    // Kullanici istegi: daha once "Otomatik Red" uygulanmis bir
-                                    // muracaatta kullanici Durumu'nu ELLE baska bir degere
-                                    // degistirirse, "Otomatik Red İptal Edildi" tiki OTOMATIK
-                                    // isaretlenir - boylece bu elle yapilan degisiklik, sonraki
-                                    // bir Otomatik Red kontrolunde (toplu buton / belge kaydi
-                                    // tetikli yeniden degerlendirme / bu penceredeki canli
-                                    // otomasyon) GERI Otomatik Red'e cevrilmez.
-                                    const otomatikRedId = resolvePredefinedOptionId(cashStageOptions, 'Otomatik Red')
-                                    const wasOtomatikRed = Boolean(otomatikRedId) && addApplicationForm.stageStatus === otomatikRedId
-                                    const changedAwayFromOtomatikRed = wasOtomatikRed && nextValue !== otomatikRedId
-                                    setAddApplicationForm(prev => ({
-                                      ...prev,
-                                      stageStatus: nextValue,
-                                      otomatikRedIptal: changedAwayFromOtomatikRed ? true : prev.otomatikRedIptal,
-                                    }))
-                                  }}
-                                  className="h-7 w-full max-w-xs rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-indigo-500"
-                                >
-                                  <option value=""></option>
-                                  {cashStageOptions.map((option) => (
-                                    <option key={option.id} value={option.id}>{option.name}</option>
-                                  ))}
-                                </select>
-                                <label htmlFor="nakit-otomatik-red-iptal" className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border-2 border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700" title="İşaretlenirse bu müracaat Otomatik Red kontrolüne bir daha hiç dahil edilmez - Durumu alanına elle yazdığınız değer korunur.">
-                                  <input
-                                    id="nakit-otomatik-red-iptal"
-                                    type="checkbox"
-                                    checked={addApplicationForm.otomatikRedIptal}
-                                    onChange={(e) => setAddApplicationForm(prev => ({ ...prev, otomatikRedIptal: e.target.checked }))}
-                                    className="h-3.5 w-3.5 accent-rose-600"
-                                  />
-                                  Otomatik Red İptal Edildi
-                                </label>
-                              </div>
-                            </label>
-
-                            <label className="flex flex-col gap-0.5">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Özel Kod</span>
-                              <input
-                                id="nakit-asama-ozel-kod"
-                                type="text"
-                                value={addApplicationForm.stageCode}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, stageCode: e.target.value }))}
-                                className="h-7 w-full rounded-lg border-2 border-slate-300 bg-white px-2.5 text-[13px] font-bold text-slate-900 outline-none transition-colors focus:border-indigo-500"
-                              />
-                            </label>
-
-                            <label className="col-span-2 flex flex-col gap-0.5 lg:col-span-4">
-                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Açıklama</span>
-                              <textarea
-                                id="nakit-asama-aciklama"
-                                value={addApplicationForm.stageDescription}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, stageDescription: e.target.value }))}
-                                className="h-10 w-full resize-none rounded-lg border-2 border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-slate-900 outline-none transition-colors focus:border-indigo-500"
-                              />
-                            </label>
-                          </div>
-                        </fieldset>
-                      </div>
-
-                      <div className="space-y-2">
-                        <fieldset className="rounded-lg border-2 border-sky-200 bg-sky-50/50 p-3 shadow-sm">
-                          <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-sky-800">Müracaat Sırasında Verilen Bilgiler</legend>
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between gap-2 border-b border-sky-100 py-0.5 text-[12px]">
-                              <span className="font-semibold text-slate-700">Aylık Gelir</span>
-                              <span className="font-black text-sky-700">
-                                {declaredHouseholdIncome > 0
-                                  ? declaredHouseholdIncome.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                  : (addApplicationForm.householdIncome.trim() || '-')}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 border-b border-sky-100 py-0.5 text-[12px]">
-                              <span className="font-semibold text-slate-700">Mülkiyet Bilgisi</span>
-                              <span className="font-black text-sky-700">{addApplicationForm.propertyInfo.trim() || '-'}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 py-0.5 text-[12px]">
-                              <span className="font-semibold text-slate-700">Araç Modeli</span>
-                              <span className="font-black text-sky-700">{addApplicationForm.vehicleInfo.trim() || '-'}</span>
-                            </div>
-                          </div>
-                        </fieldset>
-
-                        <fieldset className="rounded-lg border-2 border-violet-200 bg-violet-50/50 p-3 shadow-sm">
-                          <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-violet-800">Diğer Kurumlardan Alınan Yardımlar</legend>
-                          {externalAidsCashSummary.items.length === 0 ? (
-                            <p className="py-1 text-[12px] font-semibold text-slate-500">Bu dosya için diğer kurumlardan alınan miktarı belirtilmiş bir yardım kaydı bulunamadı.</p>
-                          ) : (
-                            <div className="space-y-1">
-                              {externalAidsCashSummary.items.map((item) => (
-                                <div key={item.type} className="flex items-center justify-between gap-2 border-b border-violet-100 py-0.5 text-[12px]">
-                                  <span className="font-semibold text-slate-700">{item.type}</span>
-                                  <span className="font-black text-violet-700">{item.total.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                </div>
-                              ))}
-                              <div className="flex items-center justify-between gap-2 pt-1 text-[12px]">
-                                <span className="font-black uppercase text-violet-900">Toplam</span>
-                                <span className="font-black text-violet-900">{externalAidsCashSummary.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              </div>
-                            </div>
-                          )}
-                        </fieldset>
-
-                        <fieldset className="rounded-lg border-2 border-amber-200 bg-amber-50/50 p-3 shadow-sm">
-                          <legend className="px-1 text-[12px] font-black uppercase tracking-wide text-amber-800">Belgelerden Alınan Bilgiler</legend>
-                          {belgeCriteriaSummary.gelirEntries.length === 0
-                            && belgeCriteriaSummary.aracEntries.length === 0
-                            && belgeCriteriaSummary.tapuEntries.length === 0
-                            && belgeCriteriaSummary.vergiEntries.length === 0 ? (
-                            <p className="py-1 text-[12px] font-semibold text-slate-500">Bu dosya için belge eklenirken girilmiş gelir, araç, tapu ya da vergi mükellefiyeti bilgisi bulunamadı.</p>
-                          ) : (
-                            <div className="space-y-2.5">
-                              {belgeCriteriaSummary.gelirEntries.length > 0 && (
-                                <div>
-                                  <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Gelir</p>
-                                  <div className="space-y-1">
-                                    {belgeCriteriaSummary.gelirEntries.map((item, index) => (
-                                      <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
-                                        <span className="font-semibold text-slate-700">{item.label}</span>
-                                        <span className="font-black text-amber-700">{item.value.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                      </div>
-                                    ))}
-                                    <div className="flex items-center justify-between gap-2 pt-0.5 text-[12px]">
-                                      <span className="font-black uppercase text-amber-900">Belgelerdeki Gelir Toplamı</span>
-                                      <span className="font-black text-amber-900">{belgeCriteriaSummary.gelirTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                              {belgeCriteriaSummary.aracEntries.length > 0 && (
-                                <div>
-                                  <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Araç Bilgisi</p>
-                                  <div className="space-y-1">
-                                    {belgeCriteriaSummary.aracEntries.map((item, index) => (
-                                      <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
-                                        <span className="font-semibold text-slate-700">{item.label}</span>
-                                        <span className="font-black text-amber-700">{item.value}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {belgeCriteriaSummary.tapuEntries.length > 0 && (
-                                <div>
-                                  <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Tapu Bilgisi</p>
-                                  <div className="space-y-1">
-                                    {belgeCriteriaSummary.tapuEntries.map((item, index) => (
-                                      <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
-                                        <span className="font-semibold text-slate-700">{item.label}</span>
-                                        <span className="font-black text-amber-700">{item.value}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {belgeCriteriaSummary.vergiEntries.length > 0 && (
-                                <div>
-                                  <p className="mb-1 text-[10px] font-black uppercase tracking-wide text-amber-700">Vergi Mükellefiyeti</p>
-                                  <div className="space-y-1">
-                                    {belgeCriteriaSummary.vergiEntries.map((item, index) => (
-                                      <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-2 border-b border-amber-100 py-0.5 text-[12px]">
-                                        <span className="font-semibold text-slate-700">{item.label}</span>
-                                        <span className={`font-black ${item.value === 'Var' ? 'text-rose-700' : 'text-amber-700'}`}>{item.value}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </fieldset>
-
-                        <div className={`rounded-lg border-2 px-3 py-2 ${cashAidAutoRejectCheck.triggered ? 'border-rose-300 bg-rose-50' : 'border-emerald-300 bg-emerald-50'}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={`text-[12px] font-black uppercase ${cashAidAutoRejectCheck.triggered ? 'text-rose-900' : 'text-emerald-900'}`}>Genel Toplam</span>
-                            <span className={`text-sm font-black ${cashAidAutoRejectCheck.triggered ? 'text-rose-900' : 'text-emerald-900'}`}>
-                              {(externalAidsCashSummary.grandTotal + (belgeCriteriaSummary.gelirTotal > 0 ? belgeCriteriaSummary.gelirTotal : declaredHouseholdIncome)).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                          <p className={`mt-0.5 text-[10px] font-semibold ${cashAidAutoRejectCheck.triggered ? 'text-rose-700' : 'text-emerald-700'}`}>
-                            Diğer kurum yardımları toplamı + (belgelerdeki gelir toplamı varsa o, yoksa müracaatta beyan edilen aylık gelir)
-                          </p>
-                        </div>
-
-                        {cashAidAutoRejectCheck.triggered && (
-                          <div className="rounded-lg border-2 border-rose-300 bg-rose-50 px-3 py-2">
-                            <p className="text-[12px] font-black uppercase text-rose-900">⚠ Otomatik Red Uygulandı</p>
-                            <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                              {cashAidAutoRejectCheck.reasons.map((reason) => (
-                                <li key={reason} className="text-[11px] font-semibold text-rose-700">{reason}</li>
-                              ))}
-                            </ul>
-                            <p className="mt-1 text-[10px] font-semibold text-rose-600">
-                              Müracaat Aşamaları / Durumu alanı "Otomatik Red" olarak işaretlenip kaydedildi. Gerekirse elle değiştirip tekrar "Güncelle"ye basabilirsiniz.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                      </div>
-                      </>
-                    )}
-
-                    {/* DİĞER YARDIM T�SRLERİ İ�!İN GENEL ALANLAR */}
-                    {addApplicationForm.type && addApplicationForm.type !== 'Ayni/Nakdi' && (
-                      <div className={`space-y-3 rounded-xl border-2 bg-white p-4 shadow-sm ${applicationTypeTheme.panelBorder}`}>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <label className="flex flex-col gap-1">
-                            <span className="text-[11px] font-extrabold uppercase text-slate-600">Yardım Periyodu</span>
-                            <select
-                              value={addApplicationForm.period}
-                              onChange={(e) => handlePeriodChange(e.target.value)}
-                              className="w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6]"
-                            >
-                              <option value="">Periyot seciniz...</option>
-                              {addApplicationForm.period && !assistancePeriodOptions.includes(addApplicationForm.period) && (
-                                <option value={addApplicationForm.period}>{addApplicationForm.period}</option>
-                              )}
-                              {assistancePeriodOptions.map((item) => (
-                                <option key={item} value={item}>{item}</option>
-                              ))}
-                              <option value="Süreli">Süreli (Tek Seferlik)</option>
-                              {KIS_DONEMI_MURACAAT_TURLERI.includes(addApplicationForm.type) && (
-                                <option value={KIS_DONEMI_PERIOD_LABEL}>{KIS_DONEMI_PERIOD_LABEL}</option>
-                              )}
-                            </select>
-                            {KIS_DONEMI_MURACAAT_TURLERI.includes(addApplicationForm.type) && addApplicationForm.period === KIS_DONEMI_PERIOD_LABEL && (
-                              <span className="text-[10px] font-bold text-amber-600">
-                                Müracaat beklemede kalır, başlangıç tarihi (01 Kasım) geldiğinde otomatik olarak yardıma dönüştürülür.
-                              </span>
-                            )}
-                          </label>
-                          {addApplicationForm.type === 'Hazır Yemek' ? (
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                              <label className="flex flex-col gap-1">
-                                <span className="text-[11px] font-extrabold uppercase text-slate-600">Yemek Miktarı</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={addApplicationForm.amount}
-                                  onChange={(e) => setAddApplicationForm(prev => ({ ...prev, amount: e.target.value }))}
-                                  placeholder="0"
-                                  className="w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6]"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-[11px] font-extrabold uppercase text-slate-600">Kahvaltı Miktarı</span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={addApplicationForm.breakfastAmount}
-                                  onChange={(e) => setAddApplicationForm(prev => ({ ...prev, breakfastAmount: e.target.value }))}
-                                  placeholder="0"
-                                  className="w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6]"
-                                />
-                              </label>
-                            </div>
-                          ) : (
-                            <label className="flex flex-col gap-1">
-                              <span className="text-[11px] font-extrabold uppercase text-slate-600">Miktar (?)</span>
-                              <input
-                                type="text"
-                                value={addApplicationForm.amount}
-                                onChange={(e) => setAddApplicationForm(prev => ({ ...prev, amount: e.target.value }))}
-                                placeholder="0.00"
-                                className="w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6]"
-                              />
-                            </label>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <label className="flex flex-col gap-1">
-                            <span className="text-[11px] font-extrabold uppercase text-slate-600">Başlangıç Tarihi</span>
-                            <input
-                              type="date"
-                              readOnly={isAutoFilledPeriod(addApplicationForm.period)}
-                              value={addApplicationForm.startDate}
-                              onChange={(e) => setAddApplicationForm(prev => ({ ...prev, startDate: e.target.value }))}
-                              className={`w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6] ${
-                                isAutoFilledPeriod(addApplicationForm.period) ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-white'
-                              }`}
-                            />
-                          </label>
-                          <label className="flex flex-col gap-1">
-                            <span className="text-[11px] font-extrabold uppercase text-slate-600">Bitiş Tarihi</span>
-                            <input
-                              type="date"
-                              readOnly={isAutoFilledPeriod(addApplicationForm.period)}
-                              value={addApplicationForm.endDate}
-                              onChange={(e) => setAddApplicationForm(prev => ({ ...prev, endDate: e.target.value }))}
-                              className={`w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6] ${
-                                isAutoFilledPeriod(addApplicationForm.period) ? 'bg-slate-50 text-slate-500 cursor-not-allowed' : 'bg-white'
-                              }`}
-                            />
-                          </label>
-                        </div>
-
-                        <label className="flex flex-col gap-1">
-                          <span className="text-[11px] font-extrabold uppercase text-slate-600">Kısa Açıklama (Opsiyonel)</span>
-                          <textarea
-                            value={addApplicationForm.description}
-                            onChange={(e) => setAddApplicationForm(prev => ({ ...prev, description: e.target.value }))}
-                            className="min-h-[54px] w-full rounded-lg border-2 border-slate-200 px-2.5 py-2 text-[13px] font-bold text-slate-950 outline-none focus:border-[#0076b6] resize-none"
-                            placeholder="Müracaatla ilgili notlar..."
-                          />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
-            <div className={`flex shrink-0 items-center border-t-2 ${applicationTypeTheme.panelBorder} bg-gradient-to-r ${applicationTypeTheme.headBg} via-white to-white px-5 py-3 ${addApplicationForm.type === 'Ayni/Nakdi' ? 'justify-between' : 'justify-end'} gap-2`}>
+            <div className={`flex shrink-0 items-center border-t border-[#D5DDE2] bg-white px-5 py-3 ${addApplicationForm.type === 'Ayni/Nakdi' ? 'justify-between' : 'justify-end'} gap-2`}>
               {isApplicationModalReadOnly ? (
                 <span className="inline-flex items-center gap-2 rounded-lg border-2 border-amber-300 bg-amber-50 px-4 py-2.5 text-xs font-extrabold uppercase text-amber-800">
                   🔒 Salt okunur - güncelleme yetkiniz yok
@@ -24017,13 +24258,13 @@ function DocumentsPageContent() {
                   type="button"
                   onClick={handleSaveApplication}
                   disabled={addApplicationStatus === 'saving'}
-                  className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-extrabold shadow-sm transition-colors disabled:cursor-wait disabled:opacity-60 ${addApplicationForm.type === 'Ayni/Nakdi' ? `border-2 ${applicationTypeTheme.panelBorder} bg-white ${applicationTypeTheme.amountText}` : `bg-gradient-to-r ${applicationTypeTheme.headerBar} text-white hover:brightness-110`}`}
+                  className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-extrabold shadow-sm transition-colors disabled:cursor-wait disabled:opacity-60 ${addApplicationForm.type === 'Ayni/Nakdi' ? `border-2 ${applicationTypeTheme.panelBorder} bg-white ${applicationTypeTheme.amountText}` : 'border-b-2 border-b-[#D4B26A] bg-[#1E2A38] !text-[14px] font-bold text-white hover:bg-[#2A3B4D]'}`}
                 >
                   <ActionIcon name="save" />
-                  {addApplicationStatus === 'saving' ? 'Kaydediliyor...' : editingApplicationRow ? 'Güncelle' : addApplicationForm.type === 'Ayni/Nakdi' ? 'Kaydet (F2)' : 'Ekle'}
+                  {addApplicationStatus === 'saving' ? 'Kaydediliyor...' : editingApplicationRow ? 'Güncelle' : addApplicationForm.type === 'Ayni/Nakdi' ? 'Kaydet (F2)' : OTOMATIK_YARDIM_TURLERI.has(addApplicationForm.type) && addApplicationForm.period !== KIS_DONEMI_PERIOD_LABEL ? 'Ekle ve Yardıma Dönüştür' : 'Ekle'}
                 </button>
               )}
-              <button type="button" onClick={() => { setEditingApplicationRow(null); setIsApplicationModalReadOnly(false); setIsAddApplicationModalOpen(false); setConvertAfterEditRecord(null) }} className="inline-flex items-center gap-2 rounded-lg border-2 border-slate-200 bg-white px-4 py-2.5 text-sm font-extrabold text-slate-600 hover:bg-slate-100">
+              <button type="button" onClick={() => { setEditingApplicationRow(null); setIsApplicationModalReadOnly(false); setIsAddApplicationModalOpen(false); setConvertAfterEditRecord(null) }} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 !text-[14px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA]">
                 <ActionIcon name="close" />
                 {addApplicationForm.type === 'Ayni/Nakdi' ? 'Kapat' : 'İptal'}
               </button>

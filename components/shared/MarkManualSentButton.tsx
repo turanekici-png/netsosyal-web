@@ -83,7 +83,8 @@ export function MarkManualSentButton({ recipients, disabled, className }: MarkMa
       disabled={recipients.length === 0 || disabled || status === 'loading'}
       className={className || 'inline-flex items-center gap-2 rounded-md bg-gradient-to-r from-teal-600 to-emerald-600 px-3 py-2 text-xs font-black text-white shadow-sm hover:brightness-110 disabled:pointer-events-none disabled:opacity-50'}
     >
-      {status === 'loading' ? 'İşaretleniyor...' : `✓ Manuel Gönderildi İşaretle (${recipients.length})`}
+      <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21.8 10A10 10 0 1 1 17 3.34" /><path d="m9 11 3 3L22 4" /></svg>
+      {status === 'loading' ? 'İşaretleniyor...' : `Manuel Gönderildi İşaretle (${recipients.length})`}
     </button>
   )
 }

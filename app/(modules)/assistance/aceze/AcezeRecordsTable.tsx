@@ -10,6 +10,18 @@ import { usePersonPredefinedOptions } from '@/lib/hooks/usePersonPredefinedOptio
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { REQUIRED_PRINT_AGENT_VERSION } from '@/lib/printAgentClient'
 import { AssistanceStatStrip } from '../_components/AssistanceStatStrip'
+import { ASSISTANCE_COLUMN_GROUPS, ASSISTANCE_COLUMN_LABELS } from '@/lib/assistance/assistanceColumns'
+
+// 2026-10-15: yrd_aceze'nin TUM alanlari listede; az kullanilanlar gizli
+// baslar (Sütun Görünürlüğü'nden acilir) - bkz. lib/assistance/assistanceColumns.ts.
+const ACEZE_HIDDEN_COLUMNS = [
+  'id', 'kullaniciid', 'ilkkullaniciid', 'islemtarihi', 'ilkislemtarihi', 'babaadi', 'anaadi',
+  'dogumyeri', 'dosyaid', 'saglikdurumu', 'kaydi_acan', 'son_islem_yapan',
+]
+const ACEZE_COLUMN_GROUPS: Record<string, string> = {
+  ...ASSISTANCE_COLUMN_GROUPS,
+  saglik_durumu_adi: ASSISTANCE_COLUMN_GROUPS.saglikdurumu,
+}
 
 type Props = { rows: Record<string, unknown>[]; totalCount: number; currentPage: number; pageSize: number; searchTerm: string }
 type FormState = {
@@ -201,7 +213,7 @@ export function AcezeRecordsTable({ rows, totalCount, currentPage, pageSize, sea
         </div>
       </div>
       <div className="p-3 sm:p-5">
-      {rows.length ? <AdvancedTable data={rows} tableId="yrd_aceze" excludedColumns={['kullaniciid','ilkkullaniciid','islemtarihi','ilkislemtarihi','babaadi','anaadi','dogumyeri','dosyaid']} requiredVisibleColumns={['dosyano', 'mahalle', 'dosya_adresi', 'tutar']} preferredColumnOrder={['dosyano', 'adisoyadi', 'tckimlikno', 'tutar', 'mahalle', 'dosya_adresi']} columnLabels={{ dosyano: 'Dosya No', adisoyadi: 'Ad Soyad', tckimlikno: 'T.C. Kimlik No', tutar: 'Tutar (TL)', mahalle: 'Mahalle', dosya_adresi: 'Dosya Adresi', medenihali: 'Medeni Hali', cinsiyeti: 'Cinsiyet' }} maritalStatusColumns={['medenihali']} genderColumns={['cinsiyeti']} selectedRowIds={selectedRow ? [text(selectedRow.id)] : []} selectedRowHighlightClassName="bg-emerald-100 outline outline-2 -outline-offset-2 outline-emerald-500" onRowClick={(row) => { setSelectedRow(row); setError(''); setMessage('') }} onRowDoubleClick={(row) => { setSelectedRow(row); setForm(rowToForm(row)); setError(''); setMessage('') }} getRowId={(row, index) => text(row.id || index)} showRowNumber rowNumberStart={(currentPage - 1) * pageSize + 1} serverSideFiltering /> : <div className="py-10 text-center text-sm font-bold text-slate-500">Görüntülenecek Aceze yardımı kaydı bulunamadı.</div>}
+      {rows.length ? <AdvancedTable data={rows} tableId="yrd_aceze" defaultHiddenColumns={ACEZE_HIDDEN_COLUMNS} columnGroups={ACEZE_COLUMN_GROUPS} corporate requiredVisibleColumns={['dosyano', 'mahalle', 'dosya_adresi', 'tutar']} preferredColumnOrder={['dosyano', 'adisoyadi', 'tckimlikno', 'tutar', 'mahalle', 'dosya_adresi']} columnLabels={{ ...ASSISTANCE_COLUMN_LABELS, saglik_durumu_adi: 'Sağlık Durumu', saglikdurumu: 'Sağlık Durumu Kodu', dosyano: 'Dosya No', adisoyadi: 'Ad Soyad', tckimlikno: 'T.C. Kimlik No', tutar: 'Tutar (TL)', mahalle: 'Mahalle', dosya_adresi: 'Dosya Adresi', medenihali: 'Medeni Hali', cinsiyeti: 'Cinsiyet' }} maritalStatusColumns={['medenihali']} genderColumns={['cinsiyeti']} selectedRowIds={selectedRow ? [text(selectedRow.id)] : []} selectedRowHighlightClassName="bg-emerald-100 outline outline-2 -outline-offset-2 outline-emerald-500" onRowClick={(row) => { setSelectedRow(row); setError(''); setMessage('') }} onRowDoubleClick={(row) => { setSelectedRow(row); setForm(rowToForm(row)); setError(''); setMessage('') }} getRowId={(row, index) => text(row.id || index)} showRowNumber rowNumberStart={(currentPage - 1) * pageSize + 1} serverSideFiltering /> : <div className="py-10 text-center text-sm font-bold text-slate-500">Görüntülenecek Aceze yardımı kaydı bulunamadı.</div>}
       <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 text-xs font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between"><span>Sayfa {currentPage} / {totalPages} · Toplam {totalCount} kayıt</span><div className="grid grid-cols-2 gap-2 sm:flex"><button onClick={() => navigate(currentPage - 1)} disabled={currentPage <= 1} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-slate-700 shadow-sm transition hover:bg-sky-50 hover:text-sky-700 disabled:opacity-40">← Önceki</button><button onClick={() => navigate(currentPage + 1)} disabled={currentPage >= totalPages} className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:opacity-40">Sonraki →</button></div></div>
       </div>
     </div>

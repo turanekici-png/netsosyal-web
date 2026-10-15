@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { AUTH_COOKIE_NAME, LEGACY_AUTH_COOKIE_NAMES } from '@/lib/auth'
+import { EKIP_PERSONEL_COOKIE_NAME } from '@/lib/auth/tahkikatEkip'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,7 +10,9 @@ function clearSessionCookies(response: NextResponse, request: Request) {
   const isHttpsRequest = forwardedProtocol ? forwardedProtocol === 'https' : requestProtocol === 'https:'
   // Hem yeni hem eski (legacy) cerez adlarini temizle - yeniden adlandirma
   // sonrasi tarayicida iki cerez birden kalabilir.
-  for (const cookieName of [AUTH_COOKIE_NAME, ...LEGACY_AUTH_COOKIE_NAMES]) {
+  // Tahkikat ekibinde secili personel de (bkz. lib/auth/tahkikatEkip.ts)
+  // cikista birakilir - tabletteki sonraki kisiye miras kalmasin.
+  for (const cookieName of [AUTH_COOKIE_NAME, ...LEGACY_AUTH_COOKIE_NAMES, EKIP_PERSONEL_COOKIE_NAME]) {
     response.cookies.set({
       name: cookieName,
       value: '',

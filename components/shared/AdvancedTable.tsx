@@ -92,6 +92,13 @@ interface AdvancedTableProps {
   // AdvancedTable kullanan ekranlar (bkz. memory "tipografi-tutarlilik-sistemi"
   // - AdvancedTable'a BİLİNÇLİ dokunulmamıştı) ETKİLENMEZ.
   compactText?: boolean
+  // 2026-10-15 (Dosyalar - tum alanlar): ilk acilista / kayitli duzende henuz
+  // olmayan bu sutunlar GIZLI baslar; kullanici Sütun Görünürlüğü'nden acar.
+  defaultHiddenColumns?: string[]
+  // Sütun Görünürlüğü panelinde sutunlari gruplara ayirir (anahtar -> grup adi).
+  columnGroups?: Record<string, string>
+  // Lacivert/altin kurumsal baslik ve panel. SADECE gecen sayfalar etkilenir.
+  corporate?: boolean
 }
 
 const OPERATORS = [
@@ -160,6 +167,8 @@ const assistanceStatusBadgeClasses: Record<string, string> = {
   '2': 'text-emerald-700',
   '3': 'text-rose-700',
   '4': 'text-sky-700',
+  // 2026-10-15: Kış Dönemi "Bekliyor" - sari
+  '5': 'rounded bg-yellow-300 px-1.5 text-yellow-950',
 }
 const dgnAssistanceStatusBadgeClasses: Record<string, string> = {
   '0': 'text-amber-700',
@@ -199,7 +208,7 @@ function getLocalLayoutKey(tableId: string) {
   return `table_layout_${tableId}`
 }
 
-function normalizeLayout(layout: Column[], allKeys: string[], getColumnLabel: (key: string) => string, requiredVisibleColumns: string[]) {
+function normalizeLayout(layout: Column[], allKeys: string[], getColumnLabel: (key: string) => string, requiredVisibleColumns: string[], defaultHiddenColumns: string[] = EMPTY_COLUMNS) {
   const usedKeys = new Set<string>()
   const normalized = layout
     .filter((column) => allKeys.includes(column.key))
@@ -217,7 +226,7 @@ function normalizeLayout(layout: Column[], allKeys: string[], getColumnLabel: (k
 
   allKeys.forEach((key) => {
     if (!usedKeys.has(key)) {
-      normalized.push({ key, label: getColumnLabel(key), visible: true, order: normalized.length, width: undefined })
+      normalized.push({ key, label: getColumnLabel(key), visible: !defaultHiddenColumns.includes(key), order: normalized.length, width: undefined })
     }
   })
 
@@ -427,6 +436,9 @@ export function AdvancedTable({
   emptyMessage = 'Görüntülenecek kayıt bulunamadı.',
   stageColumns = EMPTY_COLUMNS,
   compactText = false,
+  defaultHiddenColumns = EMPTY_COLUMNS,
+  columnGroups,
+  corporate = false,
 }: AdvancedTableProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -443,15 +455,18 @@ export function AdvancedTable({
   // Kullanici istegi (2026-09-30, 5. tur - CANLI ekran goruntusuyle):
   // "müracaat listesinin yazi boyutunu biraz daha büyütelim" - bir ust
   // adim daha (govde ~17px masaustunde).
-  const cellTextSize = compactText ? 'text-[11px] md:text-[12px]' : 'text-[15.5px] md:text-[17px]'
-  const headTextSize = compactText ? 'text-[10px] md:text-[10.5px]' : 'text-[14.5px] md:text-[15.5px]'
-  const dataTextSize = compactText ? 'text-[10px] md:text-[10.5px]' : 'text-[14.5px] md:text-[15.5px]'
+  // 2026-10-15: kurumsal (corporate) listelerde TUM tablolar ayni olcekte -
+  // compactText yok sayilir (kullanici tercihi: yaziyi kucultme, alani genislet).
+  const useCompactText = compactText && !corporate
+  const cellTextSize = useCompactText ? 'text-[11px] md:text-[12px]' : 'text-[15.5px] md:text-[17px]'
+  const headTextSize = useCompactText ? 'text-[10px] md:text-[10.5px]' : 'text-[14.5px] md:text-[15.5px]'
+  const dataTextSize = useCompactText ? 'text-[10px] md:text-[10.5px]' : 'text-[14.5px] md:text-[15.5px]'
   // Kullanici istegi (7. tur, devam): "liste alanının yazı boyutunun tüm
   // verilerinkini aynı yapalım" - rozet/durum yazilari artik AYRI bir boyut
   // TASIMIYOR, hucrenin (ve tablonun geri kalaninin) ambient cellTextSize'ini
   // dogrudan miras aliyor - boylece TUM veriler (normal metin + renkli
   // durum degerleri) BIREBIR AYNI boyutta gorunur.
-  const linkTextSize = compactText ? 'text-[10px] md:text-[11px]' : 'text-[14.5px] md:text-[16px]'
+  const linkTextSize = useCompactText ? 'text-[10px] md:text-[11px]' : 'text-[14.5px] md:text-[16px]'
   // Acik liste her 15 sn'de bir sunucudan tazelenir (baska kullanicinin
   // girdigi veri, sayfa yenilenmeden gorunsun). Sekme arka plandayken durur;
   // ayni sayfadaki birden fazla tablo tek zamanlayici paylasir.
@@ -459,6 +474,8 @@ export function AdvancedTable({
   const [columns, setColumns] = useState<Column[]>([])
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [columnSearch, setColumnSearch] = useState('')
+  const [activeColumnGroup, setActiveColumnGroup] = useState<string | null>(null)
   const [activeFilterMenu, setActiveFilterMenu] = useState<string | null>(null)
   const [filterMenuPosition, setFilterMenuPosition] = useState<{ left: number; top: number } | null>(null)
   // Kullanici istegi/hata raporu: "açılan liste ilgili filtrenin altında
@@ -520,6 +537,7 @@ export function AdvancedTable({
   const excludedColumnSignature = excludedColumns.join('|')
   const preferredColumnOrderSignature = preferredColumnOrder.join('|')
   const requiredVisibleColumnSignature = requiredVisibleColumns.join('|')
+  const defaultHiddenColumnSignature = defaultHiddenColumns.join('|')
   const columnLabelSignature = JSON.stringify(columnLabels)
   const dataColumnSignature = data.length > 0 ? Object.keys(data[0]).join('|') : ''
   const activeFileStatusColumns = useMemo(
@@ -708,9 +726,9 @@ export function AdvancedTable({
               : Object.keys(columnLabels).filter(key => !excludedColumns.includes(key)))
         let cols: Column[] = []
         if (savedLayout && Array.isArray(savedLayout)) {
-          cols = normalizeLayout(savedLayout, allKeys, getColumnLabel, requiredVisibleColumns)
+          cols = normalizeLayout(savedLayout, allKeys, getColumnLabel, requiredVisibleColumns, defaultHiddenColumns)
         } else {
-          cols = allKeys.map((key, index) => ({ key, label: getColumnLabel(key), visible: true, order: index }))
+          cols = allKeys.map((key, index) => ({ key, label: getColumnLabel(key), visible: !defaultHiddenColumns.includes(key), order: index }))
         }
         const sortedColumns = cols.sort((a, b) => a.order - b.order)
 
@@ -731,7 +749,7 @@ export function AdvancedTable({
     return () => {
       isCancelled = true
     }
-  }, [tableId, dataColumnSignature, excludedColumnSignature, preferredColumnOrderSignature, columnLabelSignature, requiredVisibleColumnSignature])
+  }, [tableId, dataColumnSignature, excludedColumnSignature, preferredColumnOrderSignature, columnLabelSignature, requiredVisibleColumnSignature, defaultHiddenColumnSignature])
 
   useEffect(() => {
     const nextFilters: Record<string, ColumnFilter> = {}
@@ -831,6 +849,22 @@ export function AdvancedTable({
   const toggleVisibility = (key: string) => {
     if (requiredVisibleColumns.includes(key)) return
     setColumns((current) => current.map(c => c.key === key ? { ...c, visible: !c.visible } : c))
+  }
+
+  // Panelde o an listelenen (arama/grup suzgecinden gecen) sutunlari topluca
+  // ac/kapat. Kilitli sutunlar her zaman gorunur kalir.
+  const setVisibilityForKeys = (keys: string[], visible: boolean) => {
+    const keySet = new Set(keys)
+    setColumns((current) => current.map((c) => (
+      keySet.has(c.key) && !requiredVisibleColumns.includes(c.key) ? { ...c, visible } : c
+    )))
+  }
+
+  const resetVisibilityToDefault = () => {
+    setColumns((current) => current.map((c) => ({
+      ...c,
+      visible: requiredVisibleColumns.includes(c.key) || !defaultHiddenColumns.includes(c.key),
+    })))
   }
 
   // Kullanici istegi: sutun genisligi fareyle surukleyerek ayarlanabilsin.
@@ -1234,9 +1268,13 @@ export function AdvancedTable({
           type="button"
           onClick={() => setShowSettings(!showSettings)}
           className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-black shadow-sm transition md:px-3 md:py-1.5 md:text-[15px] ${
-            showSettings
-              ? 'border-[#0076b6] bg-[#0076b6] text-white'
-              : 'border-slate-300 bg-white text-slate-700 hover:border-[#0076b6] hover:text-[#0076b6]'
+            corporate
+              ? showSettings
+                ? 'border-[#1E2A38] bg-[#1E2A38] text-white'
+                : 'border-slate-300 bg-white text-[#1E2A38] hover:border-[#1E2A38] hover:bg-[#F6F3EA]'
+              : showSettings
+                ? 'border-[#0076b6] bg-[#0076b6] text-white'
+                : 'border-slate-300 bg-white text-slate-700 hover:border-[#0076b6] hover:text-[#0076b6]'
           }`}
         >
           <svg aria-hidden="true" className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -1244,12 +1282,19 @@ export function AdvancedTable({
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
           </svg>
           Sütun Ayarları
+          {corporate && columns.length > 0 && (
+            <span className={`rounded-full px-1.5 py-px text-[11px] font-bold md:text-[12.5px] ${showSettings ? 'bg-white/15 text-[#E9D9A8]' : 'bg-[#F6F3EA] text-[#8A6D2F]'}`}>
+              {visibleColumns.length}/{columns.length}
+            </span>
+          )}
         </button>
         <button
           type="button"
           onClick={saveLayout}
           disabled={isSaving}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-2.5 py-1 text-[11px] font-black text-white shadow-sm transition hover:brightness-110 disabled:cursor-wait disabled:opacity-50 md:px-3 md:py-1.5 md:text-[15px]"
+          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-black text-white shadow-sm transition hover:brightness-110 disabled:cursor-wait disabled:opacity-50 md:px-3 md:py-1.5 md:text-[15px] ${
+            corporate ? 'bg-[#1E2A38] hover:bg-[#2A3B4D]' : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+          }`}
         >
           <svg aria-hidden="true" className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
@@ -1331,16 +1376,86 @@ export function AdvancedTable({
         // 10-12px gibi, sayfanin geri kalanindan (artik ~16-17px) COK KUCUK
         // yazilar kullaniyordu. Tum yazi/kontrol boyutlari buyutuldu, panel
         // biraz genisletildi.
-        <div className="absolute right-0 top-10 z-20 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5">
-          <div className="flex items-center gap-2 bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a] px-4 py-3">
-            <svg aria-hidden="true" className="h-5 w-5 shrink-0 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <div className={`absolute right-0 top-10 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 ${corporate || columnGroups ? 'w-[26rem] max-w-[calc(100vw-2rem)]' : 'w-80'}`}>
+          <div className={`flex items-center gap-2 px-4 py-3 ${corporate ? 'border-b-2 border-[#D4B26A] bg-[#1E2A38]' : 'bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a]'}`}>
+            <svg aria-hidden="true" className={`h-5 w-5 shrink-0 ${corporate ? 'text-[#D4B26A]' : 'text-white'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 4h18" />
               <path d="M6 4v16" />
               <path d="M12 4v16" />
               <path d="M18 4v16" />
             </svg>
-            <h4 className="text-[15px] font-black uppercase tracking-wide text-white">Sütun Görünürlüğü</h4>
+            <h4 className="flex-1 text-[15px] font-black uppercase tracking-wide text-white">Sütun Görünürlüğü</h4>
+            <span className="rounded-full bg-white/15 px-2 py-0.5 text-[12.5px] font-bold text-white">
+              {visibleColumns.length} / {columns.length} görünür
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSettings(false)}
+              className="ml-1 rounded px-1.5 text-[16px] leading-none text-white/70 hover:bg-white/10 hover:text-white"
+              title="Kapat"
+            >
+              ✕
+            </button>
           </div>
+          {/* 2026-10-15: sutun sayisi arttiginda (ör. Dosyalar'da 45+) aranabilir
+              ve gruplanabilir olsun; listelenenleri topluca ac/kapat. */}
+          {(columns.length > 8 || columnGroups) && (
+            <div className="space-y-2 border-b border-slate-200 bg-slate-50 px-3 py-2.5">
+              <input
+                type="search"
+                value={columnSearch}
+                onChange={(event) => setColumnSearch(event.target.value)}
+                placeholder="Sütun ara..."
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[14px] font-semibold text-slate-800 outline-none focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/15"
+              />
+              {columnGroups && (
+                <div className="flex flex-wrap gap-1">
+                  {[null, ...Array.from(new Set(columns.map((c) => columnGroups[c.key] || 'Diğer')))].map((group) => {
+                    const isActive = activeColumnGroup === group
+                    const groupColumns = group === null ? columns : columns.filter((c) => (columnGroups[c.key] || 'Diğer') === group)
+                    const groupVisible = groupColumns.filter((c) => c.visible).length
+                    return (
+                      <button
+                        key={group ?? '__all'}
+                        type="button"
+                        onClick={() => setActiveColumnGroup(group)}
+                        className={`rounded-full border px-2.5 py-1 text-[12.5px] font-bold transition ${
+                          isActive
+                            ? 'border-[#1E2A38] bg-[#1E2A38] text-white'
+                            : 'border-slate-300 bg-white text-slate-700 hover:border-[#1E2A38]'
+                        }`}
+                      >
+                        {group ?? 'Tümü'}
+                        <span className={`ml-1 ${isActive ? 'text-[#E9D9A8]' : 'text-slate-400'}`}>{groupVisible}/{groupColumns.length}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {(() => {
+                  const listedKeys = columns
+                    .filter((c) => !activeColumnGroup || (columnGroups?.[c.key] || 'Diğer') === activeColumnGroup)
+                    .filter((c) => !columnSearch.trim() || foldTurkish(c.label).includes(foldTurkish(columnSearch.trim())))
+                    .map((c) => c.key)
+                  const toolButton = 'rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12.5px] font-bold text-slate-700 hover:border-[#1E2A38] hover:text-[#1E2A38] disabled:opacity-40'
+                  return (
+                    <>
+                      <button type="button" className={toolButton} disabled={listedKeys.length === 0} onClick={() => setVisibilityForKeys(listedKeys, true)}>
+                        Listelenenleri Göster
+                      </button>
+                      <button type="button" className={toolButton} disabled={listedKeys.length === 0} onClick={() => setVisibilityForKeys(listedKeys, false)}>
+                        Listelenenleri Gizle
+                      </button>
+                      <button type="button" className={toolButton} onClick={resetVisibilityToDefault}>
+                        Varsayılana Dön
+                      </button>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+          )}
           {/* Kullanici istegi ("bazı başlıkları pasif kaldıramıyorum"): zorunlu
               (requiredVisibleColumns) sutunlar SADECE gri/soluk gorunup NEDEN
               kapatilamadigi belli olmuyordu - kilit ikonu + kisa aciklama
@@ -1356,11 +1471,14 @@ export function AdvancedTable({
               <span>Kilitli sütunlar bu rapor için her zaman görünür kalmalıdır.</span>
             </div>
           )}
-          <div className="max-h-80 space-y-1 overflow-y-auto p-2.5">
+          <div className={`space-y-1 overflow-y-auto p-2.5 ${corporate || columnGroups ? 'max-h-[min(60vh,32rem)]' : 'max-h-80'}`}>
             {columns.map((col, index) => {
               const isLocked = requiredVisibleColumns.includes(col.key)
+              const groupName = columnGroups ? (columnGroups[col.key] || 'Diğer') : null
+              if (activeColumnGroup && groupName !== activeColumnGroup) return null
+              if (columnSearch.trim() && !foldTurkish(col.label).includes(foldTurkish(columnSearch.trim()))) return null
               return (
-              <div key={col.key} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition ${isLocked ? 'bg-amber-50/60' : 'hover:bg-sky-50'}`}>
+              <div key={col.key} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition ${isLocked ? 'bg-amber-50/60' : corporate ? 'hover:bg-[#F6F3EA]' : 'hover:bg-sky-50'}`}>
                 <label
                   className={`flex min-w-0 flex-1 items-center gap-2.5 ${isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                   title={isLocked ? 'Bu sütun her zaman görünür olmalıdır' : undefined}
@@ -1370,9 +1488,12 @@ export function AdvancedTable({
                     checked={col.visible}
                     disabled={isLocked}
                     onChange={() => toggleVisibility(col.key)}
-                    className="h-5 w-5 shrink-0 rounded border-slate-300 text-[#0076b6] focus:ring-[#0076b6] disabled:opacity-60"
+                    className={`h-5 w-5 shrink-0 rounded border-slate-300 disabled:opacity-60 ${corporate ? 'accent-[#1E2A38] text-[#1E2A38] focus:ring-[#1E2A38]' : 'text-[#0076b6] focus:ring-[#0076b6]'}`}
                   />
-                  <span className={`truncate text-[14.5px] font-bold uppercase ${isLocked ? 'text-amber-700' : 'text-slate-700'}`}>{col.label}</span>
+                  <span className={`truncate text-[14.5px] font-bold uppercase ${isLocked ? 'text-amber-700' : col.visible ? 'text-slate-800' : 'text-slate-500'}`}>{col.label}</span>
+                  {groupName && !activeColumnGroup && (
+                    <span className="ml-auto shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold normal-case text-slate-500">{groupName}</span>
+                  )}
                   {isLocked && (
                     <svg aria-hidden="true" className="h-4 w-4 shrink-0 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                       <rect width="14" height="10" x="5" y="11" rx="2" />
@@ -1407,7 +1528,7 @@ export function AdvancedTable({
                 <col key={col.key} style={col.width ? { width: col.width } : undefined} />
               ))}
             </colgroup>
-            <thead className={`bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a] font-semibold uppercase tracking-wide text-white sticky top-0 z-10 shadow-[0_2px_10px_rgba(2,60,90,0.25)] ${headTextSize}`}>
+            <thead className={`${corporate ? 'bg-[#1E2A38] shadow-[inset_0_-2px_0_#D4B26A,0_2px_10px_rgba(16,30,43,0.25)]' : 'bg-gradient-to-r from-[#0c6f9e] via-[#127f92] to-[#1c9a7a] shadow-[0_2px_10px_rgba(2,60,90,0.25)]'} font-semibold uppercase tracking-wide text-white sticky top-0 z-10 ${headTextSize}`}>
               <tr>
                 {showRowNumber && (
                   <th className="w-16 border-b border-r border-white/35 px-1.5 py-1.5 text-center md:px-3 md:py-2.5">
@@ -1437,12 +1558,12 @@ export function AdvancedTable({
                   const isFiltered = isColumnFiltered(col.key)
                   const filterValue = columnFilters[col.key]?.value || ''
                   return (
-                  <th key={col.key} draggable onDragStart={() => onDragStart(col.key)} onDragOver={onDragOver} onDrop={() => onDrop(col.key)} className={`group cursor-move border-b border-r px-1.5 py-1.5 hover:bg-white/10 min-w-[104px] relative transition-colors md:px-3 md:py-2.5 md:min-w-[170px] ${isSorted ? 'border-amber-300 bg-white/10' : 'border-white/35'}`}>
+                  <th key={col.key} draggable onDragStart={() => onDragStart(col.key)} onDragOver={onDragOver} onDrop={() => onDrop(col.key)} className={`group cursor-move border-b border-r px-1.5 py-1.5 hover:bg-white/10 min-w-[104px] relative transition-colors md:px-3 md:py-2.5 md:min-w-[170px] ${isSorted ? (corporate ? 'border-[#D4B26A]/60 bg-white/10' : 'border-amber-300 bg-white/10') : (corporate ? 'border-white/15' : 'border-white/35')}`}>
                     <div className="flex flex-col gap-1 min-h-[40px] justify-between md:gap-1.5 md:min-h-[58px]">
                       <button
                         type="button"
                         onClick={(event) => toggleSort(col.key, event.shiftKey)}
-                        className="flex max-w-full items-center gap-1.5 overflow-hidden text-left hover:text-amber-200"
+                        className={`flex max-w-full items-center gap-1.5 overflow-hidden text-left ${corporate ? 'hover:text-[#E9D9A8]' : 'hover:text-amber-200'}`}
                         title={`${col.label} sırala (birden fazla sütuna göre sıralamak için Shift+tıklayın)`}
                       >
                         <svg aria-hidden="true" className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
@@ -1457,7 +1578,11 @@ export function AdvancedTable({
                             </>
                           )}
                         </svg>
-                        <span className="overflow-hidden text-ellipsis whitespace-nowrap tracking-wide">{col.label.toLocaleUpperCase('tr-TR')}</span>
+                        {corporate ? (
+                          <span className="line-clamp-2 whitespace-normal break-words text-[13.5px] font-semibold normal-case leading-tight tracking-normal md:text-[14.5px]">{col.label}</span>
+                        ) : (
+                          <span className="overflow-hidden text-ellipsis whitespace-nowrap tracking-wide">{col.label.toLocaleUpperCase('tr-TR')}</span>
+                        )}
                         {isSorted && activeSortConfigs.length > 1 && (
                           <span aria-hidden className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-300 text-[9px] font-black text-[#0c6f9e]" title={`${sortIndex + 1}. sıralama ölçütü`}>
                             {sortIndex + 1}
@@ -1511,7 +1636,7 @@ export function AdvancedTable({
                           <div className="relative min-w-0 flex-1">
                             <input
                               type="text"
-                              placeholder="Tüm kayıtlarda ara..."
+                              placeholder={corporate ? 'Filtrele…' : 'Tüm kayıtlarda ara...'}
                               value={filterValue}
                               onChange={(e) => {
                                 const value = e.target.value
@@ -1741,7 +1866,7 @@ export function AdvancedTable({
                   key={rowId}
                   onClick={() => onRowClick?.(row)}
                   onDoubleClick={() => onRowDoubleClick?.(row)}
-                  className={`${selected ? selectedRowHighlightClassName : customRowClass || (index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60')} ${customRowClass && !selected ? '' : 'hover:bg-[#f1faed]'} transition-colors whitespace-nowrap ${onRowClick || onRowDoubleClick ? 'cursor-pointer' : ''}`}
+                  className={`${selected ? selectedRowHighlightClassName : customRowClass || (index % 2 === 0 ? 'bg-white' : corporate ? 'bg-[#F7F8FA]' : 'bg-slate-50/60')} ${customRowClass && !selected ? '' : corporate ? 'hover:bg-[#F6F1E2]' : 'hover:bg-[#f1faed]'} transition-colors whitespace-nowrap ${onRowClick || onRowDoubleClick ? 'cursor-pointer' : ''}`}
                 >
                   {showRowNumber && (
                     <td className={`border-b border-r border-slate-200 px-1.5 py-0.5 text-center font-semibold text-slate-500 md:px-3 md:py-1 ${dataTextSize}`}>
@@ -1789,7 +1914,7 @@ export function AdvancedTable({
                     const isStageColumn = activeStageColumns.includes(col.key)
                     const isCenteredShortValueColumn = CENTERED_SHORT_VALUE_COLUMNS.has(col.key) || isDateField(col.key) || isFileStatusColumn || isAssistanceStatusColumn || isStageColumn || col.key === 'durumu'
                     return (
-                      <td key={col.key} className={`border-b border-r border-slate-200 px-1.5 py-0.5 font-bold text-slate-950 max-w-[220px] overflow-hidden text-ellipsis md:px-3 md:py-1 md:max-w-[400px] ${isCenteredShortValueColumn ? 'text-center' : ''}`}>
+                      <td key={col.key} className={`border-b border-r border-slate-200 px-1.5 py-0.5 ${corporate ? 'font-semibold text-[#1F2937]' : 'font-bold text-slate-950'} max-w-[220px] overflow-hidden text-ellipsis md:px-3 md:py-1 md:max-w-[400px] ${isCenteredShortValueColumn ? 'text-center' : ''}`}>
                         {isFileStatusColumn ? (
                           <span className={`font-extrabold ${getFileStatusBadgeClass(val, fileStatusMap, fileStatusVariant)}`}>{displayValue}</span>
                         ) : isAssistanceStatusColumn ? (

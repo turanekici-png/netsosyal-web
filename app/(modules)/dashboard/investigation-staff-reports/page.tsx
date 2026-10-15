@@ -56,7 +56,7 @@ function getStageGroupStyle(stage: string) {
   if (normalized.includes('ince')) {
     return { card: 'border-amber-300 bg-amber-50', label: 'text-amber-700', value: 'text-amber-900' }
   }
-  return { card: 'border-slate-200 bg-white', label: 'text-[#005f95]', value: 'text-slate-950' }
+  return { card: 'border-slate-200 bg-white', label: 'text-[#1E2A38]', value: 'text-slate-950' }
 }
 
 function InvestigationStaffReportsContent() {
@@ -151,15 +151,15 @@ function InvestigationStaffReportsContent() {
   }, [staff])
 
   return (
-    <div className="space-y-5 text-slate-950">
-      <div className="rounded-md border border-[#9bd36f] bg-gradient-to-r from-[#0076b6] to-[#6fb744] px-5 py-4 text-white shadow-sm">
+    <div className="ns-kurumsal-pencere space-y-5 text-slate-950">
+      <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-5 py-4 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[15px] font-black uppercase tracking-wide text-white/90">Tahkikat Personel Raporu</p>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">{staff}</h1>
-            <p className="mt-1 text-sm font-bold text-white/85">Sadece durumu 0 olan ayni/nakdi yardim kayitlari</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">Tahkikat Personel Raporu</p>
+            <h1 className="mt-1 text-[20px] font-semibold uppercase leading-tight tracking-wide md:text-[26px]">{staff}</h1>
+            <p className="mt-1 text-[13.5px] font-medium text-slate-300">Sadece durumu 0 olan ayni/nakdi yardim kayitlari</p>
           </div>
-          <div className="rounded-md border border-white/30 bg-white/15 px-4 py-2 text-sm font-bold">
+          <div className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-[14px] font-bold">
             Toplam: {isLoading ? '...' : formatNumber(records.length)}
           </div>
         </div>
@@ -180,9 +180,9 @@ function InvestigationStaffReportsContent() {
           Bu personele ait durumu 0 olan kayit bulunamadi.
         </div>
       ) : (
-        <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)]">
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
-            <h2 className="text-base font-extrabold text-[#005f95]">{staff}</h2>
+            <h2 className="text-[16px] font-bold text-[#1E2A38]">{staff}</h2>
             <span className="rounded-full bg-white px-3 py-1 text-[14px] font-extrabold text-slate-600">
               {formatNumber(records.length)} kayit
             </span>
@@ -216,6 +216,7 @@ function InvestigationStaffReportsContent() {
           </div>
           <div className="p-4">
             <AdvancedTable
+              corporate
               data={displayedRecords as unknown as Record<string, unknown>[]}
               tableId="dashboard_investigation_staff_reports"
               excludedColumns={['id']}

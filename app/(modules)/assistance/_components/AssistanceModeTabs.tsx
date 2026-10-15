@@ -72,13 +72,13 @@ export function AssistanceModeTabs({ basePath, extraTabs = [], yardimlarLabel = 
             href={tab.href}
             aria-current={isActive ? 'page' : undefined}
             className={[
-              'inline-flex items-center gap-2 whitespace-nowrap rounded-lg border-b-[3px] px-5 py-2 text-[16px] font-bold uppercase tracking-wide transition',
+              'inline-flex items-center gap-2 whitespace-nowrap rounded-lg border-b-[3px] px-5 py-2 text-[16px] font-bold md:px-6 md:py-2.5 md:text-[18px] uppercase tracking-wide transition',
               isActive
                 ? `${activeBg} border-b-[#D4B26A] text-white shadow-sm`
                 : 'border-b-transparent text-slate-700 hover:bg-slate-100 hover:text-[#1E2A38]',
             ].join(' ')}
           >
-            <span className={`h-2.5 w-2.5 rounded-full ${dot} ${isActive ? 'ring-2 ring-white/70' : ''}`} />
+            <span className={`h-3 w-3 rounded-full ${dot} ${isActive ? 'ring-2 ring-white/70' : ''}`} />
             {tab.label}
           </Link>
         )

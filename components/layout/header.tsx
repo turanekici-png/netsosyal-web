@@ -95,6 +95,13 @@ const getInitials = (name?: string) => {
 // disinda: React derleyici kurali Date.now()'u render'da cagriliyor saniyordu.
 const acilisDamgasi = () => String(Date.now())
 
+// 2026-10-15: kurumsal "İşlemler" menusu satir/baslik siniflari.
+const MENU_SECTION_TITLE = 'mb-1.5 px-1 text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#8A6D2B] dark:text-[#D4B26A]'
+const MENU_ROW = 'flex min-h-12 items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-[0_1px_2px_rgba(16,30,43,0.04)] transition dark:border-slate-700 dark:bg-slate-800'
+const MENU_ROW_LABEL = 'block text-[13.5px] font-bold text-[#1E2A38] dark:text-slate-100'
+const MENU_ACTION_BUTTON = 'shrink-0 rounded-md border border-[#1E2A38] bg-[#1E2A38] px-2.5 py-1 text-[12px] font-bold text-white transition hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60'
+const MENU_DANGER_BUTTON = 'shrink-0 rounded-md border border-rose-300 bg-white px-2.5 py-1 text-[12px] font-bold text-rose-700 transition hover:bg-rose-50'
+
 export function Header({
   onMenuClick,
   sidebarAutoHide = false,
@@ -197,6 +204,26 @@ export function Header({
   // profil (kullanici adi) + Cikis + bildirim zili gorunur. Masaustunde
   // (md+) hepsi eskisi gibi yan yana.
   const [isHeaderMenuOpen, setIsHeaderMenuOpen] = useState(false)
+  // 2026-10-15: masaustunde menu, sekme seridinin basindaki hamburger
+  // dugmesinden acilir; dugmenin ekran konumu olayla gelir (fixed konum).
+  const [headerMenuAnchor, setHeaderMenuAnchor] = useState<{ top: number; left: number } | null>(null)
+  useEffect(() => {
+    const onToggle = (event: Event) => {
+      const detail = (event as CustomEvent<{ top: number; left: number }>).detail
+      if (detail) setHeaderMenuAnchor({ top: detail.top + 6, left: Math.max(8, detail.left) })
+      setIsHeaderMenuOpen((open) => !open)
+    }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsHeaderMenuOpen(false) }
+    window.addEventListener('netsosyal:toggle-header-menu', onToggle)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('netsosyal:toggle-header-menu', onToggle)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [])
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('netsosyal:header-menu-state', { detail: { open: isHeaderMenuOpen } }))
+  }, [isHeaderMenuOpen])
   // Kullanici istegi (Ekim 2026): "Tasarım Modu" dugmesi sayfa icindeki
   // bilgi cubugundan ust menuye (kullanici adinin yanina) tasindi - sadece
   // tasarim-modu destekleyen bir sayfa (ör. Dosya Yonetimi) acikken gorunur.
@@ -682,8 +709,12 @@ export function Header({
   }
 
   return (
-    <header className="relative border-b border-[#E2E5DE] bg-white shadow-[0_1px_2px_rgba(16,30,43,0.04)] print:hidden">
-      <div className="relative flex min-h-[3.25rem] flex-row items-center justify-between gap-2 px-3 py-1.5 sm:px-4 lg:min-h-[3.5rem] lg:gap-4 lg:px-6 lg:py-1.5">
+    <header className="relative border-b border-[#E2E5DE] bg-white shadow-[0_1px_2px_rgba(16,30,43,0.04)] print:hidden lg:border-0 lg:shadow-none">
+      {/* 2026-10-15 kullanici istegi: masaustunde (lg+) bu ust cubuk TAMAMEN
+          kaldirildi - "İşlemler" menusu sekme seridinin basindaki hamburger
+          dugmesinden acilir (WorkspaceTabs -> 'netsosyal:toggle-header-menu').
+          Mobilde (lg alti) cubuk eskisi gibi durur (sol menu dugmesi icin). */}
+      <div className="relative flex min-h-[3.25rem] flex-row items-center justify-between gap-2 px-3 py-1.5 sm:px-4 lg:hidden">
         <div className="flex min-w-0 flex-1 items-center gap-3 lg:w-auto lg:flex-none">
           <button
             type="button"
@@ -702,275 +733,6 @@ export function Header({
           </div>
         </div>
         <div className="relative flex shrink-0 items-center justify-end gap-2">
-          {isHeaderMenuOpen && (
-            <button
-              type="button"
-              aria-hidden="true"
-              tabIndex={-1}
-              onClick={() => setIsHeaderMenuOpen(false)}
-              className="fixed inset-0 z-[55] cursor-default"
-            />
-          )}
-          {/* Kullanici istegi (Ekim 2026): ust menudeki TUM kontroller (WhatsApp
-              durumu, toplu gonderim, Boyut, zoom, tema, yazici, Uygulamayi
-              Yukle, Tasarim Modu, Cikis) HER ekran boyutunda tek "İşlemler"
-              dugmesi altinda toplanir - baslik alani daralir. "Takvim ve
-              Hatırlatıcı" ile "Profilim" SOL SIDEBAR'a tasindi (bkz.
-              sidebar.tsx + yukaridaki olay dinleyicileri). */}
-          <div
-            className={
-              isHeaderMenuOpen
-                ? 'absolute right-0 top-full z-[60] mt-2 flex w-[17rem] flex-col items-stretch gap-2 rounded-xl border border-[#E2E5DE] bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900'
-                : 'hidden'
-            }
-          >
-          <div className="flex flex-col shrink-0 min-w-0 items-stretch gap-2">
-            {hasWhatsappAccess && whatsappConnection && (
-              <div
-                className={`inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-2 text-[11px] font-black sm:px-3 sm:text-sm ${
-                  whatsappConnection.status === 'ready'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
-                    : whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure'
-                      ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300'
-                      : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
-                }`}
-                title="Kurumun paylaşımlı WhatsApp Web bağlantı durumu"
-              >
-                <span
-                  aria-hidden="true"
-                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${
-                    whatsappConnection.status === 'ready'
-                      ? 'bg-emerald-500'
-                      : whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure'
-                        ? 'bg-rose-500'
-                        : 'animate-pulse bg-amber-500'
-                  }`}
-                />
-                <span className="hidden sm:inline">
-                  {whatsappConnection.status === 'ready'
-                    ? 'WhatsApp Bağlı'
-                    : whatsappConnection.status === 'qr'
-                      ? 'WhatsApp: QR Bekleniyor'
-                      : whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure'
-                        ? 'WhatsApp: Bağlı Değil'
-                        : 'WhatsApp: Bağlanıyor...'}
-                </span>
-                <span className="sm:hidden">WA</span>
-                {whatsappConnection.status === 'qr' && (
-                  <button
-                    type="button"
-                    onClick={() => addTab({ title: 'Sistem Ayarları', path: '/settings?tab=whatsapp' })}
-                    className="rounded-lg border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-black text-amber-800 hover:bg-amber-100"
-                  >
-                    QR Okut
-                  </button>
-                )}
-                {(whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure') && (
-                  <button
-                    type="button"
-                    onClick={() => void connectWhatsapp(true)}
-                    disabled={isWhatsappConnecting}
-                    className="rounded-lg border border-rose-300 bg-white px-2 py-0.5 text-[10px] font-black text-rose-800 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
-                  >
-                    {isWhatsappConnecting ? 'Bağlanıyor...' : 'Bağlan'}
-                  </button>
-                )}
-              </div>
-            )}
-            {bulkWhatsappJob && bulkWhatsappJob.status === 'running' && (
-              <div
-                className="inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-2 text-[11px] font-black text-sky-800 sm:px-3 sm:text-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
-                title="Toplu WhatsApp gönderimi arka planda devam ediyor - bu pencereyi kapatıp diğer işlerinize devam edebilirsiniz"
-              >
-                <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-sky-500" />
-                <span className="hidden sm:inline">
-                  Toplu Gönderim: {bulkWhatsappJob.processed}/{bulkWhatsappJob.total}
-                </span>
-                <span className="sm:hidden">{bulkWhatsappJob.processed}/{bulkWhatsappJob.total}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void fetch('/api/whatsapp/bulk-cancel', { method: 'POST' })
-                  }}
-                  title="Toplu gönderimi iptal et"
-                  className="rounded-lg border border-sky-300 bg-white px-2 py-0.5 text-[10px] font-black text-sky-800 hover:bg-sky-100"
-                >
-                  İptal Et
-                </button>
-              </div>
-            )}
-            {bulkSmsJob && bulkSmsJob.status === 'running' && (
-              <div
-                className="inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#0076b6]/30 bg-[#eaf7fd] px-2.5 py-2 text-[11px] font-black text-[#0076b6] sm:px-3 sm:text-sm dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
-                title="Toplu SMS gönderimi arka planda devam ediyor - bu pencereyi kapatıp diğer işlerinize devam edebilirsiniz"
-              >
-                <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#0076b6]" />
-                <span className="hidden sm:inline">
-                  Toplu SMS: {bulkSmsJob.processed}/{bulkSmsJob.total}
-                </span>
-                <span className="sm:hidden">{bulkSmsJob.processed}/{bulkSmsJob.total}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void fetch('/api/sms/bulk-cancel', { method: 'POST' })
-                  }}
-                  title="Toplu gönderimi iptal et"
-                  className="rounded-lg border border-[#0076b6]/40 bg-white px-2 py-0.5 text-[10px] font-black text-[#0076b6] hover:bg-sky-100"
-                >
-                  İptal Et
-                </button>
-              </div>
-            )}
-            {/* "Takvim ve Hatırlatıcı" tetikleyicisi SOL SIDEBAR'a tasindi -
-                popup (DashboardReminder) burada kaliyor, sidebar butonu
-                'netsosyal:open-reminders' olayiyla aciyor. */}
-            <DashboardReminder
-              showTrigger={false}
-              open={isNotificationsOpen}
-              onOpenChange={setIsNotificationsOpen}
-              notifications={
-              <section className="overflow-hidden rounded-xl border border-sky-200 bg-white shadow-sm">
-                <div className="border-b border-slate-100 bg-slate-50 px-3 py-2">
-                  <h3 className="text-xs font-black uppercase text-slate-700">Gelen Bildirimler</h3>
-                </div>
-                {notifications.length === 0 && communicationNotifications.length === 0 && approvalDecisionNotifications.length === 0 ? (
-                  <div className="px-3 py-5 text-center text-sm font-bold text-slate-400">
-                    Yeni bildirim yok.
-                  </div>
-                ) : (
-                  <div className="max-h-80 overflow-y-auto">
-                    {approvalDecisionNotifications.length > 0 && (
-                      <div className="border-b border-slate-100 bg-violet-50 px-3 py-1.5 text-[10px] font-black uppercase text-violet-700">Onay Sonuçları</div>
-                    )}
-                    {approvalDecisionNotifications.map((notification) => (
-                      <button
-                        key={`approval-${notification.id}`}
-                        type="button"
-                        onClick={() => void openApprovalDecisionFile(notification)}
-                        className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-violet-50"
-                      >
-                        <span className={`block truncate text-sm font-black ${notification.durum === 1 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {notification.turAdi} {approvalActionNoun(notification.kayitTuru)} talebiniz {notification.durum === 1 ? 'onaylandı' : 'reddedildi'}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs font-bold text-slate-500">
-                          Dosya {notification.dosyaNo} - {notification.onaylayanAdi}
-                        </span>
-                        {notification.durum === 2 && notification.redAciklama && (
-                          <span className="mt-0.5 block truncate text-xs font-semibold text-rose-500">{notification.redAciklama}</span>
-                        )}
-                      </button>
-                    ))}
-                    {communicationNotifications.length > 0 && (
-                      <div className="border-b border-slate-100 bg-cyan-50 px-3 py-1.5 text-[10px] font-black uppercase text-cyan-700">Mesaj ve Duyurular</div>
-                    )}
-                    {communicationNotifications.map((notification) => (
-                      <button
-                        key={`communication-${notification.id}`}
-                        type="button"
-                        onClick={() => void openCommunication(notification)}
-                        className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-cyan-50"
-                      >
-                        <span className="block truncate text-sm font-black text-slate-900">{notification.subject || (notification.type === 'duyuru' ? 'Yeni duyuru' : 'Yeni personel mesajı')}</span>
-                        <span className="mt-0.5 block truncate text-xs font-bold text-slate-500">{notification.content}</span>
-                      </button>
-                    ))}
-                    {notifications.length > 0 && (
-                      <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-black uppercase text-slate-600">Evrak Bildirimleri</div>
-                    )}
-                    {notifications.map((notification) => (
-                      <button
-                        key={notification.id}
-                        type="button"
-                        onClick={() => openNotificationFile(notification)}
-                        className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-sky-50"
-                      >
-                        <span className="block truncate text-sm font-black text-slate-900">{notification.documentTitle}</span>
-                        <span className="mt-0.5 block truncate text-xs font-bold text-slate-500">
-                          Dosya {notification.fileNo} - {notification.ownerName}
-                        </span>
-                        <span className="mt-1 block text-[11px] font-black uppercase text-[#005f95]">{notification.completedDate}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-              }
-            />
-            {/* Kullanici istegi (Eylul 2026): "herkeste farkli cozunurluk var,
-                uygulama birinde cok buyuk birinde cok kucuk". Kisi kendi
-                arayuz boyutunu secer - HESABA ozel (sunucuda), her
-                bilgisayarda ayni. Ctrl +/- (asagidaki %NN) bundan AYRI: o
-                tarayiciya ozel hizli ince ayar. Bkz. UiScaleContext. */}
-            <label
-              className="flex w-full shrink-0 items-center justify-between gap-1.5 rounded-lg border border-[#E2E5DE] bg-white px-2 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800"
-              title="Arayüz boyutu - hesabınıza kaydedilir, hangi bilgisayardan girseniz aynı"
-            >
-              <span className="text-[10px] font-black uppercase tracking-wide text-[#93A0A6] dark:text-slate-400">Boyut</span>
-              <select
-                value={uiScaleMatch.value}
-                onChange={(event) => uiScaleCtx.setUiScale(Number(event.target.value))}
-                className="cursor-pointer rounded-md border-0 bg-transparent py-0.5 pr-5 text-[12px] font-black text-[#16232B] outline-none focus:ring-1 focus:ring-[#0076b6] dark:text-slate-200"
-              >
-                {UI_SCALE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            {/* Kullanici istegi (Eylul 2026): tarayici zoom'u (Ctrl +/-) kaba
-                adimlarla ziplyordu ("%67'den %50'ye"). Bunun yerine uygulama
-                ici, ince adimli (%2) kabuk yakinlastirma. Ayar bu tarayiciya
-                ozel saklanir (bkz. ShellZoomContext). */}
-            <div className="flex w-full shrink-0 items-center justify-center gap-0.5 rounded-lg border border-[#E2E5DE] bg-white px-1 py-1 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-              <button
-                type="button"
-                onClick={shellZoom.decrement}
-                disabled={shellZoom.zoom <= SHELL_ZOOM_MIN + 0.001}
-                title="Ekranı küçült"
-                aria-label="Ekranı küçült"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-base font-black leading-none text-[#16232B] hover:bg-[#F1F3EF] disabled:opacity-40 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                −
-              </button>
-              <button
-                type="button"
-                onClick={shellZoom.reset}
-                title="Yakınlaştırmayı %100'e döndür"
-                className="min-w-[3.1rem] rounded-md px-1 text-center font-mono text-[11px] font-black text-[#16232B] hover:bg-[#F1F3EF] dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                %{shellZoomPct}
-              </button>
-              <button
-                type="button"
-                onClick={shellZoom.increment}
-                disabled={shellZoom.zoom >= SHELL_ZOOM_MAX - 0.001}
-                title="Ekranı büyüt"
-                aria-label="Ekranı büyüt"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-base font-black leading-none text-[#16232B] hover:bg-[#F1F3EF] disabled:opacity-40 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                +
-              </button>
-            </div>
-            {/* ThemeToggle (gündüz/gece) + WorkstationSetupButton (yazıcı
-                durumu) kullanici istegiyle (Eylul 2026) bu menuden CIKARILDI -
-                artik sag ustte, "Sol menüyü gizle" dugmesinin yaninda
-                dogrudan gorunuyor (bkz. asagisi). */}
-            <InstallAppButton variant="compact" />
-          </div>
-          {designMode.hostAvailable && (
-            <button
-              type="button"
-              onClick={designMode.toggle}
-              title="Sayfa düzenini sürükle-bırak ile değiştir"
-              className={`min-h-10 shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-2 text-[11px] font-black uppercase tracking-wide shadow-sm transition sm:px-3 sm:text-xs ${
-                designMode.active
-                  ? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
-                  : 'border-[#E2E5DE] bg-white text-[#16232B] hover:bg-[#F1F3EF] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
-              }`}
-            >
-              {designMode.active ? 'Tasarım Modunu Kapat' : 'Tasarım Modu'}
-            </button>
-          )}
-          </div>
           {/* Kullanici istegi (Eylul 2026): "İşlemler" menusunun icinden
               cikarilan gunduz/gece modu + yazici durum bilgisi - sag ustte,
               "Sol menüyü gizle" dugmesinin yaninda. Kullanici istegi
@@ -1069,7 +831,7 @@ export function Header({
               boyutunda - tek "İşlemler" dugmesi altinda. */}
           <button
             type="button"
-            onClick={() => setIsHeaderMenuOpen((o) => !o)}
+            onClick={() => { setHeaderMenuAnchor(null); setIsHeaderMenuOpen((o) => !o) }}
             aria-label="İşlemler menüsü"
             aria-expanded={isHeaderMenuOpen}
             className={`flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-black uppercase tracking-wide shadow-sm transition sm:px-3 ${
@@ -1086,6 +848,323 @@ export function Header({
             <span className="hidden sm:inline">İşlemler</span>
             <svg className={`h-3 w-3 transition-transform ${isHeaderMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
           </button>
+        </div>
+      </div>
+      {isHeaderMenuOpen && (
+        <button
+          type="button"
+          aria-hidden="true"
+          tabIndex={-1}
+          onClick={() => setIsHeaderMenuOpen(false)}
+          className="fixed inset-0 z-[990] cursor-default"
+        />
+      )}
+      {/* "Takvim ve Hatırlatıcı" penceresi (tetikleyici sol menude,
+          'netsosyal:open-reminders' olayi). */}
+      <DashboardReminder
+        showTrigger={false}
+        open={isNotificationsOpen}
+        onOpenChange={setIsNotificationsOpen}
+        notifications={
+        <section className="overflow-hidden rounded-lg border border-[#D5DDE2] bg-white">
+          <div className="flex items-center justify-between border-b border-[#D5DDE2] bg-[#F7F8FA] px-3 py-2">
+            <h3 className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-[#8A6D2B]">Gelen Bildirimler</h3>
+            {(notifications.length + communicationNotifications.length + approvalDecisionNotifications.length) > 0 && (
+              <span className="rounded-full bg-[#1E2A38] px-2 py-0.5 text-[11px] font-bold text-white">{notifications.length + communicationNotifications.length + approvalDecisionNotifications.length}</span>
+            )}
+          </div>
+          {notifications.length === 0 && communicationNotifications.length === 0 && approvalDecisionNotifications.length === 0 ? (
+            <div className="px-3 py-3.5 text-center text-[12.5px] font-medium text-slate-400">
+              Yeni bildirim yok.
+            </div>
+          ) : (
+            <div className="max-h-80 overflow-y-auto">
+              {approvalDecisionNotifications.length > 0 && (
+                <div className="border-b border-slate-100 bg-violet-50 px-3 py-1.5 text-[10px] font-black uppercase text-violet-700">Onay Sonuçları</div>
+              )}
+              {approvalDecisionNotifications.map((notification) => (
+                <button
+                  key={`approval-${notification.id}`}
+                  type="button"
+                  onClick={() => void openApprovalDecisionFile(notification)}
+                  className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-violet-50"
+                >
+                  <span className={`block truncate text-sm font-black ${notification.durum === 1 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {notification.turAdi} {approvalActionNoun(notification.kayitTuru)} talebiniz {notification.durum === 1 ? 'onaylandı' : 'reddedildi'}
+                  </span>
+                  <span className="mt-0.5 block truncate text-xs font-bold text-slate-500">
+                    Dosya {notification.dosyaNo} - {notification.onaylayanAdi}
+                  </span>
+                  {notification.durum === 2 && notification.redAciklama && (
+                    <span className="mt-0.5 block truncate text-xs font-semibold text-rose-500">{notification.redAciklama}</span>
+                  )}
+                </button>
+              ))}
+              {communicationNotifications.length > 0 && (
+                <div className="border-b border-slate-100 bg-cyan-50 px-3 py-1.5 text-[10px] font-black uppercase text-cyan-700">Mesaj ve Duyurular</div>
+              )}
+              {communicationNotifications.map((notification) => (
+                <button
+                  key={`communication-${notification.id}`}
+                  type="button"
+                  onClick={() => void openCommunication(notification)}
+                  className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-cyan-50"
+                >
+                  <span className="block truncate text-sm font-black text-slate-900">{notification.subject || (notification.type === 'duyuru' ? 'Yeni duyuru' : 'Yeni personel mesajı')}</span>
+                  <span className="mt-0.5 block truncate text-xs font-bold text-slate-500">{notification.content}</span>
+                </button>
+              ))}
+              {notifications.length > 0 && (
+                <div className="border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-[10px] font-black uppercase text-slate-600">Evrak Bildirimleri</div>
+              )}
+              {notifications.map((notification) => (
+                <button
+                  key={notification.id}
+                  type="button"
+                  onClick={() => openNotificationFile(notification)}
+                  className="block w-full border-b border-slate-100 px-3 py-2 text-left hover:bg-sky-50"
+                >
+                  <span className="block truncate text-sm font-black text-slate-900">{notification.documentTitle}</span>
+                  <span className="mt-0.5 block truncate text-xs font-bold text-slate-500">
+                    Dosya {notification.fileNo} - {notification.ownerName}
+                  </span>
+                  <span className="mt-1 block text-[11px] font-black uppercase text-[#005f95]">{notification.completedDate}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+        }
+      />
+      {/* 2026-10-15 kullanici istegi: "İşlemler" menusu kurumsal yeniden
+          tasarim - lacivert baslik + altin cizgi, bolumlere ayrilmis satirlar
+          (Bağlantı Durumu / Görünüm / Çalışma Alanı / Uygulama). Masaustunde
+          sekme seridindeki hamburger dugmesinden, mobilde ust cubuktan acilir. */}
+      <div
+        role="menu"
+        aria-label="İşlemler"
+        className={
+          isHeaderMenuOpen
+            ? `${headerMenuAnchor ? 'fixed' : 'absolute right-3 top-full mt-2'} z-[1000] flex max-h-[calc(100dvh-5rem)] w-[min(21rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-[#1E2A38]/15 bg-white shadow-[0_18px_48px_rgba(16,30,43,0.22)] dark:border-slate-700 dark:bg-slate-900`
+            : 'hidden'
+        }
+        style={isHeaderMenuOpen && headerMenuAnchor ? { top: headerMenuAnchor.top, left: headerMenuAnchor.left } : undefined}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b-[3px] border-b-[#D4B26A] bg-[#1E2A38] px-4 py-3 text-white">
+          <div className="min-w-0">
+            <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-[#D4B26A]">Sistem Menüsü</p>
+            <p className="text-[16px] font-bold tracking-wide">İşlemler</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsHeaderMenuOpen(false)}
+            aria-label="Menüyü kapat"
+            title="Kapat (Esc)"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" className="h-4 w-4" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden bg-[#F7F8F6] p-3 dark:bg-slate-900">
+          {((hasWhatsappAccess && whatsappConnection) || bulkWhatsappJob?.status === 'running' || bulkSmsJob?.status === 'running') && (
+            <section>
+              <p className={MENU_SECTION_TITLE}>Bağlantı Durumu</p>
+              <div className="space-y-1.5">
+                {hasWhatsappAccess && whatsappConnection && (
+                  <div className={MENU_ROW} title="Kurumun paylaşımlı WhatsApp Web bağlantı durumu">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                          whatsappConnection.status === 'ready'
+                            ? 'bg-emerald-500'
+                            : whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure'
+                              ? 'bg-rose-500'
+                              : 'animate-pulse bg-amber-500'
+                        }`}
+                      />
+                      <span className="min-w-0">
+                        <span className={MENU_ROW_LABEL}>WhatsApp</span>
+                        <span className={`block text-[12px] font-semibold ${
+                          whatsappConnection.status === 'ready'
+                            ? 'text-emerald-700'
+                            : whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure'
+                              ? 'text-rose-700'
+                              : 'text-amber-700'
+                        }`}>
+                          {whatsappConnection.status === 'ready'
+                            ? 'Bağlı'
+                            : whatsappConnection.status === 'qr'
+                              ? 'QR kod bekleniyor'
+                              : whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure'
+                                ? 'Bağlı değil'
+                                : 'Bağlanıyor...'}
+                        </span>
+                      </span>
+                    </span>
+                    {whatsappConnection.status === 'qr' && (
+                      <button
+                        type="button"
+                        onClick={() => { setIsHeaderMenuOpen(false); addTab({ title: 'Sistem Ayarları', path: '/settings?tab=whatsapp' }) }}
+                        className={MENU_ACTION_BUTTON}
+                      >
+                        QR Okut
+                      </button>
+                    )}
+                    {(whatsappConnection.status === 'disconnected' || whatsappConnection.status === 'auth_failure') && (
+                      <button
+                        type="button"
+                        onClick={() => void connectWhatsapp(true)}
+                        disabled={isWhatsappConnecting}
+                        className={MENU_ACTION_BUTTON}
+                      >
+                        {isWhatsappConnecting ? 'Bağlanıyor...' : 'Bağlan'}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {bulkWhatsappJob && bulkWhatsappJob.status === 'running' && (
+                  <div className={MENU_ROW} title="Toplu WhatsApp gönderimi arka planda devam ediyor">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-sky-500" />
+                      <span className="min-w-0">
+                        <span className={MENU_ROW_LABEL}>Toplu WhatsApp</span>
+                        <span className="block text-[12px] font-semibold text-slate-500">{bulkWhatsappJob.processed} / {bulkWhatsappJob.total} gönderildi</span>
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => { void fetch('/api/whatsapp/bulk-cancel', { method: 'POST' }) }} className={MENU_DANGER_BUTTON}>
+                      İptal Et
+                    </button>
+                  </div>
+                )}
+                {bulkSmsJob && bulkSmsJob.status === 'running' && (
+                  <div className={MENU_ROW} title="Toplu SMS gönderimi arka planda devam ediyor">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-[#1E2A38]" />
+                      <span className="min-w-0">
+                        <span className={MENU_ROW_LABEL}>Toplu SMS</span>
+                        <span className="block text-[12px] font-semibold text-slate-500">{bulkSmsJob.processed} / {bulkSmsJob.total} gönderildi</span>
+                      </span>
+                    </span>
+                    <button type="button" onClick={() => { void fetch('/api/sms/bulk-cancel', { method: 'POST' }) }} className={MENU_DANGER_BUTTON}>
+                      İptal Et
+                    </button>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <p className={MENU_SECTION_TITLE}>Görünüm</p>
+            <div className="space-y-1.5">
+              {/* Tema: mobilde ust cubukta zaten var, menude yalniz masaustu. */}
+              <div className={`${MENU_ROW} hidden lg:flex`}>
+                <span className={MENU_ROW_LABEL}>Tema (gündüz / gece)</span>
+                <ThemeToggle variant="onLight" />
+              </div>
+              {/* Arayuz boyutu: HESABA ozel (sunucuda), her bilgisayarda ayni -
+                  bkz. UiScaleContext. */}
+              <label className={MENU_ROW} title="Arayüz boyutu - hesabınıza kaydedilir, hangi bilgisayardan girseniz aynı">
+                <span className={MENU_ROW_LABEL}>Arayüz boyutu</span>
+                <select
+                  value={uiScaleMatch.value}
+                  onChange={(event) => uiScaleCtx.setUiScale(Number(event.target.value))}
+                  className="min-h-8 cursor-pointer rounded-md border border-slate-300 bg-white px-2 text-[13px] font-bold text-[#1E2A38] outline-none focus:border-[#1E2A38] dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  {UI_SCALE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+              {/* Ince adimli kabuk yakinlastirma - bu tarayiciya ozel
+                  (bkz. ShellZoomContext). */}
+              <div className={MENU_ROW}>
+                <span className={MENU_ROW_LABEL}>Yakınlaştırma</span>
+                <span className="flex items-center overflow-hidden rounded-md border border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-800">
+                  <button
+                    type="button"
+                    onClick={shellZoom.decrement}
+                    disabled={shellZoom.zoom <= SHELL_ZOOM_MIN + 0.001}
+                    title="Ekranı küçült"
+                    aria-label="Ekranı küçült"
+                    className="flex h-8 w-8 items-center justify-center text-[16px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA] disabled:opacity-40 dark:text-slate-200"
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    onClick={shellZoom.reset}
+                    title="Yakınlaştırmayı %100'e döndür"
+                    className="h-8 min-w-[3.4rem] border-x border-slate-200 px-1 text-center font-mono text-[12.5px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA] dark:border-slate-600 dark:text-slate-200"
+                  >
+                    %{shellZoomPct}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={shellZoom.increment}
+                    disabled={shellZoom.zoom >= SHELL_ZOOM_MAX - 0.001}
+                    title="Ekranı büyüt"
+                    aria-label="Ekranı büyüt"
+                    className="flex h-8 w-8 items-center justify-center text-[16px] font-bold text-[#1E2A38] hover:bg-[#F6F3EA] disabled:opacity-40 dark:text-slate-200"
+                  >
+                    +
+                  </button>
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {/* Calisma alani: yalniz masaustu (sol menu otomatik gizleme ve
+              yazici/cihaz kurulumu masaustune ozel). */}
+          <section className="hidden lg:block">
+            <p className={MENU_SECTION_TITLE}>Çalışma Alanı</p>
+            <div className="space-y-1.5">
+              {onToggleSidebarAutoHide && (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={sidebarAutoHide}
+                  onClick={() => onToggleSidebarAutoHide()}
+                  className={`${MENU_ROW} w-full text-left hover:border-[#1E2A38]/40`}
+                >
+                  <span className="min-w-0">
+                    <span className={MENU_ROW_LABEL}>Sol menüyü otomatik gizle</span>
+                    <span className="block text-[12px] font-semibold text-slate-500">Fare sol kenara gelince açılır</span>
+                  </span>
+                  <span className={`relative h-6 w-11 shrink-0 rounded-full transition ${sidebarAutoHide ? 'bg-[#1E2A38]' : 'bg-slate-300'}`} aria-hidden="true">
+                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${sidebarAutoHide ? 'left-[22px]' : 'left-0.5'}`} />
+                  </span>
+                </button>
+              )}
+              <div className={MENU_ROW}>
+                <span className="min-w-0">
+                  <span className={MENU_ROW_LABEL}>Yazıcı ve cihazlar</span>
+                  <span className="block text-[12px] font-semibold text-slate-500">Bu bilgisayarın kurulumu</span>
+                </span>
+                <WorkstationSetupButton />
+              </div>
+            </div>
+          </section>
+
+          {designMode.hostAvailable && (
+            <button
+              type="button"
+              onClick={designMode.toggle}
+              title="Sayfa düzenini sürükle-bırak ile değiştir"
+              className={`${MENU_ROW} w-full text-left ${designMode.active ? 'border-amber-400 bg-amber-50' : 'hover:border-[#1E2A38]/40'}`}
+            >
+              <span className={MENU_ROW_LABEL}>{designMode.active ? 'Tasarım modunu kapat' : 'Tasarım modu'}</span>
+            </button>
+          )}
+
+          <section>
+            <p className={MENU_SECTION_TITLE}>Uygulama</p>
+            <div className="[&>*]:w-full">
+              <InstallAppButton variant="compact" />
+            </div>
+          </section>
         </div>
       </div>
       {isPasswordOpen && (

@@ -5,33 +5,14 @@ import { documentService } from '@/lib/services'
 import { requireDestructiveAuthorization } from '@/lib/security/destructiveAuthorization'
 import { getAuditMetaFromRequest, withAuditedWrite } from '@/lib/db/auditContext'
 import { buildAssistanceExistsCondition, readAssistanceFilterParams } from '@/lib/utils/assistanceFilter'
-import { buildDocumentsConditions, buildDocumentsFromClause, buildDocumentsOrderBy, finalizeWhereClause } from '@/lib/documents/documentsListQuery'
+import { buildDocumentsConditions, buildDocumentsFromClause, buildDocumentsOrderBy, buildDocumentsSelectList, finalizeWhereClause } from '@/lib/documents/documentsListQuery'
+import { getDocumentKodEtiketleri } from '@/lib/documents/documentKodEtiketleri'
 
 export const dynamic = "force-dynamic"
 
-type DocumentListRow = {
-  id: string
-  dosyaId: string
-  dosyaNo: string | null
-  incelemePuani: number | null
-  dosyaSahibi: string | null
-  durum: number | null
-  kartNo: string | null
-  muracaatTarihi: Date | null
-  telefon: string | null
-  ceptel: string | null
-  mahalle: string | null
-  cadde: string | null
-  sokak: string | null
-  binaNo: string | null
-  daireNo: string | null
-  adresNo: string | null
-  adres: string | null
-  toplamBirey: number | null
-  aciklama: string | null
-  olusturmaTarihi: Date | null
-  guncellemeTarihi: Date | null
-}
+// 2026-10-15: liste artik dosyalar tablosunun TUM alanlarini dondurur -
+// sutunlar documentsFilterColumns'tan uretilir (bkz. buildDocumentsSelectList).
+type DocumentListRow = { id: string } & Record<string, unknown>
 
 type DeletePayload = { ids?: Array<string | number> }
 
@@ -80,7 +61,7 @@ export async function GET(request: Request) {
       ? whereClause.values
       : [...whereClause.values, queryLimit, offset]
 
-    const documentsFromClause = buildDocumentsFromClause(whereClause.sql)
+    const documentsFromClause = buildDocumentsFromClause(whereClause.sql, await getDocumentKodEtiketleri())
     // Toplam kayit sayisi (sayfalama icin) ve asil sayfa verisi birbirinden bagimsiz
     // sorgulardir; sirayla degil ayni anda calistirmak liste ekranini acma suresini
     // iki sorgunun toplami yerine en yavas olanin suresine indirir.
@@ -91,27 +72,7 @@ export async function GET(request: Request) {
       `, ...whereClause.values),
       prisma.$queryRawUnsafe<DocumentListRow[]>(`
         SELECT
-          d.id::text AS "id",
-          d.id::text AS "dosyaId",
-          d.dosyano AS "dosyaNo",
-          d.inceleme_puani AS "incelemePuani",
-          owner.adisoyadi AS "dosyaSahibi",
-          d.durumu AS "durum",
-          d.kartno AS "kartNo",
-          d.muracaattarihi AS "muracaatTarihi",
-          d.telefon AS "telefon",
-          owner.ceptel AS "ceptel",
-          d.mahalleadi AS "mahalle",
-          d.cadde AS "cadde",
-          d.sokak AS "sokak",
-          d.binano AS "binaNo",
-          d.daireno AS "daireNo",
-          d.adresno AS "adresNo",
-          d.adres AS "adres",
-          COALESCE(household.toplam, 0) AS "toplamBirey",
-          d.aciklama AS "aciklama",
-          d.ilkislemtarihi AS "olusturmaTarihi",
-          d.islemtarihi AS "guncellemeTarihi"
+          ${buildDocumentsSelectList()}
         ${documentsFromClause}
         ORDER BY ${orderBy}
         ${limitClause}

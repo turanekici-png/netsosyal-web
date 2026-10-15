@@ -101,7 +101,16 @@ function topmostSaveOverlay(active: Element | null): HTMLElement | null {
   return overlays.sort((a, b) => zIndexOf(a) - zIndexOf(b))[overlays.length - 1]
 }
 
+// Bir kayit SURUYORSA ("Kaydediliyor..." butonu gorunur) F2 hicbir seye
+// basmaz - 2026-10-15: Sonuc Bekleyen'de kayit surerken F2 pasif Kaydet'i
+// atlayip satirdaki "Güncelle" butonuna basiyordu.
+function saveInProgress(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>('button'))
+    .some((el) => isElementVisible(el) && buttonLabel(el).includes(KAYDEDILIYOR))
+}
+
 function triggerSave(): boolean {
+  if (saveInProgress()) return true
   const active = document.activeElement
   const scope = topmostSaveOverlay(active)
   const candidates = collectSaveButtons(scope ?? document)

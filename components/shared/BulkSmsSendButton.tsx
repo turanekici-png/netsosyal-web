@@ -273,6 +273,7 @@ export function BulkSmsSendButton({ recipients, buttonLabel, disabled, className
         disabled={recipients.length === 0 || disabled}
         className={className || 'inline-flex items-center gap-2 rounded-md bg-gradient-to-r from-[#0076b6] to-sky-600 px-3 py-2 text-xs font-black text-white shadow-sm hover:brightness-110 disabled:pointer-events-none disabled:opacity-50'}
       >
+        <svg aria-hidden="true" className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M8 10h.01" /><path d="M12 10h.01" /><path d="M16 10h.01" /></svg>
         {buttonLabel || `SMS'ten Toplu Gönder (${recipients.length})`}
       </button>
 

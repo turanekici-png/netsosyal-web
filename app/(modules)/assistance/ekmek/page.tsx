@@ -6,6 +6,7 @@ import { getAssistanceStatusMap } from '@/lib/services/assistanceStatusLabels.se
 import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
 import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
 import { buildMultiColumnOrderBy, parseSortParam } from '@/lib/sortSpec'
+import { ASSISTANCE_COLUMN_GROUPS, ASSISTANCE_COLUMN_LABELS, ASSISTANCE_USER_COLUMN_SQL } from '@/lib/assistance/assistanceColumns'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,7 +53,24 @@ const FILTER_COLUMN_MAP: Record<string, string> = {
   son_mesaj_alici: 'sm.telefon',
 }
 
+// 2026-10-15 kullanici istegi: yrd_ekmek tablosunun listede olmayan diger
+// TUM alanlari da secilebilsin - varsayilan GIZLI baslar (Sütun Görünürlüğü).
+const EKMEK_EXTRA_COLUMNS = [
+  'etiket', 'muracaataciklama', 'durumutarih', 'durumuaciklama',
+  'donemadi', 'donemint', 'donemstr', 'dnm_durumu', 'dnm_bastarih', 'dnm_durumuaciklama',
+  'kullaniciid', 'ilkkullaniciid', 'ilkislemtarihi',
+]
+for (const column of EKMEK_EXTRA_COLUMNS) FILTER_COLUMN_MAP[column] = `t.${column}`
+FILTER_COLUMN_MAP.kaydi_acan = ASSISTANCE_USER_COLUMN_SQL.kaydi_acan
+const EKMEK_HIDDEN_COLUMNS = ['id', 'dosyaid', 'kaydi_acan', ...EKMEK_EXTRA_COLUMNS]
+const EKMEK_COLUMN_GROUPS: Record<string, string> = {
+  ...ASSISTANCE_COLUMN_GROUPS,
+  telefon: ASSISTANCE_COLUMN_GROUPS.dosya_telefonu,
+  sorumlu_personel: ASSISTANCE_COLUMN_GROUPS.son_islem_yapan,
+}
+
 const COLUMN_LABELS: Record<string, string> = {
+  ...ASSISTANCE_COLUMN_LABELS,
   id: 'Kayıt ID',
   dosyano: 'Dosya No',
   inceleme_puani: 'İnceleme Puanı',
@@ -249,6 +267,8 @@ export default async function EkmekYardimiPage({
         t.karttarih,
         t.kartaciklama,
         t.islemtarihi,
+        ${EKMEK_EXTRA_COLUMNS.map((column) => `t.${column}`).join(', ')},
+        ${ASSISTANCE_USER_COLUMN_SQL.kaydi_acan} AS kaydi_acan,
         sm.created_at AS son_mesaj_tarihi,
         CASE sm.kanal WHEN 'whatsapp' THEN 'WhatsApp' WHEN 'sms' THEN 'SMS' ELSE sm.kanal END AS son_mesaj_kanali,
         sm.durum AS son_mesaj_durumu,
@@ -709,7 +729,9 @@ export default async function EkmekYardimiPage({
         searchPlaceholder="Dosya no, kart no, müracaat eden, telefon, mahalle, adres, personel veya açıklama ara"
         emptyMessage="Görüntülenecek ekmek yardımı kaydı bulunamadı."
         statusMap={statusMap}
-        excludedColumns={['dosyaid', 'id']}
+        // 2026-10-15: id/dosyaid artik tamamen gizli degil, "gizli baslar".
+        defaultHiddenColumns={EKMEK_HIDDEN_COLUMNS}
+        columnGroups={EKMEK_COLUMN_GROUPS}
         // Kullanici istegi (2026-09-30, 10. tur): sekmeler artik (Nakit
         // Yardimi ile AYNI yontemle) basligin ALTINDA - eskiden bu sayfayi
         // saran layout.tsx sekmeleri basligin USTUNDE gosteriyordu.

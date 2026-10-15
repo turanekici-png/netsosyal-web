@@ -29,6 +29,7 @@ interface MonitorColumn {
   columnName: string
   dataType: string
   isNullable: boolean
+  columnDefault?: string | null
 }
 
 type TableRow = Record<string, unknown>
@@ -49,6 +50,8 @@ interface TableResponse {
     search?: string
     columns: MonitorColumn[]
     rows: TableRow[]
+    total?: number
+    offset?: number
   }
   error?: string
 }
@@ -250,6 +253,16 @@ export default function SqlMonitorPage() {
 
   const sqlTextareaRef = useRef<HTMLTextAreaElement | null>(null)
 
+  // 2026-10-15 (kurumsal tur): sayfalama (eskiden sadece ilk 100 satir
+  // gorunuyordu) + "Yeni Kayıt"/"Kopyala" (eskiden satir eklenemiyordu).
+  const [pageSize, setPageSize] = useState(100)
+  const pageSizeRef = useRef(100)
+  const [pageOffset, setPageOffset] = useState(0)
+  const [filteredRowTotal, setFilteredRowTotal] = useState<number | null>(null)
+  const [insertValues, setInsertValues] = useState<Record<string, string> | null>(null)
+  const [isInserting, setIsInserting] = useState(false)
+  const [notice, setNotice] = useState('')
+
   const loadOverview = async () => {
     setIsOverviewLoading(true)
     setError('')
@@ -280,7 +293,8 @@ export default function SqlMonitorPage() {
     }
   }
 
-  const loadTable = async (tableName: string, search = '') => {
+  // offset verilmezse 1. sayfaya doner (yeni tablo/arama/siralama/filtre).
+  const loadTable = async (tableName: string, search = '', offset = 0) => {
     if (!tableName) return
 
     setIsTableLoading(true)
@@ -293,7 +307,8 @@ export default function SqlMonitorPage() {
     try {
       const params = new URLSearchParams({
         table: tableName,
-        limit: '100',
+        limit: String(pageSizeRef.current),
+        offset: String(Math.max(offset, 0)),
       })
 
       if (search.trim()) {
@@ -319,6 +334,8 @@ export default function SqlMonitorPage() {
       setColumns(payload.data.columns)
       setRows(payload.data.rows)
       setActiveRowSearch(search.trim())
+      setPageOffset(Math.max(offset, 0))
+      setFilteredRowTotal(typeof payload.data.total === 'number' ? payload.data.total : null)
     } catch (loadError) {
       setColumns([])
       setRows([])
@@ -362,6 +379,7 @@ export default function SqlMonitorPage() {
 
         setColumns(tablePayload.data.columns)
         setRows(tablePayload.data.rows)
+        setFilteredRowTotal(typeof tablePayload.data.total === 'number' ? tablePayload.data.total : null)
       } catch (loadError) {
         if (!isCancelled) {
           setError((loadError as Error).message)
@@ -580,7 +598,7 @@ export default function SqlMonitorPage() {
 
       setSelectedRowIds(new Set())
       loadOverview()
-      loadTable(selectedTable, activeRowSearch)
+      loadTable(selectedTable, activeRowSearch, pageOffset)
     } catch (deleteError) {
       setError((deleteError as Error).message)
     } finally {
@@ -620,7 +638,7 @@ export default function SqlMonitorPage() {
         return next
       })
       loadOverview()
-      loadTable(selectedTable, activeRowSearch)
+      loadTable(selectedTable, activeRowSearch, pageOffset)
     } catch (deleteError) {
       setError((deleteError as Error).message)
     }
@@ -668,12 +686,84 @@ export default function SqlMonitorPage() {
 
       setIsBulkEditOpen(false)
       setSelectedRowIds(new Set())
-      loadTable(selectedTable, activeRowSearch)
+      loadTable(selectedTable, activeRowSearch, pageOffset)
     } catch (bulkEditError) {
       setError((bulkEditError as Error).message)
     } finally {
       setIsBulkSaving(false)
     }
+  }
+
+  // --- Sayfalama / Yeni Kayit / Disa Aktarma (2026-10-15) ---------------
+
+  const goToPage = (offset: number) => {
+    if (!selectedTable) return
+    loadTable(selectedTable, activeRowSearch, Math.max(offset, 0))
+  }
+
+  const changePageSize = (size: number) => {
+    pageSizeRef.current = size
+    setPageSize(size)
+    if (selectedTable) loadTable(selectedTable, activeRowSearch, 0)
+  }
+
+  // Otomatik artan (nextval) ya da varsayilani olan kolon bos birakilirsa
+  // veritabani doldurur - "Kopyala"da bu kolonlar kopyalanmaz.
+  const isAutoColumn = (column: MonitorColumn) => /nextval\(|identity/i.test(column.columnDefault || '')
+
+  const openInsertModal = (copyFrom?: TableRow) => {
+    const values: Record<string, string> = {}
+    columns.forEach((column) => {
+      values[column.columnName] = copyFrom && !isAutoColumn(column) ? toEditableValue(copyFrom[column.columnName]) : ''
+    })
+    setInsertValues(values)
+  }
+
+  const saveInsertedRow = async () => {
+    if (!insertValues || !selectedTable) return
+    const values = Object.fromEntries(
+      Object.entries(insertValues).filter(([, value]) => value.trim() !== ''),
+    )
+
+    setIsInserting(true)
+    setError('')
+    try {
+      const response = await fetch('/api/sql-monitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'insert', tableName: selectedTable, values }),
+      })
+      const payload = (await response.json()) as { success: boolean; error?: string }
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Kayıt eklenemedi.')
+      }
+      setInsertValues(null)
+      setNotice(`"${selectedTable}" tablosuna yeni kayıt eklendi.`)
+      loadOverview()
+      loadTable(selectedTable, activeRowSearch, pageOffset)
+    } catch (insertError) {
+      setError((insertError as Error).message)
+    } finally {
+      setIsInserting(false)
+    }
+  }
+
+  // Excel'de Turkce karakterler dogru acilsin diye BOM + ";" ayirici.
+  const exportCsv = (fileName: string, columnNames: string[], dataRows: TableRow[]) => {
+    const escape = (value: unknown) => {
+      const text = value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value)
+      return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+    }
+    const lines = [columnNames.join(';'), ...dataRows.map((row) => columnNames.map((name) => escape(row[name])).join(';'))]
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${fileName}_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
   }
 
   // --- SQL Komut Alani ------------------------------------------------
@@ -761,99 +851,97 @@ export default function SqlMonitorPage() {
 
   const isAllRowsSelected = rows.length > 0 && selectedRowIds.size === rows.length
 
+  const tableTotal = filteredRowTotal ?? rows.length
+  const pageStart = rows.length > 0 ? pageOffset + 1 : 0
+  const pageEnd = pageOffset + rows.length
+  const hasPrevPage = pageOffset > 0
+  const hasNextPage = pageEnd < tableTotal
+  const currentPage = Math.floor(pageOffset / pageSize) + 1
+  const pageCount = Math.max(Math.ceil(tableTotal / pageSize), 1)
+  const navyButton = 'inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#0a3a57] px-4 py-2 font-black text-white shadow-sm transition hover:bg-[#0d4f6e] disabled:cursor-not-allowed disabled:opacity-50'
+  const lightButton = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 font-black text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50'
+  const sectionHeader = 'flex flex-col gap-3 border-b-2 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-4 py-3 text-white lg:flex-row lg:items-center lg:justify-between'
+
+  const summaryCards = [
+    { label: 'Veritabanı', value: databaseInfo?.db_name || 'Bağlantı yok', hint: `Kullanıcı: ${databaseInfo?.current_user || '-'}`, accent: 'bg-[#0a3a57]' },
+    { label: 'Tablo Sayısı', value: tables.length.toLocaleString('tr-TR'), hint: 'public şeması', accent: 'bg-[#c9a227]' },
+    { label: 'Toplam Satır', value: totalRows.toLocaleString('tr-TR'), hint: 'tüm tablolar', accent: 'bg-emerald-600' },
+    { label: 'Sunucu', value: (databaseInfo?.version || 'Bekleniyor').split(',')[0], hint: databaseInfo?.version?.split(',').slice(1).join(',').trim() || 'PostgreSQL', accent: 'bg-sky-600' },
+  ]
+
   return (
-    <div className="space-y-5 text-slate-950">
-      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-[#2A3B4D] bg-[#1E2A38] p-6 text-white shadow-sm">
-        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="ns-yazi-masaustu space-y-5 text-slate-950">
+      {/* Kurumsal baslik - lacivert/altin dil */}
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-xl border-b-4 border-[#c9a227] p-6 text-white shadow-sm">
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/20 text-lg">🗄️</span>
-              <p className="text-xl font-black uppercase tracking-wide text-white/90">PostgreSQL Monitörü</p>
-              <span className="rounded-full border border-white/40 bg-white/15 px-3 py-1 text-base font-black uppercase tracking-wide text-white">
-                Yönetici Aracı
-              </span>
-            </div>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">sosyalyardim Veritabanı</h1>
-            <p className="mt-2 max-w-3xl text-xl font-semibold text-white/90">
-              Yerel PostgreSQL üzerinde postgres kullanıcısı ile bağlanır, public şemasındaki tabloları ve içeriklerini gösterir;
-              tekli/toplu kayıt düzenleme ve serbest SQL komutu çalıştırma imkanı sunar.
+            <p className="flex flex-wrap items-center gap-2 text-sm lg:text-base font-bold uppercase tracking-[0.18em] text-[#e8cf7a]">
+              PostgreSQL Monitörü
+              <span className="rounded-full border border-[#c9a227]/60 bg-[#c9a227]/15 px-2.5 py-0.5 text-xs lg:text-sm font-black tracking-wide text-[#e8cf7a]">Yönetici Aracı</span>
+            </p>
+            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Sosyalyardım Veritabanı</h1>
+            <p className="mt-2 max-w-3xl text-base lg:text-lg font-semibold text-white/80">
+              Tabloları görüntüleyin, kayıt ekleyin, düzenleyin, kopyalayın, silin; serbest SQL komutu çalıştırıp sonuçları Excel&apos;e aktarın.
             </p>
           </div>
           <button
             onClick={loadOverview}
             disabled={isOverviewLoading}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-xl font-extrabold text-[#1E2A38] shadow-sm transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[#c9a227] px-5 py-3 text-base lg:text-lg font-black text-[#0a3a57] shadow-sm transition-colors hover:bg-[#d8b440] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
           >
-            {isOverviewLoading ? <Spinner className="h-4 w-4 text-[#1E2A38]" /> : <span aria-hidden="true">⟳</span>}
+            {isOverviewLoading ? <Spinner className="h-4 w-4 text-[#0a3a57]" /> : <span aria-hidden="true">⟳</span>}
             {isOverviewLoading ? 'Yenileniyor...' : 'Bağlantıyı Yenile'}
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-xl font-bold text-rose-700">
+        <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-base lg:text-lg font-bold text-rose-700">
           <span aria-hidden="true">⚠️</span>
-          <span>{error}</span>
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError('')} className="shrink-0 rounded px-2 text-sm lg:text-base hover:bg-white/70">Kapat</button>
+        </div>
+      )}
+      {notice && (
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-base lg:text-lg font-bold text-emerald-800">
+          <span aria-hidden="true">✓</span>
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice('')} className="shrink-0 rounded px-2 text-sm lg:text-base hover:bg-white/70">Kapat</button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <div className="rounded-lg border border-slate-300 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">🗃️</span>
-            <p className="text-lg font-black uppercase text-slate-400">Veritabanı</p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {summaryCards.map((card) => (
+          <div key={card.label} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white py-3 pl-5 pr-4 shadow-sm">
+            <span className={`absolute inset-y-0 left-0 w-1.5 ${card.accent}`} />
+            <p className="text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">{card.label}</p>
+            <p className="mt-1 truncate text-2xl lg:text-3xl font-black text-[#0a3a57]" title={card.value}>{card.value}</p>
+            <p className="mt-0.5 truncate text-sm lg:text-base font-semibold text-slate-400" title={card.hint}>{card.hint}</p>
           </div>
-          <p className="mt-2 text-2xl font-black text-[#1E2A38]">{databaseInfo?.db_name || 'Bağlantı yok'}</p>
-          <p className="mt-1.5 text-lg font-bold text-slate-500">Kullanıcı: {databaseInfo?.current_user || '-'}</p>
-        </div>
-        <div className="rounded-lg border border-slate-300 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-lg">📋</span>
-            <p className="text-lg font-black uppercase text-slate-400">Tablo Sayısı</p>
-          </div>
-          <p className="mt-2 text-2xl font-black text-[#4f8f2f]">{tables.length}</p>
-          <p className="mt-1.5 text-lg font-bold text-slate-500">public şeması</p>
-        </div>
-        <div className="rounded-lg border border-cyan-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-50 text-lg">📊</span>
-            <p className="text-lg font-black uppercase text-slate-400">Toplam Satır</p>
-          </div>
-          <p className="mt-2 text-2xl font-black text-cyan-700">{totalRows.toLocaleString('tr-TR')}</p>
-          <p className="mt-1.5 text-lg font-bold text-slate-500">tablo sayaçları</p>
-        </div>
-        <div className="rounded-lg border border-violet-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-          <div className="flex items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-lg">🐘</span>
-            <p className="text-lg font-black uppercase text-slate-400">PostgreSQL</p>
-          </div>
-          <p className="mt-2 line-clamp-2 text-xl font-extrabold text-slate-700">
-            {databaseInfo?.version || 'Sürüm bilgisi bekleniyor'}
-          </p>
-        </div>
+        ))}
       </div>
 
-      <section className="overflow-hidden rounded-lg border border-cyan-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-cyan-100 bg-gradient-to-r from-cyan-50 to-sky-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className={sectionHeader}>
           <div>
-            <h2 className="flex items-center gap-2 text-xl font-extrabold text-cyan-800">
-              <span aria-hidden="true">⌘</span>
+            <h2 className="flex flex-wrap items-center gap-2 text-xl lg:text-2xl font-black">
+              <span className="h-6 w-1.5 rounded-full bg-[#c9a227]" />
               SQL Komut Alanı
               {sqlCommandKind && (
-                <span className={`rounded-full border px-3 py-1 text-base font-black uppercase tracking-wide ${COMMAND_KIND_META[sqlCommandKind].badgeClass}`}>
+                <span className={`rounded-full border px-3 py-0.5 text-sm lg:text-base font-black uppercase tracking-wide ${COMMAND_KIND_META[sqlCommandKind].badgeClass}`}>
                   {COMMAND_KIND_META[sqlCommandKind].label}
                 </span>
               )}
             </h2>
-            <p className="mt-1.5 text-lg font-bold text-slate-600">
-              Yazdığınız komut doğrudan sosyalyardim veritabanında çalışır. Veri değiştiren/silen komutlar önce onay ister.
+            <p className="mt-1 text-sm lg:text-base font-semibold text-white/75">
+              Komut doğrudan veritabanında çalışır; veri değiştiren/silen komutlar önce onay ister. Çalıştırmak için <kbd className="rounded bg-white/15 px-1.5 font-mono">Ctrl+Enter</kbd>.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setIsHistoryOpen((prev) => !prev)}
               disabled={commandHistory.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-4 py-2.5 text-lg font-extrabold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-base lg:text-lg font-black text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">🕘</span>
               Geçmiş ({commandHistory.length})
@@ -861,35 +949,35 @@ export default function SqlMonitorPage() {
             <button
               onClick={runSqlCommand}
               disabled={isSqlRunning || !sqlCommand.trim()}
-              className="inline-flex items-center gap-2 rounded-md bg-cyan-700 px-5 py-2.5 text-lg font-extrabold text-white shadow-sm transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-lg bg-[#c9a227] px-5 py-2 text-base lg:text-lg font-black text-[#0a3a57] shadow-sm transition hover:bg-[#d8b440] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSqlRunning ? <Spinner className="h-4 w-4 text-white" /> : <span aria-hidden="true">▶</span>}
+              {isSqlRunning ? <Spinner className="h-4 w-4 text-[#0a3a57]" /> : <span aria-hidden="true">▶</span>}
               {isSqlRunning ? 'Çalıştırılıyor...' : 'Çalıştır'}
             </button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
-          <span className="text-base font-black uppercase tracking-wide text-slate-400">Hızlı Şablon:</span>
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+          <span className="text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Hızlı Şablon:</span>
           {QUICK_COMMAND_TEMPLATES.map((template) => (
             <button
               key={template.label}
               onClick={() => insertQuickTemplate(template.build)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-base font-black transition ${template.badgeClass}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1 text-sm lg:text-base font-black transition ${template.badgeClass}`}
             >
               <span aria-hidden="true">{template.icon}</span>
               {template.label}
             </button>
           ))}
           {selectedTable && (
-            <span className="ml-auto rounded-full bg-white px-3 py-1.5 text-base font-bold text-slate-500 ring-1 ring-slate-200">
-              Seçili tablo: <span className="font-black text-slate-700">{selectedTable}</span>
+            <span className="ml-auto rounded-full bg-white px-3 py-1 text-sm lg:text-base font-bold text-slate-500 ring-1 ring-slate-200">
+              Seçili tablo: <span className="font-black text-[#0a3a57]">{selectedTable}</span>
             </span>
           )}
         </div>
 
         {isHistoryOpen && (
-          <div className="border-b border-slate-100 bg-white px-4 py-3">
+          <div className="border-b border-slate-200 bg-white px-4 py-3">
             {commandHistory.length > 0 ? (
               <div className="flex flex-col gap-1.5">
                 {commandHistory.map((historyItem, index) => (
@@ -900,11 +988,11 @@ export default function SqlMonitorPage() {
                       setIsHistoryOpen(false)
                       sqlTextareaRef.current?.focus()
                     }}
-                    className="flex items-center gap-2 truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left font-mono text-base font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
+                    className="flex items-center gap-2 truncate rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left font-mono text-sm lg:text-base font-semibold text-slate-700 transition hover:border-[#c9a227] hover:bg-amber-50"
                     title={historyItem}
                   >
                     <span
-                      className={`shrink-0 rounded-full border px-2 py-0.5 text-sm font-black uppercase ${COMMAND_KIND_META[detectCommandKind(historyItem)].badgeClass}`}
+                      className={`shrink-0 rounded-full border px-2 py-0.5 text-xs lg:text-sm font-black uppercase ${COMMAND_KIND_META[detectCommandKind(historyItem)].badgeClass}`}
                     >
                       {COMMAND_KIND_META[detectCommandKind(historyItem)].label}
                     </span>
@@ -913,7 +1001,7 @@ export default function SqlMonitorPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-lg font-bold text-slate-400">Henüz komut geçmişi yok.</p>
+              <p className="text-base lg:text-lg font-bold text-slate-400">Henüz komut geçmişi yok.</p>
             )}
           </div>
         )}
@@ -923,41 +1011,52 @@ export default function SqlMonitorPage() {
             ref={sqlTextareaRef}
             value={sqlCommand}
             onChange={(event) => setSqlCommand(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault()
+                void runSqlCommand()
+              }
+            }}
             spellCheck={false}
-            className="min-h-28 w-full resize-y rounded-md border border-slate-300 bg-slate-950 px-3 py-3 font-mono text-xl font-semibold text-cyan-50 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+            className="min-h-32 w-full resize-y rounded-lg border-2 border-[#0a3a57]/40 bg-[#0b1e2d] px-4 py-3 font-mono text-base lg:text-lg font-semibold text-[#e8f4fb] outline-none focus:border-[#c9a227]"
             placeholder="SELECT * FROM public.tablo_adi LIMIT 20;"
           />
           {sqlError && (
-            <div className="flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-xl font-bold text-rose-700">
+            <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-base lg:text-lg font-bold text-rose-700">
               <span aria-hidden="true">⚠️</span>
               <span>{sqlError}</span>
             </div>
           )}
           {sqlResult && (
-            <div className="overflow-hidden rounded-md border border-slate-200">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-slate-50 px-3 py-2.5 text-base font-extrabold text-slate-700">
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-emerald-50 px-3 py-2.5 text-sm lg:text-base font-extrabold text-slate-700">
                 <span className="flex items-center gap-1.5">
                   <span aria-hidden="true">✅</span>
                   Komut: <code className="font-mono text-emerald-700">{sqlResult.command}</code>
                 </span>
-                <span className="flex items-center gap-3">
+                <span className="flex flex-wrap items-center gap-3">
                   <span>Etkilenen satır: <span className="text-emerald-700">{sqlResult.rowCount ?? 0}</span></span>
                   {sqlExecutionMs !== null && <span>Süre: <span className="text-emerald-700">{sqlExecutionMs} ms</span></span>}
+                  {sqlResult.rows.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => exportCsv('sorgu_sonucu', sqlResultColumns, sqlResult.rows)}
+                      className="rounded-md border border-emerald-300 bg-white px-3 py-1 text-sm lg:text-base font-black text-emerald-700 hover:bg-emerald-100"
+                    >
+                      Excel&apos;e Aktar (CSV)
+                    </button>
+                  )}
                 </span>
               </div>
               {sqlResult.rows.length > 0 ? (
-                // Kullanici istegi: bu sonuc tablosunun sutunlari CALISTIRILAN
-                // SORGUYA GORE DEGISIR (herhangi sayida sutun donebilir) - bu
-                // yuzden diger sabit UI alanlarindan farkli olarak BILINCLI
-                // olarak kompakt birakildi (sadece hafif bir artis, 12px->14px),
-                // aksi halde cok sutunlu bir sorgu sonucu yatayda kullanilamaz
-                // hale gelirdi.
-                <div className="max-h-72 overflow-auto">
-                  <table className="ns-tablo w-full min-w-[720px] border-collapse text-left text-[14px] font-semibold">
-                    <thead className="sticky top-0 bg-[#eaf7fd] text-[#005f95] shadow-sm">
+                // Sonuc tablosunun sutunlari calistirilan sorguya gore degisir -
+                // cok sutunlu sonuclar yatayda kullanilabilir kalsin diye kompakt.
+                <div className="max-h-80 overflow-auto">
+                  <table className="ns-tablo ns-tablo-sql w-full min-w-[720px] border-collapse text-left font-semibold">
+                    <thead className="sticky top-0 z-10">
                       <tr>
                         {sqlResultColumns.map((column) => (
-                          <th key={column} className="border-b border-[#b8dff2] px-3 py-2">
+                          <th key={column} className="px-3 py-2">
                             {column}
                           </th>
                         ))}
@@ -966,18 +1065,21 @@ export default function SqlMonitorPage() {
                     <tbody>
                       {sqlResult.rows.map((row, index) => (
                         <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                          {sqlResultColumns.map((column) => (
-                            <td key={column} className="max-w-[280px] truncate border-b border-slate-100 px-3 py-2">
-                              {formatDisplayCellValue(predefinedValues, predefinedValueTitles, selectedTable, column, row[column])}
-                            </td>
-                          ))}
+                          {sqlResultColumns.map((column) => {
+                            const shown = formatDisplayCellValue(predefinedValues, predefinedValueTitles, selectedTable, column, row[column])
+                            return (
+                              <td key={column} className="max-w-[280px] truncate px-3 py-2" title={shown}>
+                                {shown}
+                              </td>
+                            )
+                          })}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : (
-                <div className="px-3 py-4 text-xl font-bold text-slate-500">
+                <div className="px-3 py-4 text-base lg:text-lg font-bold text-slate-500">
                   Komut çalıştı, dönen satır yok.
                 </div>
               )}
@@ -987,24 +1089,26 @@ export default function SqlMonitorPage() {
       </section>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[340px_1fr]">
-        <section className="overflow-hidden rounded-lg border border-[#b8dff2] bg-white shadow-sm">
-          <div className="border-b border-[#d8eff9] bg-[#f7fcff] px-4 py-3">
-            <h2 className="flex items-center gap-2 text-xl font-extrabold text-[#1E2A38]">
-              <span aria-hidden="true">📋</span>
+        <section className="self-start overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b-2 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-4 py-3">
+            <h2 className="flex items-center justify-between gap-2 text-lg lg:text-xl font-black uppercase tracking-wide text-white">
               Tablolar
+              <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-sm lg:text-base font-black ring-1 ring-white/25">{filteredTables.length}/{tables.length}</span>
             </h2>
+          </div>
+          <div className="border-b border-slate-200 p-3">
             <input
               value={tableSearch}
               onChange={(event) => setTableSearch(event.target.value)}
               placeholder="Tablo ara..."
-              className="mt-3 w-full rounded-md border border-[#b8dff2] px-4 py-2.5 text-lg font-bold outline-none focus:border-[#1E2A38] focus:ring-1 focus:ring-[#1E2A38]"
+              className="h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base lg:text-lg font-semibold outline-none focus:border-[#0a3a57] focus:bg-white focus:ring-2 focus:ring-[#0a3a57]/10"
             />
           </div>
 
-          <div className="max-h-[620px] overflow-y-auto p-2">
+          <div className="max-h-[680px] overflow-y-auto p-2">
             {isOverviewLoading ? (
-              <div className="flex items-center justify-center gap-2 px-3 py-12 text-xl font-bold text-slate-500">
-                <Spinner className="h-4 w-4 text-[#1E2A38]" />
+              <div className="flex items-center justify-center gap-2 px-3 py-12 text-base lg:text-lg font-bold text-slate-500">
+                <Spinner className="h-4 w-4 text-[#0a3a57]" />
                 Tablolar yükleniyor...
               </div>
             ) : filteredTables.length > 0 ? (
@@ -1026,40 +1130,41 @@ export default function SqlMonitorPage() {
                       tableQueryRef.current = { sort: '', dir: 'asc', filters: {} }
                       loadTable(table.tableName)
                     }}
-                    className={`group relative mb-1 flex w-full items-center justify-between rounded-md border px-3 py-3 text-left transition-colors ${
+                    className={`group relative mb-1 flex w-full items-center justify-between overflow-hidden rounded-lg border px-3 py-2.5 text-left transition-colors ${
                       isActive
-                        ? 'border-[#1E2A38] bg-slate-50 text-[#1E2A38] shadow-sm'
+                        ? 'border-[#0a3a57] bg-sky-50 text-[#0a3a57] shadow-sm'
                         : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50'
                     }`}
                   >
-                    {isActive && <span className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-[#1E2A38]" />}
-                    <span className="min-w-0">
-                      <span className="block truncate text-lg font-extrabold">{table.tableName}</span>
-                      <span className="mt-0.5 block text-base font-bold text-slate-500">
+                    {isActive && <span className="absolute inset-y-0 left-0 w-1.5 bg-[#c9a227]" />}
+                    <span className="min-w-0 pl-1">
+                      <span className="block truncate text-base lg:text-lg font-black">{table.tableName}</span>
+                      <span className="mt-0.5 block text-sm lg:text-base font-semibold text-slate-500">
                         {table.columnCount} kolon
                       </span>
                     </span>
-                    <span className={`ml-3 shrink-0 rounded-full px-3 py-1.5 text-base font-black ${tableSizeBadgeClass(table.rowCount)}`}>
+                    <span className={`ml-3 shrink-0 rounded-full px-2.5 py-1 text-sm lg:text-base font-black ${tableSizeBadgeClass(table.rowCount)}`}>
                       {table.rowCount.toLocaleString('tr-TR')}
                     </span>
                   </button>
                 )
               })
             ) : (
-              <div className="px-3 py-12 text-center text-xl font-bold text-slate-500">Tablo bulunamadı.</div>
+              <div className="px-3 py-12 text-center text-base lg:text-lg font-bold text-slate-500">Tablo bulunamadı.</div>
             )}
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-[#9bd36f]/70 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-[#d8efcb] bg-gradient-to-r from-[#f1faed] to-emerald-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-xl font-extrabold text-[#3f7f28]">
+        <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className={sectionHeader}>
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 truncate text-xl lg:text-2xl font-black">
+                <span className="h-6 w-1.5 shrink-0 rounded-full bg-[#c9a227]" />
                 {selectedTable || 'Tablo seçilmedi'}
               </h2>
-              <p className="mt-1.5 text-lg font-bold text-slate-600">
+              <p className="mt-1 text-sm lg:text-base font-semibold text-white/75">
                 {selectedTableInfo
-                  ? `${selectedTableInfo.rowCount.toLocaleString('tr-TR')} satır, ${selectedTableInfo.columnCount} kolon`
+                  ? `${selectedTableInfo.rowCount.toLocaleString('tr-TR')} satır · ${selectedTableInfo.columnCount} kolon`
                   : 'İçerik görüntülemek için bir tablo seçin.'}
               </p>
             </div>
@@ -1073,12 +1178,12 @@ export default function SqlMonitorPage() {
                   }
                 }}
                 placeholder="Tüm tabloda ara..."
-                className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-lg font-bold outline-none focus:border-[#1E2A38] focus:ring-1 focus:ring-[#1E2A38] lg:w-72"
+                className="h-10 w-full rounded-lg border border-white/30 bg-white px-3.5 text-base lg:text-lg font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-[#c9a227] lg:w-72"
               />
               <button
                 onClick={searchRows}
                 disabled={!selectedTable || isTableLoading}
-                className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-lg font-extrabold text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-60"
+                className="h-10 rounded-lg bg-[#c9a227] px-5 text-base lg:text-lg font-black text-[#0a3a57] shadow-sm transition hover:bg-[#d8b440] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Ara
               </button>
@@ -1086,7 +1191,7 @@ export default function SqlMonitorPage() {
                 <button
                   onClick={clearRowSearch}
                   disabled={isTableLoading}
-                  className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-lg font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-10 rounded-lg border border-white/30 bg-white/10 px-4 text-base lg:text-lg font-black text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Temizle
                 </button>
@@ -1095,43 +1200,58 @@ export default function SqlMonitorPage() {
           </div>
 
           {columns.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-b border-[#b8dff2] bg-[#f4fbff] px-4 py-3">
-              <span className="text-lg font-black text-[#1E2A38]">
-                Her sütun başlığının altındaki kutuya yazıp Enter'a basın ya da "Filtreleri Uygula"
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+              <button
+                type="button"
+                onClick={() => openInsertModal()}
+                className={`${navyButton} text-sm lg:text-base`}
+              >
+                <span aria-hidden="true">＋</span> Yeni Kayıt
+              </button>
+              <button
+                type="button"
+                onClick={() => exportCsv(selectedTable || 'tablo', columns.map((c) => c.columnName), rows)}
+                disabled={rows.length === 0}
+                className={`${lightButton} text-sm lg:text-base`}
+                title="Ekrandaki sayfayı Excel'de açılabilen CSV dosyası olarak indirir"
+              >
+                Excel&apos;e Aktar (CSV)
+              </button>
+              <span className="mx-1 hidden h-6 w-px bg-slate-300 sm:block" />
+              <span className="text-sm lg:text-base font-bold text-slate-500">
+                Sütun başlığına tıklayın: sıralar · altındaki kutuya yazıp Enter: filtreler
                 {Object.keys(activeColumnFilters).length > 0 ? ` · ${Object.keys(activeColumnFilters).length} filtre aktif` : ''}
               </span>
-              <button
-                onClick={applyColumnFilters}
-                disabled={isTableLoading}
-                className="ml-auto rounded-md bg-[#1E2A38] px-4 py-2 text-lg font-extrabold text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:opacity-60"
-              >
-                Filtreleri Uygula
-              </button>
-              {(Object.keys(activeColumnFilters).length > 0 || Object.keys(columnFilters).length > 0) && (
+              <div className="ml-auto flex flex-wrap gap-2">
                 <button
-                  onClick={clearColumnFilters}
+                  onClick={applyColumnFilters}
                   disabled={isTableLoading}
-                  className="rounded-md border border-slate-300 bg-white px-4 py-2 text-lg font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                  className={`${navyButton} text-sm lg:text-base`}
                 >
-                  Filtreleri Temizle
+                  Filtreleri Uygula
                 </button>
-              )}
+                {(Object.keys(activeColumnFilters).length > 0 || Object.keys(columnFilters).length > 0) && (
+                  <button
+                    onClick={clearColumnFilters}
+                    disabled={isTableLoading}
+                    className={`${lightButton} text-sm lg:text-base`}
+                  >
+                    Filtreleri Temizle
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
-          {/* Kullanici istegi: "toplu islem yapabilecegim" - bir veya daha
-              fazla satir isaretlendiginde bu renkli/belirgin cubuk belirir,
-              secili kayit sayisini gosterir ve toplu Alan Guncelle/Sil
-              islemlerine goturur. */}
+          {/* Toplu islem cubugu: bir veya daha fazla satir isaretlenince */}
           {selectedRowIds.size > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-b border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-600 px-3.5 py-1.5 text-base font-black text-white shadow-sm">
-                <span aria-hidden="true">☑️</span>
+            <div className="flex flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#0a3a57] px-3.5 py-1 text-sm lg:text-base font-black text-white shadow-sm">
                 {selectedRowIds.size} kayıt seçildi
               </span>
               <button
                 onClick={openBulkEditModal}
-                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-3.5 py-2 text-base font-extrabold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                className={`${lightButton} text-sm lg:text-base`}
               >
                 <span aria-hidden="true">✏️</span>
                 Alan Güncelle
@@ -1139,32 +1259,33 @@ export default function SqlMonitorPage() {
               <button
                 onClick={bulkDeleteSelectedRows}
                 disabled={isBulkDeleting}
-                className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-white px-3.5 py-2 text-base font-extrabold text-rose-700 shadow-sm transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm lg:text-base font-black text-rose-700 shadow-sm transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isBulkDeleting ? <Spinner className="h-3.5 w-3.5 text-rose-700" /> : <span aria-hidden="true">🗑️</span>}
                 {isBulkDeleting ? 'Siliniyor...' : 'Seçilenleri Sil'}
               </button>
               <button
+                onClick={() => exportCsv(`${selectedTable}_secili`, columns.map((c) => c.columnName), rows.filter((row) => selectedRowIds.has(String(row.__rowid))))}
+                className={`${lightButton} text-sm lg:text-base`}
+              >
+                Seçilenleri Aktar
+              </button>
+              <button
                 onClick={clearRowSelection}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-base font-extrabold text-slate-500 transition hover:bg-white/70"
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm lg:text-base font-black text-slate-500 transition hover:bg-white/70"
               >
                 Seçimi Temizle
               </button>
             </div>
           )}
 
-          {/* Kullanici istegi: bu ana veri izgarasi de HERHANGI BIR
-              tablonun (kolon sayisi degisken) icerigini gosterdigi icin
-              (yukaridaki sorgu sonucu tablosuyla ayni sebep) sadece hafif
-              bir artis yapildi (13/14px -> 15/16px) - tam 20px, cok sutunlu
-              tablolarda (ör. dosyalar) yatay kullanilabilirligi bozardi. */}
           <div className="overflow-x-auto">
-            <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] border-collapse text-left text-[16px] font-semibold">
-              <thead className="bg-[#eaf7fd] text-[15px] font-extrabold uppercase text-[#005f95]">
+            <table className="ns-tablo ns-tablo-sql w-full min-w-[900px] border-collapse text-left font-semibold">
+              <thead>
                 <tr>
                   {columns.length > 0 ? (
                     <>
-                    <th className="border-b border-[#b8dff2] px-3 py-3">
+                    <th className="w-10 px-3 py-3">
                       <input
                         type="checkbox"
                         checked={isAllRowsSelected}
@@ -1173,26 +1294,26 @@ export default function SqlMonitorPage() {
                         }}
                         onChange={toggleSelectAllRows}
                         disabled={rows.length === 0}
-                        className="h-4 w-4 cursor-pointer accent-[#1E2A38]"
-                        title="Tümünü seç"
+                        className="h-4 w-4 cursor-pointer accent-[#c9a227]"
+                        title="Bu sayfadaki tümünü seç"
                       />
                     </th>
-                    <th className="border-b border-[#b8dff2] px-4 py-3">İşlem</th>
+                    <th className="px-3 py-3">İşlem</th>
                     {columns.map((column) => {
                       const isSorted = rowSortColumn === column.columnName
                       return (
-                      <th key={column.columnName} className="border-b border-[#b8dff2] px-4 py-2 align-bottom">
+                      <th key={column.columnName} className="px-3 py-2 align-bottom">
                         <button
                           type="button"
                           onClick={() => handleSortColumn(column.columnName)}
                           title="Sıralamak için tıklayın (artan → azalan → kapalı)"
-                          className={`flex w-full items-center gap-1 rounded px-1 py-1 text-left transition hover:bg-[#d6ecf9] ${isSorted ? 'text-[#1E2A38]' : ''}`}
+                          className="flex w-full items-center gap-1 rounded px-1 py-1 text-left transition hover:bg-white/10"
                         >
                           <span className="block truncate">{column.columnName}</span>
-                          <span className="ml-auto shrink-0 text-[14px]">{isSorted ? (rowSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                          <span className={`ml-auto shrink-0 ${isSorted ? 'text-[#e8cf7a]' : 'text-white/40'}`}>{isSorted ? (rowSortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                         </button>
-                        <span className="mt-0.5 block px-1 text-[13px] normal-case text-slate-500">
-                          {column.dataType}{column.isNullable ? '' : ' / zorunlu'}
+                        <span className="ns-sql-tip mt-0.5 block px-1 normal-case">
+                          {column.dataType}{column.isNullable ? '' : ' · zorunlu'}{isAutoColumn(column) ? ' · otomatik' : ''}
                         </span>
                         <div className="relative mt-1.5">
                           <input
@@ -1204,8 +1325,8 @@ export default function SqlMonitorPage() {
                               return next
                             })}
                             onKeyDown={(event) => { if (event.key === 'Enter') applyColumnFilters() }}
-                            placeholder="Bu sütunda ara..."
-                            className={`w-full rounded-md border bg-white px-2 py-1.5 text-[14px] font-semibold normal-case text-slate-700 outline-none focus:border-[#1E2A38] focus:ring-1 focus:ring-[#1E2A38] ${columnFilters[column.columnName] ? 'border-amber-400 pr-5 ring-1 ring-amber-200' : 'border-[#b8dff2]'}`}
+                            placeholder="Ara..."
+                            className={`ns-sql-filtre w-full rounded-md border bg-white px-2 py-1.5 font-semibold normal-case text-slate-700 outline-none focus:ring-2 focus:ring-[#c9a227] ${columnFilters[column.columnName] ? 'border-[#c9a227] pr-5' : 'border-transparent'}`}
                           />
                           {columnFilters[column.columnName] && (
                             <button
@@ -1216,7 +1337,7 @@ export default function SqlMonitorPage() {
                                 return next
                               })}
                               title="Bu sütun filtresini temizle"
-                              className="absolute inset-y-0 right-0.5 flex items-center px-1 text-slate-400 hover:text-rose-600"
+                              className="absolute inset-y-0 right-0.5 flex items-center px-1 !text-slate-400 hover:!text-rose-600"
                             >
                               ✕
                             </button>
@@ -1227,16 +1348,16 @@ export default function SqlMonitorPage() {
                     })}
                     </>
                   ) : (
-                    <th className="border-b border-[#b8dff2] px-4 py-3">İçerik</th>
+                    <th className="px-4 py-3">İçerik</th>
                   )}
                 </tr>
               </thead>
               <tbody>
                 {isTableLoading ? (
                   <tr>
-                    <td colSpan={Math.max(columns.length + 2, 1)} className="px-4 py-16 text-center text-xl font-bold text-slate-500">
+                    <td colSpan={Math.max(columns.length + 2, 1)} className="px-4 py-16 text-center font-bold text-slate-500">
                       <span className="inline-flex items-center gap-2">
-                        <Spinner className="h-4 w-4 text-[#1E2A38]" />
+                        <Spinner className="h-4 w-4 text-[#0a3a57]" />
                         Tablo içeriği yükleniyor...
                       </span>
                     </td>
@@ -1249,27 +1370,34 @@ export default function SqlMonitorPage() {
                     return (
                       <tr
                         key={rowIndex}
-                        className={`${isSelected ? 'bg-indigo-50' : rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} hover:bg-[#f1faed]`}
+                        className={`${isSelected ? 'bg-amber-50' : rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-sky-50/70`}
                       >
-                        <td className="border-b border-slate-100 px-3 py-3">
+                        <td className="px-3">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleRowSelection(rowId)}
-                            className="h-4 w-4 cursor-pointer accent-[#1E2A38]"
+                            className="h-4 w-4 cursor-pointer accent-[#0a3a57]"
                           />
                         </td>
-                        <td className="border-b border-slate-100 px-4 py-3">
-                          <div className="flex items-center gap-1.5">
+                        <td className="px-3">
+                          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
                             <button
                               onClick={() => openEditModal(row)}
-                              className="rounded-md border border-[#1E2A38] bg-white px-3.5 py-2 text-[15px] font-extrabold text-[#1E2A38] transition hover:bg-slate-100"
+                              className="px-3 py-1.5 text-sm lg:text-base font-black text-[#0a3a57] transition hover:bg-slate-100"
                             >
                               Düzenle
                             </button>
                             <button
+                              onClick={() => openInsertModal(row)}
+                              title="Bu kaydın kopyasıyla yeni kayıt oluştur (otomatik id hariç)"
+                              className="border-l border-slate-300 px-3 py-1.5 text-sm lg:text-base font-black text-slate-600 transition hover:bg-slate-100"
+                            >
+                              Kopyala
+                            </button>
+                            <button
                               onClick={() => void deleteSingleRow(row)}
-                              className="rounded-md border border-rose-300 bg-white px-3.5 py-2 text-[15px] font-extrabold text-rose-600 transition hover:bg-rose-50"
+                              className="border-l border-slate-300 px-3 py-1.5 text-sm lg:text-base font-black text-rose-600 transition hover:bg-rose-50"
                             >
                               Sil
                             </button>
@@ -1278,11 +1406,12 @@ export default function SqlMonitorPage() {
                         {columns.map((column) => {
                           const rawValue = row[column.columnName]
                           const isEmpty = rawValue === null || rawValue === undefined
+                          const shown = formatDisplayCellValue(predefinedValues, predefinedValueTitles, selectedTable, column.columnName, rawValue)
 
                           return (
-                            <td key={column.columnName} className="max-w-[320px] truncate border-b border-slate-100 px-4 py-3 text-[16px] text-slate-900">
-                              <span className={isEmpty ? 'font-extrabold text-slate-400' : ''}>
-                                {formatDisplayCellValue(predefinedValues, predefinedValueTitles, selectedTable, column.columnName, rawValue)}
+                            <td key={column.columnName} className="max-w-[320px] truncate px-3 text-slate-900" title={isEmpty ? 'NULL' : shown}>
+                              <span className={isEmpty ? 'text-sm font-extrabold text-slate-300' : ''}>
+                                {shown}
                               </span>
                             </td>
                           )
@@ -1292,7 +1421,7 @@ export default function SqlMonitorPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={Math.max(columns.length + 2, 1)} className="px-4 py-16 text-center text-xl font-bold text-slate-500">
+                    <td colSpan={Math.max(columns.length + 2, 1)} className="px-4 py-16 text-center font-bold text-slate-500">
                       Bu tabloda gösterilecek satır bulunamadı.
                     </td>
                   </tr>
@@ -1301,128 +1430,138 @@ export default function SqlMonitorPage() {
             </table>
           </div>
 
-          <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-right text-xl font-bold text-slate-700">
-            {activeRowSearch
-              ? `"${activeRowSearch}" araması için ${rows.length} kayıt gösteriliyor`
-              : `İlk 100 satırdan ${rows.length} kayıt gösteriliyor`}
+          {/* Sayfalama (2026-10-15) */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
+            <span className="text-base lg:text-lg font-bold text-slate-700">
+              {activeRowSearch && <>&quot;{activeRowSearch}&quot; araması · </>}
+              <span className="font-black text-[#0a3a57]">{pageStart.toLocaleString('tr-TR')}–{pageEnd.toLocaleString('tr-TR')}</span>
+              {' / '}
+              <span className="font-black text-[#0a3a57]">{tableTotal.toLocaleString('tr-TR')}</span> kayıt
+            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-1.5 text-sm lg:text-base font-bold text-slate-500">
+                Sayfa başına
+                <select
+                  value={pageSize}
+                  onChange={(event) => changePageSize(Number(event.target.value))}
+                  className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm lg:text-base font-black text-slate-700"
+                >
+                  {[50, 100, 250, 500].map((size) => <option key={size} value={size}>{size}</option>)}
+                </select>
+              </label>
+              <button type="button" onClick={() => goToPage(0)} disabled={!hasPrevPage || isTableLoading} className={`${lightButton} h-9 px-3 py-0 text-sm lg:text-base`} title="İlk sayfa">«</button>
+              <button type="button" onClick={() => goToPage(pageOffset - pageSize)} disabled={!hasPrevPage || isTableLoading} className={`${lightButton} h-9 py-0 text-sm lg:text-base`}>‹ Önceki</button>
+              <span className="px-1 text-sm lg:text-base font-black text-slate-600">Sayfa {currentPage} / {pageCount}</span>
+              <button type="button" onClick={() => goToPage(pageOffset + pageSize)} disabled={!hasNextPage || isTableLoading} className={`${navyButton} h-9 py-0 text-sm lg:text-base`}>Sonraki ›</button>
+              <button type="button" onClick={() => goToPage((pageCount - 1) * pageSize)} disabled={!hasNextPage || isTableLoading} className={`${navyButton} h-9 px-3 py-0 text-sm lg:text-base`} title="Son sayfa">»</button>
+            </div>
           </div>
         </section>
       </div>
 
-      {editingRow && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-lg border border-slate-300 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
-              <div>
-                <h3 className="flex items-center gap-2 text-2xl font-extrabold text-[#1E2A38]">
-                  <span aria-hidden="true">✏️</span>
-                  Kayıt Düzenle
-                </h3>
-                <p className="mt-1.5 text-lg font-bold text-slate-500">{selectedTable} tablosu</p>
+      {(editingRow || insertValues) && (() => {
+        const isInsert = !editingRow && Boolean(insertValues)
+        const values = isInsert ? insertValues ?? {} : editValues
+        const setValue = (columnName: string, value: string) => {
+          if (isInsert) setInsertValues((current) => ({ ...(current ?? {}), [columnName]: value }))
+          else setEditValues((current) => ({ ...current, [columnName]: value }))
+        }
+        const close = () => { if (isInsert) setInsertValues(null); else setEditingRow(null) }
+        const busy = isInsert ? isInserting : isSavingRow
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+            <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+              <div className="flex shrink-0 items-center justify-between border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-5 py-4 text-white">
+                <div>
+                  <h3 className="text-xl lg:text-2xl font-black">{isInsert ? 'Yeni Kayıt Ekle' : 'Kayıt Düzenle'}</h3>
+                  <p className="mt-1 text-sm lg:text-base font-semibold text-white/75">
+                    {selectedTable} tablosu{isInsert ? ' · boş bırakılan alanlar veritabanı varsayılanını (otomatik id, NULL) alır' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={close}
+                  className="rounded-lg px-3 py-1.5 text-base lg:text-lg font-black text-white/80 transition hover:bg-white/10 hover:text-white"
+                >
+                  Kapat
+                </button>
               </div>
-              <button
-                onClick={() => setEditingRow(null)}
-                className="rounded-md px-4 py-2 text-xl font-extrabold text-slate-500 transition hover:bg-slate-100"
-              >
-                Kapat
-              </button>
-            </div>
 
-            <div className="max-h-[62vh] overflow-y-auto p-5">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {columns.map((column) => (
-                  <label key={column.columnName} className="block">
-                    <span className="mb-1.5 flex items-center justify-between gap-2 text-lg font-extrabold text-slate-700">
-                      <span className="truncate">{column.columnName}</span>
-                      <span className="shrink-0 text-base font-bold text-slate-400">{column.dataType}</span>
-                    </span>
-                    {(() => {
-                      const predefinedCategory = resolvePredefinedCategory(
-                        selectedTable,
-                        column.columnName,
-                        predefinedValueTitles,
-                        predefinedValues
-                      )
-                      const predefinedOptions = predefinedCategory
-                        ? predefinedValues[predefinedCategory] ?? []
-                        : []
+              <div className="min-h-0 flex-1 overflow-y-auto p-5">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {columns.map((column) => {
+                    const predefinedCategory = resolvePredefinedCategory(selectedTable, column.columnName, predefinedValueTitles, predefinedValues)
+                    const predefinedOptions = predefinedCategory ? predefinedValues[predefinedCategory] ?? [] : []
+                    const auto = isAutoColumn(column)
+                    const inputClass = 'h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base font-semibold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white focus:ring-2 focus:ring-[#0a3a57]/10'
 
-                      if (predefinedOptions.length > 0) {
-                        return (
+                    return (
+                      <label key={column.columnName} className="block">
+                        <span className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="truncate text-sm lg:text-base font-black uppercase tracking-wide text-slate-600">
+                            {column.columnName}
+                            {!column.isNullable && !auto && <span className="ml-1 text-rose-500" title="Zorunlu">*</span>}
+                          </span>
+                          <span className="shrink-0 text-xs lg:text-sm font-bold text-slate-400">{column.dataType}{auto ? ' · otomatik' : ''}</span>
+                        </span>
+                        {predefinedOptions.length > 0 ? (
                           <select
-                            value={editValues[column.columnName] ?? ''}
-                            onChange={(event) =>
-                              setEditValues((currentValues) => ({
-                                ...currentValues,
-                                [column.columnName]: event.target.value,
-                              }))
-                            }
-                            className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-xl font-semibold text-slate-900 outline-none focus:border-[#1E2A38] focus:ring-1 focus:ring-[#1E2A38]"
+                            value={values[column.columnName] ?? ''}
+                            onChange={(event) => setValue(column.columnName, event.target.value)}
+                            className={inputClass}
                           >
-                            {column.isNullable && <option value="">Boş / NULL</option>}
+                            {(column.isNullable || isInsert) && <option value="">{isInsert ? '— Boş —' : 'Boş / NULL'}</option>}
                             {predefinedOptions.map((option) => (
                               <option key={option.id} value={option.id}>
                                 {option.name}
                               </option>
                             ))}
                           </select>
-                        )
-                      }
+                        ) : (
+                          <input
+                            value={values[column.columnName] ?? ''}
+                            onChange={(event) => setValue(column.columnName, event.target.value)}
+                            placeholder={isInsert && auto ? 'Otomatik (boş bırakın)' : column.isNullable ? 'NULL' : ''}
+                            className={inputClass}
+                          />
+                        )}
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
 
-                      return (
-                        <input
-                          value={editValues[column.columnName] ?? ''}
-                          onChange={(event) =>
-                            setEditValues((currentValues) => ({
-                              ...currentValues,
-                              [column.columnName]: event.target.value,
-                            }))
-                          }
-                          className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-xl font-semibold text-slate-900 outline-none focus:border-[#1E2A38] focus:ring-1 focus:ring-[#1E2A38]"
-                        />
-                      )
-                    })()}
-                  </label>
-                ))}
+              <div className="flex shrink-0 justify-end gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
+                <button onClick={close} className={`${lightButton} text-base lg:text-lg`}>
+                  İptal
+                </button>
+                <button
+                  onClick={() => void (isInsert ? saveInsertedRow() : saveEditedRow())}
+                  disabled={busy}
+                  className={`${navyButton} px-6 text-base lg:text-lg`}
+                >
+                  {busy && <Spinner className="h-4 w-4 text-white" />}
+                  {busy ? 'Kaydediliyor...' : isInsert ? 'Kaydı Ekle' : 'Kaydet'}
+                </button>
               </div>
             </div>
-
-            <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
-              <button
-                onClick={() => setEditingRow(null)}
-                className="rounded-md px-5 py-2.5 text-xl font-extrabold text-slate-600 transition hover:bg-slate-200"
-              >
-                İptal
-              </button>
-              <button
-                onClick={saveEditedRow}
-                disabled={isSavingRow}
-                className="inline-flex items-center gap-2 rounded-md bg-[#1E2A38] px-6 py-2.5 text-xl font-extrabold text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSavingRow && <Spinner className="h-4 w-4 text-white" />}
-                {isSavingRow ? 'Kaydediliyor...' : 'Kaydet'}
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {isBulkEditOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md overflow-hidden rounded-lg border border-slate-300 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-violet-50 px-5 py-4">
+          <div className="w-full max-w-md overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-5 py-4 text-white">
               <div>
-                <h3 className="flex items-center gap-2 text-2xl font-extrabold text-indigo-800">
-                  <span aria-hidden="true">✏️</span>
-                  Toplu Alan Güncelle
-                </h3>
-                <p className="mt-1.5 text-lg font-bold text-slate-500">
+                <h3 className="text-xl lg:text-2xl font-black">Toplu Alan Güncelle</h3>
+                <p className="mt-1 text-sm lg:text-base font-semibold text-white/75">
                   {selectedTable} tablosunda seçili {selectedRowIds.size} kayıt
                 </p>
               </div>
               <button
                 onClick={() => setIsBulkEditOpen(false)}
-                className="rounded-md px-4 py-2 text-xl font-extrabold text-slate-500 transition hover:bg-slate-100"
+                className="rounded-lg px-3 py-1.5 text-base lg:text-lg font-black text-white/80 transition hover:bg-white/10 hover:text-white"
               >
                 Kapat
               </button>
@@ -1430,14 +1569,14 @@ export default function SqlMonitorPage() {
 
             <div className="space-y-4 p-5">
               <label className="block">
-                <span className="mb-1.5 block text-lg font-extrabold text-slate-700">Alan (kolon)</span>
+                <span className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-600">Alan (kolon)</span>
                 <select
                   value={bulkEditColumn}
                   onChange={(event) => {
                     setBulkEditColumn(event.target.value)
                     setBulkEditValue('')
                   }}
-                  className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-xl font-semibold text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  className="h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base lg:text-lg font-semibold text-slate-900 outline-none focus:border-[#0a3a57]"
                 >
                   {columns
                     .filter((column) => column.columnName !== '__rowid')
@@ -1450,7 +1589,7 @@ export default function SqlMonitorPage() {
               </label>
 
               <label className="block">
-                <span className="mb-1.5 block text-lg font-extrabold text-slate-700">Yeni değer</span>
+                <span className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-600">Yeni değer</span>
                 {(() => {
                   const bulkColumn = columns.find((column) => column.columnName === bulkEditColumn)
                   const predefinedCategory = bulkColumn
@@ -1463,7 +1602,7 @@ export default function SqlMonitorPage() {
                       <select
                         value={bulkEditValue}
                         onChange={(event) => setBulkEditValue(event.target.value)}
-                        className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-xl font-semibold text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        className="h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base lg:text-lg font-semibold text-slate-900 outline-none focus:border-[#0a3a57]"
                       >
                         {bulkColumn?.isNullable && <option value="">Boş / NULL</option>}
                         {predefinedOptions.map((option) => (
@@ -1480,28 +1619,25 @@ export default function SqlMonitorPage() {
                       value={bulkEditValue}
                       onChange={(event) => setBulkEditValue(event.target.value)}
                       placeholder={bulkColumn?.isNullable ? 'Boş bırakılırsa NULL olur' : ''}
-                      className="w-full rounded-md border border-slate-300 px-4 py-2.5 text-xl font-semibold text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base lg:text-lg font-semibold text-slate-900 outline-none focus:border-[#0a3a57]"
                     />
                   )
                 })()}
               </label>
 
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-lg font-bold text-amber-800">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm lg:text-base font-bold text-amber-800">
                 Bu değer, seçili <span className="font-black">{selectedRowIds.size}</span> kaydın tamamında aynı anda güncellenecek.
               </div>
             </div>
 
             <div className="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4">
-              <button
-                onClick={() => setIsBulkEditOpen(false)}
-                className="rounded-md px-5 py-2.5 text-xl font-extrabold text-slate-600 transition hover:bg-slate-200"
-              >
+              <button onClick={() => setIsBulkEditOpen(false)} className={`${lightButton} text-base lg:text-lg`}>
                 İptal
               </button>
               <button
                 onClick={saveBulkEdit}
                 disabled={isBulkSaving || !bulkEditColumn}
-                className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-6 py-2.5 text-xl font-extrabold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className={`${navyButton} px-6 text-base lg:text-lg`}
               >
                 {isBulkSaving && <Spinner className="h-4 w-4 text-white" />}
                 {isBulkSaving ? 'Güncelleniyor...' : `${selectedRowIds.size} Kaydı Güncelle`}

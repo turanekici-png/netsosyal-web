@@ -2,6 +2,7 @@ import {
   anahtarliCevap,
   bosMu,
   cevapMetni,
+  eksikZorunluSorular,
   IMZA_AZAMI_UZUNLUK,
   ozetMetniUret,
   ozetRaporCumleleri,
@@ -95,12 +96,10 @@ export type KaydetPayload = {
 export function kayitAlanlariniHazirla(sablon: Sablon, payload: KaydetPayload, tarihYedek?: string | null) {
   const cevaplar = cevaplariTemizle(sablon, payload.cevaplar)
   if (Object.keys(cevaplar).length === 0) return { hata: 'Formda doldurulmuş bir alan yok.' } as const
-  for (const bolum of sablon.bolumler) {
-    for (const soru of bolum.sorular) {
-      if (soru.zorunlu && bosMu(soru, cevaplar[String(soru.id)])) {
-        return { hata: `"${bolum.baslik}" bölümünde zorunlu alan boş: ${soru.soruMetni}` } as const
-      }
-    }
+  // 2026-10-15: ziyaret yapilamadiysa (Evde Bulunamadı vb.) yalniz ziyaret sonucu aranir
+  const ilkEksik = eksikZorunluSorular(sablon, cevaplar)[0]
+  if (ilkEksik) {
+    return { hata: `"${ilkEksik.bolum.baslik}" bölümünde zorunlu alan boş: ${ilkEksik.soru.soruMetni}` } as const
   }
 
   const ziyaretZamani = otomatikCevap(sablon, cevaplar, 'ziyaret_zamani')

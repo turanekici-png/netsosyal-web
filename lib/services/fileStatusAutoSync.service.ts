@@ -23,7 +23,7 @@ export const ACTIVE_ASSISTANCE_TABLES = [
   'yrd_haziryemek',
 ] as const
 
-// Beklemedeki (durumu=0) "Kış Dönemi" müracaati da aktif sayilir: 01 Kasim'da
+// Beklemedeki (durumu=0 müracaat / 5 "Bekliyor" yardım) "Kış Dönemi" kaydi da aktif sayilir: 01 Kasim'da
 // winterSeasonalAid.service.ts onu otomatik yardima donusturur - o gune kadar
 // dosya "Yardım Yapılamaz"a dusurulmemeli.
 const KIS_DONEMI_TABLES = new Set(['yrd_gidabankasi', 'yrd_destekpaketi', 'yrd_ekmek', 'yrd_haziryemek'])
@@ -31,7 +31,7 @@ const KIS_DONEMI_TABLES = new Set(['yrd_gidabankasi', 'yrd_destekpaketi', 'yrd_e
 export function activeAssistanceExistsSql(fileIdExpr: string) {
   return `(${ACTIVE_ASSISTANCE_TABLES.map((table) => {
     const kisDonemi = KIS_DONEMI_TABLES.has(table)
-      ? ` OR (x.durumu = 0 AND x.donem = 'Kış Dönemi' AND x.bittarih >= CURRENT_DATE)`
+      ? ` OR (x.durumu IN (0, 5) AND x.donem = 'Kış Dönemi' AND x.bittarih >= CURRENT_DATE)`
       : ''
     return `EXISTS (SELECT 1 FROM ${table} x WHERE x.dosyaid = ${fileIdExpr} AND (x.durumu = 2${kisDonemi}))`
   }).join(' OR ')})`

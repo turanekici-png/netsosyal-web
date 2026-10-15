@@ -163,16 +163,16 @@ export default function CenazeYemekleriReportPage() {
   )
 
   return (
-    <div className="space-y-5 text-slate-950">
-      <div className="rounded-md border border-amber-300 bg-gradient-to-r from-orange-700 via-amber-600 to-yellow-600 px-5 py-4 text-white shadow-sm">
+    <div className="ns-kurumsal-pencere space-y-5 text-slate-950">
+      <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-5 py-4 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[15px] font-black uppercase tracking-wide text-white/90">Ana Sayfa Raporu</p>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Cenaze Yemekleri Raporu</h1>
-            <p className="mt-1 text-sm font-bold text-white/85">Aylık verilen yemek sayısı ve ödenen tutar kayıtları</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">Ana Sayfa Raporu</p>
+            <h1 className="mt-1 text-[20px] font-semibold uppercase leading-tight tracking-wide md:text-[26px]">Cenaze Yemekleri Raporu</h1>
+            <p className="mt-1 text-[13.5px] font-medium text-slate-300">Aylık verilen yemek sayısı ve ödenen tutar kayıtları</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="rounded-md border border-white/30 bg-white/15 px-4 py-2 text-sm font-bold">
+            <div className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-[14px] font-bold">
               Genel Toplam: {isLoading ? '...' : `${formatNumber(grandTotal.miktar)} yemek / ${formatMoney(grandTotal.tutar)}`}
             </div>
             <button
@@ -203,7 +203,7 @@ export default function CenazeYemekleriReportPage() {
       ) : (
         <div className="space-y-4">
           {groupedByYear.map((group) => (
-            <section key={group.year} className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+            <section key={group.year} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.06)]">
               <div className="flex items-center justify-between border-b border-slate-100 bg-orange-50 px-4 py-3">
                 <h2 className="text-base font-extrabold text-orange-800">{group.year} Yılı</h2>
                 <span className="rounded-full border border-orange-200 bg-white px-3 py-1 text-[14px] font-extrabold text-orange-700">

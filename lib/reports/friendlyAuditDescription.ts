@@ -196,3 +196,70 @@ export function buildFriendlyAuditDescription(input: FriendlyAuditInput): string
 
   return fallbackDescription || `${label} kaydında ${op || 'bir işlem'} yapıldı.`
 }
+
+// ---------------------------------------------------------------------------
+// 2026-10-15: İşlem Geçmişi / Çöp Kutusu ekrani (istemci) icin yardimcilar -
+// Turkce tablo/alan/islem adlari ve satir bazli "eski -> yeni" karsilastirmasi.
+
+export function auditTableLabel(tableName: string) {
+  return tableLabel(tableName)
+}
+
+export function auditFieldLabel(field: string) {
+  return fieldLabel(field)
+}
+
+export type AuditIslemTuru = 'ekle' | 'guncelle' | 'sil' | 'yazdir' | 'geri_al' | 'diger'
+
+export function auditIslemTuru(operationType: string): AuditIslemTuru {
+  const op = (operationType || '').toLocaleLowerCase('tr-TR')
+  if (op.includes('geri')) return 'geri_al'
+  if (op.includes('sil') || op.includes('delete')) return 'sil'
+  if (op.includes('ekle') || op.includes('insert') || op.includes('create')) return 'ekle'
+  if (op.includes('guncelle') || op.includes('güncelle') || op.includes('update') || op.includes('değiş') || op.includes('degis')) return 'guncelle'
+  if (op.includes('yazdir') || op.includes('yazdır') || op.includes('print')) return 'yazdir'
+  return 'diger'
+}
+
+export const AUDIT_ISLEM_ADLARI: Record<AuditIslemTuru, string> = {
+  ekle: 'Ekleme',
+  guncelle: 'Güncelleme',
+  sil: 'Silme',
+  yazdir: 'Yazdırma',
+  geri_al: 'Geri Alma',
+  diger: 'İşlem',
+}
+
+export type AuditAlanDegisikligi = { alan: string; etiket: string; eski: string; yeni: string; degisti: boolean }
+
+function degerMetni(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value).trim()
+}
+
+// Kaydin tum alanlari (gurultu alanlari haric); degisenler basta.
+export function auditAlanlari(oldValue: unknown, newValue: unknown): AuditAlanDegisikligi[] {
+  const oldRow = asRecord(oldValue)
+  const newRow = asRecord(newValue)
+  if (!oldRow && !newRow) return []
+  const keys = [...new Set([...Object.keys(oldRow ?? {}), ...Object.keys(newRow ?? {})])]
+  const alanlar = keys
+    .filter((key) => !NOISE_FIELDS.has(key))
+    .map((key) => {
+      const eski = degerMetni(oldRow?.[key])
+      const yeni = degerMetni(newRow?.[key])
+      return { alan: key, etiket: fieldLabel(key), eski, yeni, degisti: Boolean(oldRow && newRow) && eski !== yeni }
+    })
+    .filter((alan) => alan.eski !== '' || alan.yeni !== '')
+  return alanlar.sort((a, b) => Number(b.degisti) - Number(a.degisti))
+}
+
+// Kaydin ait oldugu dosya id'si (Dosyayı Aç icin): dosyalar -> kayit id,
+// diger tablolar -> dosyaid alani.
+export function auditDosyaId(tableName: string, recordId: string | null, oldValue: unknown, newValue: unknown): string | null {
+  if (tableName === 'dosyalar') return recordId && /^\d+$/.test(recordId) ? recordId : null
+  const row = asRecord(newValue) ?? asRecord(oldValue)
+  const dosyaid = textOf(row?.dosyaid)
+  return /^\d+$/.test(dosyaid) && dosyaid !== '0' ? dosyaid : null
+}

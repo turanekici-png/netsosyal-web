@@ -3,6 +3,8 @@
 // PAYLASTIGI sorgu-olusturma mantigi - bkz. lib/documents/documentsListQuery.ts
 // (ayni desen, Dosyalar listesi icin).
 import { buildMultiColumnOrderBy, parseSortParam } from '@/lib/sortSpec'
+import { MULTI_VALUE_FILTER_SEPARATOR } from '@/lib/utils'
+import { jsonbLiteral, kodluEtiket, kullaniciAdi } from '@/lib/documents/documentsListQuery'
 
 const genderLabelSql = `
   CASE
@@ -38,7 +40,48 @@ export const beneficiaryFilterColumns: Record<string, string> = {
   adres: 'b.adres',
   kayitTarihi: 'b.ilkislemtarihi',
   guncellemeTarihi: 'b.islemtarihi',
+  // --- 2026-10-15: bireyler tablosunun geri kalan TUM alanlari (bkz.
+  // documentsListQuery.ts - ayni desen). Kodlu alanlar Hazır Değerler'den.
+  uyruk: 'b.uyrugu',
+  dogumYeri: 'b.dogumyeri',
+  nufusIli: 'b.nfili',
+  meslek: 'b.meslegi',
+  ogrenimDurumu: kodluEtiket('ogrenim', 'b.ogrenimdurumu'),
+  mezunOkul: 'b.mezunolokul',
+  saglikDurumu: kodluEtiket('saglik', 'b.saglikdurumu'),
+  hastalikAdi: 'b.hastalikadi',
+  sosyalGuvence: kodluEtiket('guvence', 'b.sosyalguvencesi'),
+  aylikGelir: 'b.aylikgeliri',
+  iban: 'b.iban',
+  aciklama: 'b.aciklama',
+  kayitliAdSoyad: 'b.adisoyadi',
+  // Uygulama genelinde tipi=1 "dosya sahibi" kaydidir (bkz. dosya sahibi
+  // secimi - documentsListQuery owner LATERAL'i).
+  kayitTipi: "CASE b.tipi WHEN 1 THEN 'Dosya Sahibi' WHEN 0 THEN 'Hane Üyesi' ELSE b.tipi::text END",
+  tcSorgu: 'b.tcsorgusyc',
+  kontrol1: 'b.kontrol1',
+  kontrol2: 'b.kontrol2',
+  adresGuncellemeTarihi: 'b.adres_guncelleme_tarihi',
+  kaydiAcan: kullaniciAdi('ku_ilk', 'b.ilkkullaniciid'),
+  sonIslemYapan: kullaniciAdi('ku_son', 'b.kullaniciid'),
 }
+
+// SELECT listesi: anahtarlar documentsFilterColumns gibi beneficiaryFilterColumns'tan.
+export function buildBeneficiarySelectList() {
+  return Object.entries(beneficiaryFilterColumns).map(([anahtar, ifade]) => {
+    if (anahtar === 'id') return `b.id::text AS "id"`
+    if (anahtar === 'dosyaId') return `b.dosyaid::text AS "dosyaId"`
+    return `${ifade} AS "${anahtar}"`
+  }).join(',\n        ')
+}
+
+export type BeneficiaryKodEtiketleri = {
+  saglik: Record<string, string>
+  ogrenim: Record<string, string>
+  guvence: Record<string, string>
+}
+
+export const BOS_BIREY_KOD_ETIKETLERI: BeneficiaryKodEtiketleri = { saglik: {}, ogrenim: {}, guvence: {} }
 
 // Kullanici istegi: basliga Shift+tiklayarak BIRDEN FAZLA sutuna gore
 // siralanabilsin - "sort" parametresi artik "anahtar:yon,anahtar2:yon2"
@@ -98,6 +141,12 @@ export function buildBeneficiaryFilterCondition(builder: WhereBuilder, column: s
   if (!cleanValue) return null
 
   switch (operator) {
+    // "▼" menusunde coklu deger secimi (bkz. documentsListQuery.ts ayni not).
+    case 'in': {
+      const values = cleanValue.split(MULTI_VALUE_FILTER_SEPARATOR).map((item) => item.trim()).filter(Boolean)
+      if (values.length === 0) return null
+      return `${normalizedColumn(column)} IN (${values.map((item) => addParam(builder, normalizeSearchTerm(item))).join(', ')})`
+    }
     case 'not_contains':
       return `${normalizedColumn(column)} NOT ILIKE ${addParam(builder, `%${normalizeSearchTerm(cleanValue)}%`)}`
     case 'eq':
@@ -180,7 +229,20 @@ export function buildBeneficiaryWhereClause(searchParams: URLSearchParams, searc
   return finalizeWhereClause(buildBeneficiaryConditions(searchParams, search, excludeColumnKey))
 }
 
-export const BENEFICIARY_FROM_CLAUSE = 'FROM bireyler b LEFT JOIN dosyalar d ON d.id = b.dosyaid'
+export function buildBeneficiaryFromClause(etiketler: BeneficiaryKodEtiketleri = BOS_BIREY_KOD_ETIKETLERI) {
+  return `
+    FROM bireyler b
+    LEFT JOIN dosyalar d ON d.id = b.dosyaid
+    CROSS JOIN (
+      SELECT
+        ${jsonbLiteral(etiketler.saglik)} AS saglik,
+        ${jsonbLiteral(etiketler.ogrenim)} AS ogrenim,
+        ${jsonbLiteral(etiketler.guvence)} AS guvence
+    ) kod
+    LEFT JOIN kullanicilar ku_ilk ON ku_ilk.id = b.ilkkullaniciid
+    LEFT JOIN kullanicilar ku_son ON ku_son.id = b.kullaniciid
+  `
+}
 
 // "Sütundaki değerler" acilir menusu icin filtrelenebilir kabul edilen
 // serbest-metin sutunlar - bkz. documentsListQuery.ts'deki ayni notun
@@ -189,4 +251,16 @@ export const BENEFICIARY_FROM_CLAUSE = 'FROM bireyler b LEFT JOIN dosyalar d ON 
 export const BENEFICIARY_CHAINABLE_COLUMNS: Record<string, string> = {
   mahalle: 'b.nfmahkoy',
   ilce: 'b.nfilce',
+  // 2026-10-15
+  nufusIli: 'b.nfili',
+  uyruk: 'b.uyrugu',
+  meslek: 'b.meslegi',
+  ogrenimDurumu: beneficiaryFilterColumns.ogrenimDurumu,
+  saglikDurumu: beneficiaryFilterColumns.saglikDurumu,
+  hastalikAdi: 'b.hastalikadi',
+  sosyalGuvence: beneficiaryFilterColumns.sosyalGuvence,
+  kayitTipi: beneficiaryFilterColumns.kayitTipi,
+  tcSorgu: 'b.tcsorgusyc',
+  kaydiAcan: beneficiaryFilterColumns.kaydiAcan,
+  sonIslemYapan: beneficiaryFilterColumns.sonIslemYapan,
 }

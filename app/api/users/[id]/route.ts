@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
-import { requireApiAccess } from '@/lib/apiAuth'
-import { userService } from '@/lib/services'
+import { getSessionUser, requireApiAccess } from '@/lib/apiAuth'
+import { settingService, userService } from '@/lib/services'
+import { USER_PERMISSIONS_SETTING_KEY, type UserPermissionsById } from '@/lib/constants/userPermissions'
+import { ekipHesabiMi, ekipUyeleriniGetir, ekipUyeleriniKaydet, type EkipUyeleri } from '@/lib/auth/tahkikatEkip'
 import { getAuditMetaFromRequest, withAuditedWrite } from '@/lib/db/auditContext'
 import { normalizeWhatsappPhoneNumber } from '@/lib/constants/whatsappSettings'
 import { sendSmsMessage } from '@/lib/services/smsProvider.service'
@@ -161,10 +163,76 @@ export async function DELETE(
     if (accessDenied) return accessDenied
 
     const { id } = await params
-    await withAuditedWrite(
-      (tx) => userService.delete(id, tx),
-      getAuditMetaFromRequest(request),
-    )
+    if (!/^\d+$/.test(String(id))) {
+      return NextResponse.json({ success: false, error: 'Geçersiz kullanıcı.' }, { status: 400 })
+    }
+
+    // 2026-10-15 kullanici istegi: "kullanici silebilelim". Guvenlik:
+    // (1) kisi kendini silemez, (2) tablolarin cogu (dosyalar, yrd_*, ...)
+    // kullaniciid'yi FK OLMADAN tutuyor - islem yapmis bir kullanici
+    // silinirse gecmis kayitlarda "kim yapti" bilgisi kaybolur. Bu yuzden
+    // SADECE hic islem kaydi olmayan hesap silinir; olan icin "Pasif yap"
+    // onerilir (pasif kullanici giris yapamaz, gecmisi korunur).
+    const sessionUser = await getSessionUser()
+    if (sessionUser && String(sessionUser.id) === String(id)) {
+      return NextResponse.json({ success: false, error: 'Kendi hesabınızı silemezsiniz.' }, { status: 400 })
+    }
+
+    // Sistem/paylasilan hesaplar: yonetici, Hizli Satis kasa hesaplari
+    // (satislar AYRI sistemde kullanici adiyla tutulur - NetSosyal
+    // tablolarinda kayit gorunmez) ve sabit tahkikat ekip hesaplari.
+    const hedef = await userService.getById(String(id))
+    if (!hedef) {
+      return NextResponse.json({ success: false, error: 'Kullanıcı bulunamadı.' }, { status: 404 })
+    }
+    const yetkiAyari = await settingService.getByKey(USER_PERMISSIONS_SETTING_KEY)
+    const hedefYetki = (yetkiAyari?.value as UserPermissionsById | undefined)?.[String(id)] ?? null
+    // Bos allowedPages "her yere erisir" sayildigi icin hasHizliSatisAccess
+    // burada kullanilmaz - SADECE acikca verilmis Hizli Satis/Muhasebe yetkisi.
+    const acikKasaYetkisi = (hedefYetki?.allowedPages ?? []).some((p) => /^\/(hizli-satis|muhasebe|satis)(\/|$)/.test(p))
+    const korumaSebebi =
+      hedefYetki?.isAdmin === true ? 'tam yetkili (yönetici) bir hesap'
+        : ekipHesabiMi(hedef.username) ? 'sabit tahkikat ekip hesabı'
+          : /^(kasa\d*|cari|muhasebe)$/i.test(hedef.username || '') || acikKasaYetkisi ? 'Hızlı Satış / kasa hesabı'
+            : null
+    if (korumaSebebi) {
+      return NextResponse.json(
+        { success: false, error: `Bu ${korumaSebebi} olduğu için silinemez. Gerekirse Düzenle'den Pasif yapın.`, code: 'PROTECTED' },
+        { status: 409 },
+      )
+    }
+
+    const kullanim = await kullaniciKayitlariniBul(String(id))
+    if (kullanim.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Bu kullanıcının geçmiş işlem kayıtları var (${kullanim.slice(0, 4).join(', ')}${kullanim.length > 4 ? '...' : ''}). Kayıtların "kim yaptı" bilgisi bozulmasın diye silinemez - bunun yerine Düzenle'den durumunu Pasif yapın; pasif kullanıcı giriş yapamaz.`,
+          code: 'HAS_RECORDS',
+        },
+        { status: 409 },
+      )
+    }
+
+    try {
+      await withAuditedWrite(
+        (tx) => userService.delete(id, tx),
+        getAuditMetaFromRequest(request),
+      )
+    } catch (error) {
+      // Kurum ici mesajlar gibi FK'li tablolar (RESTRICT) - mesaj gecmisi var.
+      if (/foreign key|violates|P2003/i.test(String((error as Error).message))) {
+        return NextResponse.json(
+          { success: false, error: 'Bu kullanıcının kurum içi mesaj geçmişi var, silinemez. Bunun yerine Pasif yapın.', code: 'HAS_RECORDS' },
+          { status: 409 },
+        )
+      }
+      throw error
+    }
+
+    // Artik var olmayan kullanicinin yetki ayari ve tahkikat ekip uyeligi
+    // temizlenir (basarisiz olsa da silme gecerlidir).
+    await yetkiVeEkipKayitlariniTemizle(String(id)).catch(() => {})
 
     return NextResponse.json({
       success: true,
@@ -176,4 +244,53 @@ export async function DELETE(
       { status: 500 }
     )
   }
+}
+
+// Kullaniciya isaret eden (FK'siz) kolonlarda en az bir kayit olan
+// tablolarin adlarini dondurur. Her tablo icin EXISTS - ilk eslesmede durur.
+async function kullaniciKayitlariniBul(userId: string): Promise<string[]> {
+  const kolonlar = await prisma.$queryRawUnsafe<Array<{ table_name: string; column_name: string }>>(
+    `
+      SELECT c.table_name, c.column_name
+      FROM information_schema.columns c
+      JOIN information_schema.tables t
+        ON t.table_schema = c.table_schema AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE'
+      WHERE c.table_schema = 'public'
+        AND c.column_name IN ('kullaniciid', 'ilkkullaniciid', 'kullanici_id')
+        AND c.table_name NOT IN ('kullanicilar', 'app_kullanici_yetkileri')
+      ORDER BY c.table_name
+    `,
+  )
+
+  const bulunan = new Set<string>()
+  for (const { table_name: tablo, column_name: kolon } of kolonlar) {
+    if (bulunan.has(tablo)) continue
+    const sonuc = await prisma.$queryRawUnsafe<Array<{ var: boolean }>>(
+      `SELECT EXISTS (SELECT 1 FROM public."${tablo.replace(/"/g, '')}" WHERE "${kolon.replace(/"/g, '')}"::text = $1) AS var`,
+      userId,
+    )
+    if (sonuc[0]?.var) bulunan.add(tablo)
+  }
+  return [...bulunan]
+}
+
+async function yetkiVeEkipKayitlariniTemizle(userId: string) {
+  const yetkiAyari = await settingService.getByKey(USER_PERMISSIONS_SETTING_KEY)
+  const yetkiler = yetkiAyari?.value as Record<string, unknown> | undefined
+  if (yetkiler && typeof yetkiler === 'object' && userId in yetkiler) {
+    const { [userId]: _silinen, ...kalan } = yetkiler
+    void _silinen
+    await settingService.set(USER_PERMISSIONS_SETTING_KEY, kalan, 'json')
+  }
+
+  const ekipler = await ekipUyeleriniGetir()
+  let degisti = false
+  const yeni: EkipUyeleri = {}
+  for (const [ekipId, uyeler] of Object.entries(ekipler)) {
+    if (ekipId === userId) { degisti = true; continue }
+    const temiz = uyeler.filter((u) => u !== userId)
+    if (temiz.length !== uyeler.length) degisti = true
+    if (temiz.length > 0) yeni[ekipId] = temiz
+  }
+  if (degisti) await ekipUyeleriniKaydet(yeni)
 }

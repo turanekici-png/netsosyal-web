@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { mikrofonHataMesaji } from '@/lib/mikrofonTeshis'
 
 // Konusarak yazma (2026-10-14). Tarayicinin SpeechRecognition'i (tr-TR) ile
 // soylenenler, butonun AIT OLDUGU alanin sonuna eklenir.
@@ -189,6 +190,11 @@ export default function MikrofonButonu({ value, onChange }: { value: string; onC
               : `Konuşma tanıma durdu (${hata}).`,
       )
       durdur()
+      // 2026-10-15: masaustunde izin/cihaz hatasinin kesin nedenini teshis et
+      // (site engeli / Windows gizlilik ayari / mikrofon yok / mesgul).
+      if (!mobilMi() && (hata === 'not-allowed' || hata === 'service-not-allowed' || hata === 'audio-capture')) {
+        void mikrofonHataMesaji().then(setMesaj)
+      }
     }
     recognition.onend = () => {
       window.clearTimeout(sessizlik)

@@ -70,19 +70,46 @@ export function useWorkflowLocks(liste: WorkflowListe): Map<string, WorkflowLock
   return kilitler
 }
 
-// Rapor penceresi ACIKKEN bu kaydi "tutar"; kapaninca / sekme kapaninca birakir.
+// 2026-10-15 kullanici istegi: "bu uyari sadece o dosya uzerinde CALISAN
+// biri varsa gelsin". Onceden form acik kaldigi surece (arka plandaki,
+// Chrome'un uyuttugu bir sekmede bile - uyandikca tek sinyal atip 45 sn
+// kilit olusturuyordu) kayit tutuluyordu. Artik kilit yalnizca son
+// ETKINLIK_SURESI_MS icinde sayfada gercek bir islem (tiklama, yazma,
+// kaydirma) varsa tutulur; hareketsiz / arka plandaki sekme kilidi birakir.
+const ETKINLIK_SURESI_MS = 10 * 60_000
+
+// Rapor penceresi ACIKKEN ve kullanici calisirken bu kaydi "tutar";
+// kapaninca / sekme kapaninca / hareketsiz kalinca birakir.
 export function useHoldWorkflowRecord(liste: WorkflowListe, dosyaId: string | null | undefined) {
   useEffect(() => {
     if (!dosyaId) return
     const id = String(dosyaId)
-    void gonder('tut', liste, id)
-    const zamanlayici = window.setInterval(() => void gonder('tut', liste, id), SINYAL_MS)
-    const ayrilis = () => { void gonder('birak', liste, id, true) }
+    let sonEtkinlik = Date.now()
+    let tutuyor = false
+
+    const tut = () => { tutuyor = true; void gonder('tut', liste, id) }
+    const birak = () => { if (tutuyor) { tutuyor = false; void gonder('birak', liste, id, true) } }
+    const calisiyorMu = () => Date.now() - sonEtkinlik < ETKINLIK_SURESI_MS
+
+    const sinyal = () => { if (calisiyorMu()) tut(); else birak() }
+    const etkinlik = () => {
+      const bekliyordu = !tutuyor
+      sonEtkinlik = Date.now()
+      if (bekliyordu) tut()
+    }
+
+    tut()
+    const zamanlayici = window.setInterval(sinyal, SINYAL_MS)
+    const olaylar = ['pointerdown', 'keydown', 'input', 'wheel', 'touchstart'] as const
+    for (const olay of olaylar) window.addEventListener(olay, etkinlik, { passive: true, capture: true })
+    const ayrilis = () => birak()
     window.addEventListener('pagehide', ayrilis)
     return () => {
       window.clearInterval(zamanlayici)
+      for (const olay of olaylar) window.removeEventListener(olay, etkinlik, { capture: true })
       window.removeEventListener('pagehide', ayrilis)
-      void gonder('birak', liste, id, true)
+      tutuyor = true
+      birak()
     }
   }, [liste, dosyaId])
 }

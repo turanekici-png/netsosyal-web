@@ -55,6 +55,12 @@ function deger(value: string | undefined | null): string {
 const STIL = `
 .dmf { width: 210mm; height: 296mm; overflow: hidden; padding: 9mm 12mm 8mm; background: #fff; color: #111827; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif; font-size: 9.5pt; line-height: 1.35; text-align: left; letter-spacing: 0; box-sizing: border-box; page-break-inside: avoid; break-inside: avoid; }
 .dmf * { box-sizing: border-box; }
+/* GECE MODU YALITIMI (2026-10-15, hata raporu: "gece modunda mobilde sorun"):
+   uygulamanin .dark kurallari (ör. ".dark table td" koyu text-shadow) formun
+   hucrelerine de siziyor, beyaz kagitta yazilari bulanik/kirli gosteriyordu.
+   Form her zaman gunduz gorunumunde cizilir. */
+.dmf { color-scheme: light; }
+.dmf, .dmf * { text-shadow: none !important; }
 .dmf .dmf-ic { transform-origin: top center; }
 .dmf.dmf-sik .dmf-hane td { padding: .5mm 2mm; font-size: 8.8pt; }
 .dmf.dmf-sik .dmf-beyan { font-size: 8.6pt; line-height: 1.32; }

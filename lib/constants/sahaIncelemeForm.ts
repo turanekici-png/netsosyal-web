@@ -366,11 +366,13 @@ export const VARSAYILAN_BOLUMLER: SeedBolum[] = [
     sorular: [
       { soruMetni: 'Vatandaşa sonraki adım / başvuru takibi hakkında bilgi verildi', tur: 'tek', secenekler: ['Evet', 'Hayır'] },
       { soruMetni: 'Vatandaşın ek açıklaması (isteğe bağlı)', tur: 'uzun_metin' },
-      { soruMetni: 'İkinci personel (varsa)', tur: 'metin' },
       { soruMetni: 'Başvuru sahibi / görüşülen kişi imzası', tur: 'imza', ipucu: 'Yalnızca görüşmeye katılım veya teslim alındı kaydı içindir.' },
       // Kullanici istegi (2026-10-13): personel adi, personel imzasinin hemen ustunde.
       { soruMetni: 'Personel adı-soyadı', tur: 'metin', otomatik: 'personel' },
       { soruMetni: 'Personel imzası', tur: 'imza' },
+      // 2026-10-15: ikinci personel (tahkikat ekibi) - istege bagli
+      { soruMetni: '2. Personel adı-soyadı', tur: 'metin' },
+      { soruMetni: '2. Personel imzası', tur: 'imza' },
     ],
   },
 ]
@@ -378,6 +380,32 @@ export const VARSAYILAN_BOLUMLER: SeedBolum[] = [
 // ---------------------------------------------------------------------------
 // Yardimcilar
 // ---------------------------------------------------------------------------
+
+// Imza bolumu duzeni (form ekrani + yazdirma ORTAK). 2026-10-15 kullanici
+// istegi: personel imzasi 2 tane olabilsin (tahkikat ekibindeki iki
+// personel). Basligi "personel" gecen her imza sorusu bir PERSONEL imzasidir;
+// "personel ad..." metin sorulari (veya otomatik 'personel') sirayla bu
+// imzalarla eslesir: 1. ad -> 1. imza, 2. ad -> 2. imza.
+export function personelAdiSorusuMu(soru: Pick<Soru, 'tur' | 'otomatik' | 'soruMetni'>) {
+  return soru.tur !== 'imza' && (soru.otomatik === 'personel' || /personel ad/i.test(soru.soruMetni))
+}
+
+export function imzaDuzeni<S extends Pick<Soru, 'tur' | 'otomatik' | 'soruMetni'>>(sorular: S[]) {
+  const imzalar = sorular.filter((s) => s.tur === 'imza')
+  const personelImzalari = imzalar.filter((s) => /personel/i.test(s.soruMetni))
+  const basvuruImzalari = imzalar.filter((s) => !personelImzalari.includes(s))
+  const adlar = sorular.filter(personelAdiSorusuMu)
+  const ciftler = personelImzalari.map((imza, i) => ({ imza, ad: adlar[i] as S | undefined }))
+  const eslesenAdlar = new Set(ciftler.map((c) => c.ad).filter(Boolean) as S[])
+  return {
+    // Solda basvuru sahibi, saginda personel imzalari (adlariyla)
+    siraliImzalar: [...basvuruImzalari, ...personelImzalari],
+    ciftler,
+    personelImzasiMi: (s: S) => personelImzalari.includes(s),
+    adSorusu: (s: S) => ciftler.find((c) => c.imza === s)?.ad,
+    satirlar: sorular.filter((s) => s.tur !== 'imza' && !eslesenAdlar.has(s)),
+  }
+}
 
 export function yeniGeciciId(onEk: string) {
   return `${onEk}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
@@ -431,6 +459,35 @@ export function anahtarliCevap(sablon: Sablon, cevaplar: Cevaplar, anahtar: Rapo
     }
   }
   return null
+}
+
+// 2026-10-15 kullanici istegi: ziyaret sonucu "Evde Bulunamadı", "Hane
+// ziyareti gerçekleşmedi", "Tahkikat İstemedi" gibi ziyaretin YAPILAMADIGINI
+// anlatan bir secenekse form zorunlu alanlar aranmadan kaydedilir (yalniz
+// ziyaret sonucunun kendisi zorunlu) ve Sonuç Bekleyen'de uyari gosterilir.
+// Secenekler Ayarlar'dan degisebildigi icin metne gore karar verilir.
+const ZIYARET_YAPILAMADI_IFADELERI = ['bulunamad', 'gerceklesmed', 'yapilamad', 'istemed', 'ulasilamad', 'kabul etmed', 'reddet']
+
+export function ziyaretGerceklesmediMi(ziyaretSonucu: string | null | undefined): boolean {
+  const metin = String(ziyaretSonucu ?? '')
+    .toLocaleLowerCase('tr-TR')
+    .replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c')
+  return metin.length > 0 && ZIYARET_YAPILAMADI_IFADELERI.some((ifade) => metin.includes(ifade))
+}
+
+// Formdaki zorunlu ama bos sorular - ziyaret yapilamadiysa yalniz "Ziyaret
+// sonucu" aranir. Form ekrani ve sunucu ayni kurali kullanir.
+export function eksikZorunluSorular(sablon: Sablon, cevaplar: Cevaplar): Array<{ bolum: Bolum; soru: Soru }> {
+  const ziyaretYok = ziyaretGerceklesmediMi(anahtarliCevap(sablon, cevaplar, 'ziyaret_sonucu'))
+  const eksik: Array<{ bolum: Bolum; soru: Soru }> = []
+  for (const bolum of sablon.bolumler) {
+    for (const soru of bolum.sorular) {
+      if (!soru.zorunlu || !bosMu(soru, cevaplar[String(soru.id)])) continue
+      if (ziyaretYok && soru.anahtar !== 'ziyaret_sonucu') continue
+      eksik.push({ bolum, soru })
+    }
+  }
+  return eksik
 }
 
 // ---------------------------------------------------------------------------
@@ -818,7 +875,12 @@ export function ozetRaporCumleleri(sablon: Sablon, cevaplar: Cevaplar, personelR
   if (aciliyet) tespitler.push(`aciliyetin “${aciliyet}”`)
 
   let form = ''
-  if (tespitler.length) {
+  if (ziyaretGerceklesmediMi(ziyaret)) {
+    // 2026-10-15: ziyaret yapilamadi (Evde Bulunamadı / Tahkikat İstemedi vb.)
+    const kim = [tarih ? `${tarih} tarihinde` : '', personel ? `${personel} tarafından` : '', kisi ? `${kisi} adına kayıtlı haneye` : 'haneye']
+      .filter(Boolean).join(' ')
+    form = `${kim} ev ziyaretine gidilmiş, ancak hane ziyareti gerçekleştirilememiştir; ziyaret sonucu “${ziyaret}” olarak kaydedilmiştir.`
+  } else if (tespitler.length) {
     const son = tespitler.length > 1 ? `${tespitler.slice(0, -1).join(', ')} ve ${tespitler[tespitler.length - 1]}` : tespitler[0]
     form = `${giris}; ${son} olduğu tespit edilmiştir.`
   } else if (kisi || tarih) {

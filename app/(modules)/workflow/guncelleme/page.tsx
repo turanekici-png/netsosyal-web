@@ -1,11 +1,18 @@
 'use client'
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { usePathname } from 'next/navigation'
+import { mikrofonHataMesaji } from '@/lib/mikrofonTeshis'
 import { useTabs } from '@/lib/context/TabContext'
+import { formSekmesiDosyaId, formSekmesiTuru, useFormSekmesiAc, useFormSekmesiniKapat } from '@/lib/workflow/formSekmesi'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { useFloatingPanel } from '@/lib/hooks/useFloatingPanel'
 import { useHoldWorkflowRecord, useWorkflowLocks, workflowLockConfirmText, type WorkflowLock } from '@/lib/hooks/useWorkflowPresence'
 import { WORKFLOW_LOCKED_ROW_CLASS, WorkflowLockNotice } from '@/components/workflow/WorkflowLockNotice'
+import { KAPALI_DONEM, kisDonemiDurumu, YARDIM_DURUMU_BEKLIYOR, YARDIM_DURUMU_DEVAM } from '@/lib/constants/kisDonemi'
+import { EvZiyaretiTekrariPenceresi } from '@/components/workflow/EvZiyaretiTekrariPenceresi'
+import { HaneBireyleriPenceresi } from '@/components/workflow/HaneBireyleriPenceresi'
+import { DigerKurumYardimlariPenceresi } from '@/components/workflow/DigerKurumYardimlariPenceresi'
 import {
   DEFAULT_PREDEFINED_VALUE_TITLES,
   DEFAULT_PREDEFINED_VALUES,
@@ -14,7 +21,8 @@ import {
   type PredefinedValueTitlesMap,
   type PredefinedValuesMap,
 } from '@/lib/constants/predefinedValues'
-import type { SahaIncelemeKaydi } from '@/lib/constants/sahaIncelemeForm'
+import { ziyaretGerceklesmediMi, type SahaIncelemeKaydi } from '@/lib/constants/sahaIncelemeForm'
+import { muracaatiYardimaDonustur } from '@/lib/assistance/otomatikDonusum'
 import {
   USER_PERMISSIONS_SETTING_KEY,
   type UserPermissionConfig,
@@ -210,6 +218,28 @@ const getKisDonemiDates = () => {
 // donusturulmez - zamanlayici 01 Kasim'da kendisi acar.
 const isKisDonemiBekleyen = (row: { periodInfo: string; formStartDate: string }) =>
   row.periodInfo === KIS_DONEMI_PERIOD_LABEL && !!row.formStartDate && row.formStartDate > getTodayInputDate()
+// 2026-10-15 kullanici istegi: "en fazla 4 satir yardim sigacak sekilde
+// kisaltalim, yardim durumu renklerine gore satirlari renklendirelim".
+// Baslik (~34px) + 4 satir (~42px) - fazlasi kaydirilir.
+const YARDIM_ALANI_AZAMI_YUKSEKLIK = 206
+// 2026-10-15 (son tur): kullanicinin tarayicisinda form ekran yuksekligine
+// gore sinirlanmadigi icin ("kalan yeri doldur" = 1fr) ust alanlar ekranin
+// disina uzuyordu. Ust satir (Dosya Sahibi + Son Tahkikat | Komisyon Raporu)
+// artik EN FAZLA bu kadar (kullanicinin isaretledigi cizgi: ust alanlarin
+// basladigi yerden ~425 px asagisi); yer yoksa kisalir. Yardimlar hemen altinda.
+const UST_ALAN_YUKSEKLIK = 425
+// Durum renkleri (Dosya Yönetimi rozetleriyle ayni aile): 0 Yeni Müracaat
+// turuncu, 2 Devam yesil, 3 İptal kirmizi, 4 Durduruldu mavi, 5 Bekliyor sari.
+const YARDIM_DURUM_RENKLERI: Record<string, { serit: string; satir: string; secim: string }> = {
+  '0': { serit: '#ea580c', satir: 'bg-orange-50 hover:bg-orange-100/70', secim: 'border-orange-400 bg-orange-50 text-orange-900' },
+  '2': { serit: '#059669', satir: 'bg-emerald-50 hover:bg-emerald-100/70', secim: 'border-emerald-500 bg-emerald-50 text-emerald-900' },
+  '3': { serit: '#dc2626', satir: 'bg-red-50 hover:bg-red-100/70', secim: 'border-red-400 bg-red-50 text-red-900' },
+  '4': { serit: '#2563eb', satir: 'bg-blue-50 hover:bg-blue-100/70', secim: 'border-blue-400 bg-blue-50 text-blue-900' },
+  '5': { serit: '#eab308', satir: 'bg-yellow-50 hover:bg-yellow-100/70', secim: 'border-yellow-500 bg-yellow-100 text-yellow-950' },
+}
+const VARSAYILAN_DURUM_RENGI = { serit: '#94a3b8', satir: 'bg-white hover:bg-slate-50', secim: 'border-slate-300 bg-white text-slate-900' }
+const yardimDurumRengi = (row: { status: string }) => YARDIM_DURUM_RENKLERI[String(row.status ?? '')] ?? VARSAYILAN_DURUM_RENGI
+
 const quickAssistanceTypes: QuickAssistanceType[] = ['Ekmek', 'Gıda Bankası', 'Destek Paketi', 'Hazır Yemek']
 
 function createDefaultQuickAssistanceForm() {
@@ -324,7 +354,9 @@ async function panoyaKopyala(metin: string) {
 }
 
 // 2026-10-14: Komisyon penceresinde dosya sahibi bilgileri - cift tiklayinca kopyalanir.
-function KopyalanabilirBilgi({ etiket, deger, genis = false }: { etiket: string; deger: string; genis?: boolean }) {
+// 2026-10-15: "siki" - Dosya Sahibi karti en az yukseklikte (kullanici istegi:
+// "bosluklari azalt, alt uzunlugunu minimum olacak sekilde azalt").
+function KopyalanabilirBilgi({ etiket, deger, genis = false, siki = false }: { etiket: string; deger: string; genis?: boolean; siki?: boolean }) {
   const [durum, setDurum] = useState<'' | 'tamam' | 'hata'>('')
   const bos = !deger || deger === '-'
   const kopyala = async () => {
@@ -337,15 +369,17 @@ function KopyalanabilirBilgi({ etiket, deger, genis = false }: { etiket: string;
     <div
       onDoubleClick={() => void kopyala()}
       title={bos ? undefined : 'Kopyalamak için çift tıklayın'}
-      className={`relative min-w-0 select-text rounded-md border px-2.5 py-1.5 transition ${genis ? 'col-span-full' : ''} ${durum === 'tamam' ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-sky-300 hover:bg-sky-50'} ${bos ? '' : 'cursor-copy'}`}
+      className={`relative min-w-0 select-text rounded-md border transition ${siki ? 'px-2 py-0.5' : 'px-2.5 py-1.5'} ${genis ? 'col-span-full' : ''} ${durum === 'tamam' ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:border-sky-300 hover:bg-sky-50'} ${bos ? '' : 'cursor-copy'}`}
     >
+      <div className={siki && genis ? 'flex items-baseline gap-2' : ''}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{etiket}</span>
+        <span className={`${siki ? 'text-[10px]' : 'text-[11px]'} whitespace-nowrap font-bold uppercase tracking-wide text-slate-500`}>{etiket}</span>
         {durum === 'tamam' && <span className="text-[11px] font-bold text-emerald-700">Kopyalandı ✓</span>}
         {durum === 'hata' && <span className="text-[11px] font-bold text-rose-700">Kopyalanamadı</span>}
       </div>
-      <div className={`mt-0.5 break-words text-[14px] font-bold leading-snug ${bos ? 'text-slate-400' : 'text-slate-900'} ${etiket === 'T.C. Kimlik No' || etiket === 'Telefon' || etiket === 'Doğum Tarihi' ? 'tabular-nums' : ''}`}>
+      <div className={`${siki ? 'text-[13.5px] leading-tight' : 'mt-0.5 text-[14px] leading-snug'} break-words font-bold ${bos ? 'text-slate-400' : 'text-slate-900'} ${etiket === 'T.C. Kimlik No' || etiket === 'Telefon' || etiket === 'Doğum Tarihi' ? 'tabular-nums' : ''}`}>
         {bos ? '—' : deger}
+      </div>
       </div>
     </div>
   )
@@ -457,6 +491,11 @@ function GuncellemeTableRow({ row, index, onOpenFile, onOpenReport, lock }: {
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-1 text-[17.5px] font-extrabold tabular-nums text-slate-800 ring-1 ring-slate-300">
             <span className="font-semibold text-slate-500">Son Ev Ziyareti:</span> {formatDate(row.lastVisitDate)}
           </span>
+          {ziyaretGerceklesmediMi(row.lastTahkikatZiyaretSonucu) && (
+            <span className="ns-calisan-uyari inline-flex items-center rounded-full border px-3.5 py-1 text-[16px] font-black uppercase">
+              Ziyaret yapılamadı: {row.lastTahkikatZiyaretSonucu}
+            </span>
+          )}
         </div>
       </td>
     </tr>
@@ -523,6 +562,9 @@ function GuncellemeMobileCard({ row, onOpenFile, onOpenReport, lock }: {
             Dosya {row.fileNo}
           </button>
           <div className="mt-1 line-clamp-2 text-sm font-black uppercase leading-snug text-slate-950">{row.applicantName}</div>
+          {ziyaretGerceklesmediMi(row.lastTahkikatZiyaretSonucu) && (
+            <div className="ns-calisan-uyari mt-1 inline-block rounded border px-2 py-0.5 text-[11px] font-black uppercase">Ziyaret yapılamadı: {row.lastTahkikatZiyaretSonucu}</div>
+          )}
         </div>
         <button
           type="button"
@@ -560,6 +602,33 @@ function GuncellemeMobileCard({ row, onOpenFile, onOpenReport, lock }: {
       <p className="mt-2 whitespace-pre-wrap text-[11px] font-semibold leading-5 text-slate-700">{row.lastVisitInfo}</p>
     </div>
   )
+}
+
+// 2026-10-15: Sonuç Bekleyen form sekmesinin kaydedilmemis taslagi (bu
+// tarayicida, dosya bazinda): komisyon raporu + yardim satirlarinda yapilan
+// degisiklikler. Kullanici baska sekmeye gecip donunce kaldigi yerden devam
+// eder; basarili Kaydet'te silinir.
+type SonucTaslagi = {
+  resultForm: { date: string; title: string; content: string }
+  satirlar: Record<string, Partial<ServiceRecordFormRow>>
+  zaman: string
+}
+const sonucTaslakAnahtari = (fileId: string) => `netsosyal:sonuc-taslak:${fileId}`
+const satirAnahtari = (row: Pick<ServiceRecordFormRow, 'kind' | 'sourceTable' | 'recordId'>) => `${row.kind}:${row.sourceTable}:${row.recordId}`
+
+function sonucTaslagiOku(fileId: string): SonucTaslagi | null {
+  try {
+    const ham = window.localStorage.getItem(sonucTaslakAnahtari(fileId))
+    if (!ham) return null
+    const taslak = JSON.parse(ham) as SonucTaslagi
+    return taslak && taslak.resultForm ? taslak : null
+  } catch {
+    return null
+  }
+}
+
+function sonucTaslagiSil(fileId: string) {
+  try { window.localStorage.removeItem(sonucTaslakAnahtari(fileId)) } catch { /* yok say */ }
 }
 
 export default function GuncellemeWorkflowPage() {
@@ -605,6 +674,12 @@ export default function GuncellemeWorkflowPage() {
   const [commissionDictationActive, setCommissionDictationActive] = useState(false)
   // 2026-10-14: gecmis tahkikat / ev ziyareti / inceleme formlari ayri pencerede
   const [gecmisAcik, setGecmisAcik] = useState(false)
+  // 2026-10-15: "Ev Ziyareti Tekrarı" penceresi (dosyayi tahkikata geri gonderir)
+  const [tekrarAcik, setTekrarAcik] = useState(false)
+  // 2026-10-15: "Diğer Kurum Yardımları" penceresi
+  const [digerKurumAcik, setDigerKurumAcik] = useState(false)
+  // 2026-10-15: "Hane Bireyleri" penceresi
+  const [haneAcik, setHaneAcik] = useState(false)
   // 2026-10-14: iki pencere de tasinabilir / boyutlandirilabilir / ekrani
   // kaplayip kuculebilir; Ctrl + tekerlek icerigi buyutur (bkz. useFloatingPanel)
   // 2026-10-14: ref'ler hook nesnesinden ayrildi - React derleyici kurali
@@ -616,6 +691,16 @@ export default function GuncellemeWorkflowPage() {
   const commissionDictationRef = useRef<SpeechRecognitionInstance | null>(null)
   const commissionDictationShouldRunRef = useRef(false)
   const { addTab } = useTabs()
+  // 2026-10-15: form sekmesi (/workflow/guncelleme/form/<dosyaId>) - bu sayfa
+  // orada listeyi degil yalniz o dosyanin formunu cizer.
+  const pathname = usePathname()
+  const formModuDosyaId = formSekmesiTuru(pathname) === 'guncelleme' ? formSekmesiDosyaId(pathname) : null
+  const formSekmesiAc = useFormSekmesiAc()
+  const formSekmesiniKapat = useFormSekmesiniKapat()
+  const [taslakBilgisi, setTaslakBilgisi] = useState('')
+  const bekleyenSatirTaslagiRef = useRef<Record<string, Partial<ServiceRecordFormRow>> | null>(null)
+  const formBaslatildiRef = useRef(false)
+  const taslakDegistiRef = useRef(false)
 
   useEffect(() => {
     let isCancelled = false
@@ -715,6 +800,39 @@ export default function GuncellemeWorkflowPage() {
     }
   }, [])
 
+  // 2026-10-15: form sekmesi - liste yuklenince o dosyanin formu baslar.
+  const [formSekmesiHatasi, setFormSekmesiHatasi] = useState('')
+  useEffect(() => {
+    if (!formModuDosyaId || formBaslatildiRef.current || status !== 'ready') return
+    formBaslatildiRef.current = true
+    const satir = rows.find((row) => row.fileId === formModuDosyaId)
+    if (satir) formuBaslat(satir)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- tek seferlik baslangic
+    else setFormSekmesiHatasi('Bu dosya artık Sonuç Bekleyen listesinde değil (başka biri sonuçlandırmış olabilir).')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formModuDosyaId, status, rows])
+
+  // Yardim satirlari yuklenince taslaktaki satir degisiklikleri uygulanir
+  useEffect(() => {
+    const bekleyen = bekleyenSatirTaslagiRef.current
+    if (!bekleyen || assistanceStatus !== 'ready') return
+    bekleyenSatirTaslagiRef.current = null
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- taslagi bir kez uygula
+    setAssistanceRows((current) => current.map((row) => ({ ...row, ...(bekleyen[satirAnahtari(row)] ?? {}) })))
+  }, [assistanceStatus])
+
+  // Kullanici bir sey degistirdikce taslak yazilir
+  useEffect(() => {
+    if (!formModuDosyaId || !resultTarget || !taslakDegistiRef.current) return
+    const satirlar: Record<string, Partial<ServiceRecordFormRow>> = {}
+    for (const row of assistanceRows) {
+      satirlar[satirAnahtari(row)] = { status: row.status, formStartDate: row.formStartDate, formEndDate: row.formEndDate, periodInfo: row.periodInfo, amount: row.amount }
+    }
+    try {
+      window.localStorage.setItem(sonucTaslakAnahtari(resultTarget.fileId), JSON.stringify({ resultForm, satirlar, zaman: new Date().toISOString() } satisfies SonucTaslagi))
+    } catch { /* depolama kapali - taslaksiz devam */ }
+  }, [formModuDosyaId, resultTarget, resultForm, assistanceRows])
+
   const filteredRows = useMemo(() => {
     const term = searchTerm.trim().toLocaleLowerCase('tr-TR')
     if (!term) return rows
@@ -774,11 +892,25 @@ export default function GuncellemeWorkflowPage() {
     })
   }
 
+  // 2026-10-15: liste sayfasinda "İnceleme Formları" formu AYRI mavi bir
+  // sekmede acar; form sekmesinde ise formu dogrudan baslatir.
   const openResultForm = async (row: UpdateWorkflowFile) => {
     const kilit = kilitler.get(row.fileId)
     if (kilit && !(await confirmDialog(workflowLockConfirmText(kilit), 'Yine de Aç', 'Vazgeç'))) return
+    if (!formModuDosyaId && row.fileId) {
+      formSekmesiAc('guncelleme', row.fileId, row.fileNo)
+      return
+    }
+    formuBaslat(row)
+  }
+
+  const formuBaslat = (row: UpdateWorkflowFile) => {
+    // Kaydedilmemis taslak varsa kaldigi yerden devam (rapor + satir degisiklikleri)
+    const taslak = sonucTaslagiOku(row.fileId)
+    bekleyenSatirTaslagiRef.current = taslak?.satirlar ?? null
     setResultTarget(row)
-    setResultForm({ date: getTodayInputDate(), title: 'Komisyon Raporu', content: '' })
+    setResultForm(taslak?.resultForm ?? { date: getTodayInputDate(), title: 'Komisyon Raporu', content: '' })
+    setTaslakBilgisi(taslak ? `Kaydedilmemiş taslak geri yüklendi (${new Date(taslak.zaman).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}).` : '')
     setResultError('')
     setIsQuickAddOpen(false)
     setQuickAddError('')
@@ -792,6 +924,11 @@ export default function GuncellemeWorkflowPage() {
 
   const closeResultForm = () => {
     if (resultStatus !== 'idle' || quickAddStatus === 'saving') return
+    // Form sekmesinde: sekme kapanir, listeye donulur (taslak saklanir)
+    if (formModuDosyaId) {
+      formSekmesiniKapat('guncelleme')
+      return
+    }
     setGecmisAcik(false)
     setResultTarget(null)
     setResultError('')
@@ -1109,21 +1246,29 @@ export default function GuncellemeWorkflowPage() {
       // Devam eden yardimda baslangic korunur (kesintisiz surer), digerlerinde 01 Kasim
       const kis = getKisDonemiDates()
       const devamEdiyor = row.kind === 'assistance' && row.status === '2'
+      const formStartDate = devamEdiyor && row.formStartDate ? row.formStartDate : kis.startDate
       updateAssistanceRow(rowKey, {
         periodInfo,
-        formStartDate: devamEdiyor && row.formStartDate ? row.formStartDate : kis.startDate,
+        formStartDate,
         formEndDate: kis.endDate,
+        // 2026-10-15: yardimda durum tarihlere gore (baslangic gelmediyse 7 Bekliyor)
+        ...(row.kind === 'assistance' ? { status: kisDonemiDurumu(formStartDate, kis.endDate) } : {}),
       })
       return
     }
 
+    // 2026-10-15 kullanici istegi: Kış Dönemi disinda bir periyot secilince
+    // baslangic GUNUN tarihi, bitis Dosya Yönetimi > Yardım Düzenle'deki gibi
+    // baslangic + periyot (1 Ay: 15.10 -> 15.11). Kış Dönemi'nden cikilan
+    // "7 - Bekliyor" yardim bugun basladigi icin "2 - Devam Ediyor" olur.
     const monthCount = getPeriodMonthCount(periodInfo)
-    const startDate = row.formStartDate || getTodayInputDate()
+    const startDate = getTodayInputDate()
 
     updateAssistanceRow(rowKey, {
       periodInfo,
-      formStartDate: monthCount > 0 && !row.formStartDate ? startDate : row.formStartDate,
+      formStartDate: periodInfo ? startDate : row.formStartDate,
       formEndDate: monthCount > 0 ? addMonthsToInputDate(startDate, monthCount) : row.formEndDate,
+      ...(row.status === YARDIM_DURUMU_BEKLIYOR ? { status: YARDIM_DURUMU_DEVAM } : {}),
     })
   }
 
@@ -1215,10 +1360,14 @@ export default function GuncellemeWorkflowPage() {
         const shouldStop = ['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(event.error || '')
         const errorText = event.error === 'no-speech'
           ? 'Mikrofon acik. Ses algilanmadiysa daha net ve yakindan konusun.'
-          : event.error === 'not-allowed'
-            ? 'Mikrofon izni verilmedi. Tarayici adres cubugundaki mikrofon iznini acin.'
+          : event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture'
+            ? 'Mikrofon kontrol ediliyor...'
             : `Mikrofonla yazma basarisiz oldu${event.error ? `: ${event.error}` : '.'}`
         setResultError(errorText)
+        // 2026-10-15: izin/cihaz hatasinda nedeni teshis edip dogru talimati goster
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
+          void mikrofonHataMesaji().then(setResultError)
+        }
         if (shouldStop) {
           commissionDictationShouldRunRef.current = false
           setCommissionDictationActive(false)
@@ -1300,6 +1449,19 @@ export default function GuncellemeWorkflowPage() {
         throw new Error(createPayload.error || 'Muracaat kaydi olusturulamadi.')
       }
 
+      // 2026-10-15 kullanici istegi: eklenen Gıda / Destek Paketi / Ekmek /
+      // Hazır Yemek muracaati HEMEN yardima donusturulur ve donemi acilir
+      // (Kış Dönemi haric - eski akisla Kaydet'te/1 Kasim'da acilir).
+      const donusum = await muracaatiYardimaDonustur({
+        fileId: resultTarget.fileId,
+        recordId: String(createPayload.data.id),
+        sourceTable: String(createPayload.data.sourceTable),
+        period: quickAddForm.period,
+      })
+      if (donusum.durum === 'hata') {
+        setAssistanceError(`Müracaat eklendi ancak yardıma dönüştürülemedi: ${donusum.mesaj} (Kaydet ile onaylayarak tekrar deneyebilirsiniz.)`)
+      }
+
       await loadAssistances(resultTarget.fileId)
       setIsQuickAddOpen(false)
       setQuickAddForm(createDefaultQuickAssistanceForm())
@@ -1350,17 +1512,25 @@ export default function GuncellemeWorkflowPage() {
     }
   }
 
+  // 2026-10-15: "kullanici kaydetmedi zannedip ayni bilgiyi birkac kez
+  // kaydediyor" - (1) ayni anda ikinci kayit baslamaz (cift tiklama / F2),
+  // (2) rapor yazildiktan sonra sonraki bir adim hata verip tekrar denenirse
+  // rapor IKINCI KEZ yazilmaz (dosya bazinda hatirlanir).
+  const kayitSuruyorRef = useRef(false)
+  const yazilanRaporRef = useRef<Record<string, string>>({})
   const saveResultReport = async () => {
-    if (!resultTarget) return
+    if (!resultTarget || kayitSuruyorRef.current) return
 
     if (!resultForm.date || !resultForm.title.trim() || !resultForm.content.trim()) {
       setResultError('Tarih, konu ve rapor alanlari zorunludur.')
       return
     }
 
+    kayitSuruyorRef.current = true
     setResultStatus('saving')
     setResultError('')
     try {
+      if (!yazilanRaporRef.current[resultTarget.fileId]) {
       const response = await fetch('/api/workflow/guncelleme/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1376,6 +1546,8 @@ export default function GuncellemeWorkflowPage() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || 'Sonuc raporu kaydedilemedi.')
       }
+      yazilanRaporRef.current[resultTarget.fileId] = String(payload.data?.id ?? 'yazildi')
+      }
 
       const fileId = resultTarget.fileId
 
@@ -1388,7 +1560,9 @@ export default function GuncellemeWorkflowPage() {
           sourceTable: row.sourceTable,
           recordId: row.recordId,
           fileId,
-          status: isApplicationApproved ? '0' : (row.status || '0'),
+          // 2026-10-15: onaylanan Kış Dönemi müracaatı baslangica kadar
+          // "7 - Bekliyor" yardim olur (sunucu tarihlerden belirler)
+          status: isApplicationApproved ? (isKisDonemiBekleyen(row) ? YARDIM_DURUMU_DEVAM : '0') : (row.status || '0'),
           startDate: row.formStartDate,
           endDate: row.formEndDate,
           period: row.periodInfo,
@@ -1464,140 +1638,31 @@ export default function GuncellemeWorkflowPage() {
         throw new Error(fileStatusPayload.error || 'Dosya durumu guncellenemedi.')
       }
 
-      setRows((currentRows) => currentRows.filter((row) => row.fileId !== fileId))
-      setResultTarget(null)
-      setResultForm({ date: getTodayInputDate(), title: 'Komisyon Raporu', content: '' })
-    } catch (err) {
-      setResultError(err instanceof Error ? err.message : 'Sonuc raporu kaydedilirken hata olustu.')
-    } finally {
-      setResultStatus('idle')
-    }
-  }
-
-  const openAssistancesWithReport = async () => {
-    if (!resultTarget) return
-
-    if (!resultForm.date || !resultForm.title.trim() || !resultForm.content.trim()) {
-      setResultError('Yardimlari acmadan once tarih, konu ve rapor alanlarini doldurun.')
-      return
-    }
-
-    const applicationRows = assistanceRows.filter((row) => row.kind === 'application')
-    if (applicationRows.length === 0) {
-      setResultError('Yardima acilacak muracaat kaydi bulunamadi.')
-      return
-    }
-
-    setResultStatus('opening')
-    setResultError('')
-    setAssistanceError('')
-    try {
-      const fileId = resultTarget.fileId
-      const reportResponse = await fetch('/api/workflow/guncelleme/report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId,
-          date: resultForm.date,
-          title: resultForm.title,
-          content: resultForm.content,
-        }),
-      })
-      const reportPayload = await reportResponse.json()
-
-      if (!reportResponse.ok || !reportPayload.success) {
-        throw new Error(reportPayload.error || 'Sonuc raporu kaydedilemedi.')
-      }
-
-      for (const row of applicationRows) {
-        const kisBekleyen = isKisDonemiBekleyen(row)
-        const detailsPayload: Record<string, string> = {
-          mode: 'details',
-          sourceTable: row.sourceTable,
-          recordId: row.recordId,
-          fileId,
-          status: kisBekleyen ? '0' : (row.status || '0'),
-          startDate: row.formStartDate,
-          endDate: row.formEndDate,
-          period: row.periodInfo,
-        }
-        if (!row.amount.trim() || /^-?\d+(?:[,.]\d+)?$/.test(row.amount.trim())) {
-          detailsPayload.amount = row.amount
-        }
-
-        const detailsResponse = await fetch('/api/documents/service-record', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(detailsPayload),
-        })
-        const detailsResult = await detailsResponse.json()
-
-        if (!detailsResponse.ok || !detailsResult.success) {
-          throw new Error(detailsResult.error || `${row.type} muracaati acilamadi.`)
-        }
-
-        // Kış Dönemi: kaydedildi, 01 Kasim'da zamanlayici yardima donusturur
-        if (kisBekleyen) continue
-
-        const response = await fetch('/api/documents/convert-application', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sourceTable: row.sourceTable,
-            recordId: row.recordId,
-            fileId,
-          }),
-        })
-        const payload = await response.json()
-
-        if (!response.ok || !payload.success) {
-          throw new Error(payload.error || `${row.type} yardima acilamadi.`)
-        }
-
-        if (row.sourceTable === 'yrd_gidabankasi' || row.sourceTable === 'yrd_destekpaketi') {
-          const periodResponse = await fetch('/api/documents/manual-period', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fileId,
-              recordId: row.recordId,
-              sourceTable: row.sourceTable,
-              periodDate: resultForm.date,
-            }),
-          })
-          const periodPayload = await periodResponse.json()
-
-          if (!periodResponse.ok && periodResponse.status !== 409) {
-            throw new Error(periodPayload.error || `${row.type} manuel donemi olusturulamadi.`)
-          }
-        }
-      }
-
-      const fileStatusResponse = await fetch('/api/documents/file-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fileId,
-          date: resultForm.date,
-          status: '3',
-          description: resultForm.content,
-        }),
-      })
-      const fileStatusPayload = await fileStatusResponse.json()
-
-      if (!fileStatusResponse.ok || !fileStatusPayload.success) {
-        throw new Error(fileStatusPayload.error || 'Dosya durumu 3 yapilamadi.')
-      }
-
+      const kaydedilenDosya = resultTarget
       setRows((currentRows) => currentRows.filter((row) => row.fileId !== fileId))
       setResultTarget(null)
       setResultForm({ date: getTodayInputDate(), title: 'Komisyon Raporu', content: '' })
       setIsQuickAddOpen(false)
       setQuickAddForm(createDefaultQuickAssistanceForm())
+
+      // 2026-10-15 kullanici istegi: Kaydet sonrasi pencere kapanir ve
+      // ilgili kisinin dosyasi GUNCEL bilgilerle acilir ("yenile" parametresi
+      // dosya zaten acik olsa bile sunucudan tekrar yukletir).
+      const query = new URLSearchParams({ fileId, yenile: String(Date.now()) })
+      const dosyaSekmesi = {
+        title: kaydedilenDosya.fileNo && kaydedilenDosya.fileNo !== '-' ? `Dosya ${kaydedilenDosya.fileNo}` : 'Dosya Ara',
+        path: `/documents?${query.toString()}`,
+      }
+      sonucTaslagiSil(fileId)
+      delete yazilanRaporRef.current[fileId]
+      // Form sekmesi kapanir, dosya guncel haliyle acilir
+      if (formModuDosyaId) formSekmesiniKapat('guncelleme', dosyaSekmesi)
+      else addTab(dosyaSekmesi)
     } catch (err) {
-      setResultError(err instanceof Error ? err.message : 'Yardimlar acilirken hata olustu.')
+      setResultError(err instanceof Error ? err.message : 'Sonuc raporu kaydedilirken hata olustu.')
     } finally {
       setResultStatus('idle')
+      kayitSuruyorRef.current = false
     }
   }
 
@@ -1635,159 +1700,13 @@ export default function GuncellemeWorkflowPage() {
     action: '9ch',
   }), [assistanceRows, assistanceStatusOptions])
 
-  return (
-    <div className="space-y-5 text-slate-950">
-      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-sky-200 bg-white px-5 py-4 shadow-sm">
-        <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-[#0076b6] to-[#6fb744]" />
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[12px] font-black uppercase tracking-wide text-[#0076b6]">İş Akışı</p>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal text-slate-950 md:text-[34px]">Güncelleme Dosyaları</h1>
-            <p className="mt-1 text-sm font-bold text-slate-500">Dosya durumu güncelleme olan kayıtlar</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-black text-[#005f95] shadow-sm">
-              Toplam {filteredRows.length} kayıt
-            </div>
-            {/* Kullanici istegi (13 Eylul 2026): "hangi mahallede kaç dosya
-                var üstte özet olarak da görünsün" - ön inceleme/tahkikat
-                sayfalarindaki AYNI ozet kutusu. */}
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800 shadow-sm">
-              {neighborhoodGroups.length} mahalleden {filteredRows.length} dosya
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-[17px] font-black uppercase tracking-wide text-[#1E2A38]">Güncelleme Listesi</h2>
-            <p className="mt-1 text-[15px] font-bold text-slate-500">Dosya no, sahip bilgisi, mahalle, adres, son ev ziyareti ve kullanıcı</p>
-          </div>
-          <input
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Dosya no, ad soyad, telefon, mahalle, adres, ev ziyareti bilgisi veya kullanıcı ara..."
-            className="h-11 w-full rounded-md border border-slate-200 px-3 text-[15px] font-bold text-slate-950 outline-none transition focus:border-[#0076b6] md:w-[460px]"
-          />
-        </div>
-
-        {/* Kullanici istegi (13 Eylul 2026): mahalle secici chip listesi -
-            ön inceleme/tahkikat sayfalarindaki AYNI desen. */}
-        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
-          <button
-            type="button"
-            onClick={() => setSelectedNeighborhood('all')}
-            className={`rounded-full border px-4 py-1.5 text-[16px] font-black transition ${selectedNeighborhood === 'all' ? 'border-[#0076b6] bg-[#0076b6] text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-          >
-            Tümü ({filteredRows.length})
-          </button>
-          {neighborhoodGroups.map((group) => (
-            <button
-              key={group.neighborhood}
-              type="button"
-              onClick={() => setSelectedNeighborhood(group.neighborhood)}
-              className={`rounded-full border px-4 py-1.5 text-[16px] font-black transition ${selectedNeighborhood === group.neighborhood ? 'border-[#0076b6] bg-[#0076b6] text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              {group.neighborhood} ({group.files.length})
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
-          {error}
-        </div>
-      )}
-
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="space-y-2 p-3 md:hidden">
-          {status === 'loading' ? (
-            <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-8 text-center text-sm font-bold text-slate-500">
-              Güncelleme dosyaları yükleniyor...
-            </div>
-          ) : displayedRows.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white px-3 py-8 text-center text-sm font-bold text-slate-500">
-              {selectedNeighborhood === 'all' ? 'Güncelleme durumunda dosya bulunamadı.' : `${selectedNeighborhood} mahallesinde güncelleme durumunda dosya bulunamadı.`}
-            </div>
-          ) : selectedNeighborhood === 'all' ? (
-            neighborhoodGroups.map((group) => (
-              <div key={`grup-m-${group.neighborhood}`} className="space-y-2">
-                <div className="rounded-md bg-emerald-100 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-900">
-                  {group.neighborhood} — {group.files.length} dosya
-                </div>
-                {group.files.map((row) => (
-                  <GuncellemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
-                ))}
-              </div>
-            ))
-          ) : (
-            displayedRows.map((row) => (
-              <GuncellemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
-            ))
-          )}
-        </div>
-        <div className="hidden overflow-x-auto md:block">
-          <table className="ns-tablo ns-tablo-sonuc w-full min-w-[1400px] border-collapse text-left text-[15px]">
-            <thead className="bg-sky-50 text-[12px] font-black uppercase text-[#005f95]">
-              <tr>
-                <th className="border-b border-sky-100 px-4 py-3">Dosya No</th>
-                <th className="border-b border-sky-100 px-4 py-3">Adı Soyadı</th>
-                <th className="border-b border-sky-100 px-4 py-3">Mahalle</th>
-                <th className="border-b border-sky-100 px-4 py-3">Adres</th>
-                <th className="border-b border-sky-100 px-4 py-3">Son Ev Ziyareti Bilgisi</th>
-                <th className="border-b border-sky-100 px-4 py-3 text-right">İnceleme Formları</th>
-              </tr>
-            </thead>
-            <tbody>
-              {status === 'loading' ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-14 text-center text-sm font-bold text-slate-500">
-                    Güncelleme dosyaları yükleniyor...
-                  </td>
-                </tr>
-              ) : displayedRows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-4 py-14 text-center text-sm font-bold text-slate-500">
-                    {selectedNeighborhood === 'all' ? 'Güncelleme durumunda dosya bulunamadı.' : `${selectedNeighborhood} mahallesinde güncelleme durumunda dosya bulunamadı.`}
-                  </td>
-                </tr>
-              ) : selectedNeighborhood === 'all' ? (
-                neighborhoodGroups.map((group) => (
-                  <Fragment key={`grup-${group.neighborhood}`}>
-                    <tr className="bg-emerald-100">
-                      <td colSpan={6} className="border-l-4 border-l-emerald-600 px-4 py-2.5 text-[18.5px] font-black uppercase tracking-wide text-emerald-900">
-                        {group.neighborhood} <span className="ml-2 rounded-full bg-white px-2.5 py-0.5 text-[15px] text-emerald-800 ring-1 ring-emerald-300">{group.files.length} dosya</span>
-                      </td>
-                    </tr>
-                    {group.files.map((row, index) => (
-                      <GuncellemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
-                    ))}
-                  </Fragment>
-                ))
-              ) : (
-                displayedRows.map((row, index) => (
-                  <GuncellemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {resultTarget && (
-        <div ref={anaOverlayRef} className="fixed inset-0 z-[2200] bg-slate-950/75 backdrop-blur-sm">
-          <div ref={anaPanelRef} style={anaPencere.panelStyle} className="flex flex-col overflow-hidden rounded-lg border border-sky-200 bg-white shadow-2xl">
-            <div
-              {...anaPencere.resizeHandleProps}
-              className="absolute bottom-0 right-0 z-30 h-5 w-5"
-              aria-hidden="true"
-            >
-              <svg className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 8 8 18M18 13l-5 5" /></svg>
-            </div>
-            <div {...anaPencere.dragHandleProps} title="Taşımak için sürükleyin, çift tıklayın: ekranı kapla / küçült" className="flex shrink-0 select-none items-start justify-between border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-3 py-2 text-white md:items-center md:px-5">
+  // 2026-10-15: pencere icerigi hem form SEKMESINDE (sayfa ici) hem eski
+  // tasinabilir pencerede ayni.
+  const sonucFormIcerigi = () => {
+    if (!resultTarget) return null
+    return (
+      <>
+            <div {...(formModuDosyaId ? {} : anaPencere.dragHandleProps)} title={formModuDosyaId ? undefined : "Taşımak için sürükleyin, çift tıklayın: ekranı kapla / küçült"} className="flex shrink-0 select-none items-start justify-between border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-3 py-2 text-white md:items-center md:px-5">
               <div className="min-w-0">
                 <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">İş Akışı · Sonuç Bekleyen</p>
                 <h3 className="mt-0.5 text-base font-bold uppercase leading-tight tracking-wide text-white md:truncate md:text-[18px]">Komisyon Değerlendirmesi ve Yardım Kayıtları</h3>
@@ -1797,7 +1716,7 @@ export default function GuncellemeWorkflowPage() {
                 </div>
               </div>
               <div className="ml-4 flex shrink-0 items-center gap-2">
-                <button
+                {!formModuDosyaId && <button
                   type="button"
                   onClick={anaPencere.toggleMaximize}
                   title={anaPencere.isMaximized ? 'Küçült (önceki boyut)' : 'Ekranı kapla'}
@@ -1809,7 +1728,7 @@ export default function GuncellemeWorkflowPage() {
                   ) : (
                     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="1.5" /></svg>
                   )}
-                </button>
+                </button>}
                 <button
                   type="button"
                   onClick={() => openFile(resultTarget)}
@@ -1818,6 +1737,16 @@ export default function GuncellemeWorkflowPage() {
                 >
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
                   Dosyayı Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTekrarAcik(true)}
+                  disabled={resultStatus !== 'idle'}
+                  title="Şahıs evde bulunamadıysa: rapor yazıp dosyayı tekrar Tahkikat'a gönder"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rose-300 bg-rose-600 px-3 text-[12px] font-bold text-white shadow-sm hover:bg-rose-700 disabled:opacity-60"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+                  Ev Ziyareti Tekrarı
                 </button>
               <button
                 type="button"
@@ -1831,10 +1760,48 @@ export default function GuncellemeWorkflowPage() {
               </div>
             </div>
 
-            <div style={anaPencere.contentZoom !== 1 ? { zoom: anaPencere.contentZoom } : undefined} className="grid min-h-0 flex-1 grid-cols-1 content-start gap-3 overflow-y-auto bg-slate-100 p-2 md:gap-3 md:p-3 xl:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)] xl:grid-rows-[auto_minmax(220px,1fr)] xl:content-normal">
+            {/* 2026-10-15: ust bantlar (taslak/hata/ziyaret yapilamadi) auto, ust icerik
+                kalan yuksekligi doldurur, Muracaat ve Yardim Kayitlari en fazla 4
+                satir (auto) - masaustunde (xl) */}
+            <div
+              style={{
+                ...(anaPencere.contentZoom !== 1 ? { zoom: anaPencere.contentZoom } : {}),
+                ['--sonuc-satirlar' as string]: `${[taslakBilgisi, resultError, sonTahkikat && ziyaretGerceklesmediMi(sonTahkikat.ziyaretSonucu)].filter(Boolean).map(() => 'auto ').join('')}minmax(0,${UST_ALAN_YUKSEKLIK}px) auto`,
+              }}
+              className="grid min-h-0 flex-1 grid-cols-1 content-start gap-3 overflow-y-auto bg-slate-100 p-2 md:gap-3 md:p-3 xl:grid-cols-[minmax(0,1fr)_minmax(420px,1fr)] xl:[grid-template-rows:var(--sonuc-satirlar)]"
+            >
+              {taslakBilgisi && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800 xl:col-span-2">
+                  {taslakBilgisi}
+                </div>
+              )}
               {resultError && (
                 <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700 xl:col-span-2">
                   {resultError}
+                </div>
+              )}
+              {/* 2026-10-15: son tahkikatta ziyaret yapilamadi (Evde Bulunamadı / Tahkikat İstemedi vb.) */}
+              {sonTahkikat && ziyaretGerceklesmediMi(sonTahkikat.ziyaretSonucu) && (
+                <div className="ns-tekrar-uyari flex flex-wrap items-center justify-between gap-3 rounded-lg border-2 border-rose-600 bg-rose-50 px-3 py-2.5 xl:col-span-2">
+                  <div className="min-w-0">
+                    <p className="ns-calisan-uyari inline-block rounded border px-2 py-0.5 text-[13px] font-black uppercase tracking-wide">
+                      Ev ziyareti yapılamadı — {sonTahkikat.ziyaretSonucu}
+                    </p>
+                    <p className="mt-1 text-[14px] font-bold text-rose-900">
+                      Ziyaret tarihi: {formatDate(sonTahkikat.tarih)} · Personel: {sonTahkikat.personel || "—"}
+                    </p>
+                    {sonTahkikat.personelRaporu && (
+                      <p className="mt-0.5 whitespace-pre-wrap text-[13px] font-semibold text-rose-800">Açıklama: {sonTahkikat.personelRaporu}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTekrarAcik(true)}
+                    disabled={resultStatus !== "idle"}
+                    className="shrink-0 rounded-md bg-rose-600 px-3 py-2 text-[13px] font-black text-white shadow-sm hover:bg-rose-700 disabled:opacity-60"
+                  >
+                    Ev Ziyareti Tekrarı
+                  </button>
                 </div>
               )}
 
@@ -1844,24 +1811,35 @@ export default function GuncellemeWorkflowPage() {
                   "Son Hane Ziyareti..." buyuk kutusu kaldirildi, gecmis
                   tahkikat / ev ziyareti / inceleme formlari "Gecmis Raporlar"
                   penceresinde. */}
-              <div className="flex min-w-0 flex-col gap-3">
-                <section className="overflow-hidden rounded-xl border border-[#0E7C86]/40 border-l-[5px] border-l-[#0E7C86] bg-[#f0fafa] shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#b8860b] bg-[#0E7C86] px-4 py-2 text-white">
-                    <h4 className="text-[14px] font-bold uppercase tracking-[0.06em]">Dosya Sahibi</h4>
-                    <span className="text-[11px] font-semibold text-slate-300">Kopyalamak için bilginin üzerine çift tıklayın</span>
+              {/* 2026-10-15: ust satir ayrilan yukseklige sigar (xl:min-h-0) - taşan
+                  metin kendi icinde kayar, yardimlar alani hep gorunur kalir */}
+              <div className="flex min-w-0 flex-col gap-3 xl:min-h-0">
+                <section className="shrink-0 overflow-hidden rounded-xl border border-[#0E7C86]/40 border-l-[5px] border-l-[#0E7C86] bg-[#f0fafa] shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#b8860b] bg-[#0E7C86] px-3 py-1 text-white">
+                    <h4 className="text-[13.5px] font-bold uppercase tracking-[0.06em]">Dosya Sahibi</h4>
+                    {/* 2026-10-15: hanedeki tum bireyler ayri pencerede */}
+                    <button
+                      type="button"
+                      onClick={() => setHaneAcik(true)}
+                      title="Dosyadaki tüm hane bireylerini göster (kopyalamak için bilgilerin üzerine çift tıklayın)"
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/70 bg-white px-2.5 text-[12.5px] font-bold text-[#0a5f67] shadow-sm hover:bg-teal-50"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                      Hane Bireyleri{resultTarget.householdCount ? ` (${resultTarget.householdCount})` : ''}
+                    </button>
                   </div>
                   {/* 2026-10-14: TC, isim, telefon, hane tek satirda; altinda adres */}
-                  <div className="grid grid-cols-2 gap-2 p-3 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,0.75fr)]">
-                    <KopyalanabilirBilgi etiket="T.C. Kimlik No" deger={resultTarget.tcKimlikNo || ''} />
-                    <KopyalanabilirBilgi etiket="Adı Soyadı" deger={resultTarget.applicantName} />
-                    <KopyalanabilirBilgi etiket="Doğum Tarihi" deger={resultTarget.birthDate || ''} />
-                    <KopyalanabilirBilgi etiket="Telefon" deger={resultTarget.phone} />
-                    <KopyalanabilirBilgi etiket="Hanedeki Kişi Sayısı" deger={resultTarget.householdCount === null || resultTarget.householdCount === undefined ? '' : String(resultTarget.householdCount)} />
-                    <KopyalanabilirBilgi etiket="Adres" deger={resultTarget.address} genis />
+                  <div className="grid grid-cols-2 gap-1.5 p-2 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.5fr)_minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,0.75fr)]">
+                    <KopyalanabilirBilgi siki etiket="T.C. Kimlik No" deger={resultTarget.tcKimlikNo || ''} />
+                    <KopyalanabilirBilgi siki etiket="Adı Soyadı" deger={resultTarget.applicantName} />
+                    <KopyalanabilirBilgi siki etiket="Doğum Tarihi" deger={resultTarget.birthDate || ''} />
+                    <KopyalanabilirBilgi siki etiket="Telefon" deger={resultTarget.phone} />
+                    <KopyalanabilirBilgi siki etiket="Hane Kişi Sayısı" deger={resultTarget.householdCount === null || resultTarget.householdCount === undefined ? '' : String(resultTarget.householdCount)} />
+                    <KopyalanabilirBilgi siki etiket="Adres" deger={resultTarget.address} genis />
                   </div>
                 </section>
 
-                <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-[#1a4580]/35 border-l-[5px] border-l-[#1a4580] bg-[#f5f8fd] shadow-sm">
+                <section className="flex flex-1 flex-col overflow-hidden rounded-xl border border-[#1a4580]/35 xl:min-h-0 border-l-[5px] border-l-[#1a4580] bg-[#f5f8fd] shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-4 py-2 text-white">
                     <div className="min-w-0">
                       <h4 className="text-[14px] font-bold uppercase tracking-[0.06em]">Son Tahkikat Raporu</h4>
@@ -1914,7 +1892,7 @@ export default function GuncellemeWorkflowPage() {
                     <div className="m-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-bold text-rose-700">{tahkikatFormlariError}</div>
                   )}
 
-                  <div className="min-h-[180px] flex-1 overflow-y-auto whitespace-pre-wrap px-4 py-2.5 text-[14px] font-medium leading-6 text-slate-900 xl:max-h-[620px]">
+                  <div className="min-h-[180px] flex-1 overflow-y-auto whitespace-pre-wrap px-4 py-2.5 text-[14px] font-medium leading-6 text-slate-900 xl:min-h-0">
                     {resultTarget.lastVisitInfo || 'Bu dosya için kayıtlı tahkikat raporu bulunamadı.'}
                   </div>
                   <p className="border-t border-slate-100 bg-slate-50 px-4 py-1 text-[11.5px] font-medium text-slate-500">
@@ -1925,7 +1903,7 @@ export default function GuncellemeWorkflowPage() {
               </div>
 
               {/* 2026-10-14: Komisyon Raporu ile Muracaat ve Yardim Kayitlari yer degistirdi */}
-              <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[#166534]/35 border-l-[5px] border-l-[#166534] bg-[#f3faf5] shadow-sm">
+              <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[#166534]/35 xl:min-h-0 border-l-[5px] border-l-[#166534] bg-[#f3faf5] shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-[#b8860b] bg-[#166534] px-4 py-2 text-white">
                   <div>
                     <h4 className="text-[14px] font-bold uppercase tracking-[0.06em]">Komisyon Raporu</h4>
@@ -1936,7 +1914,7 @@ export default function GuncellemeWorkflowPage() {
                   </span>
                 </div>
 
-                <div className="grid flex-1 grid-cols-1 gap-3 p-3 md:grid-cols-[180px_minmax(0,1fr)] md:grid-rows-[auto_minmax(0,1fr)]">
+                <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 md:grid-cols-[180px_minmax(0,1fr)] md:grid-rows-[auto_minmax(0,1fr)]">
                   <label className="flex flex-col gap-1.5">
                     <span className="text-[11.5px] font-bold uppercase tracking-wide text-slate-600">Tarih</span>
                     <input
@@ -1986,7 +1964,7 @@ export default function GuncellemeWorkflowPage() {
                       value={resultForm.content}
                       onChange={(event) => setResultForm((current) => ({ ...current, content: event.target.value }))}
                       rows={5}
-                      className="min-h-[180px] w-full flex-1 resize-y rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[14px] font-medium leading-7 text-slate-950 outline-none focus:border-[#0076b6] focus:ring-2 focus:ring-sky-100"
+                      className="min-h-[180px] w-full flex-1 resize-y xl:min-h-[90px] xl:resize-none rounded-md border border-slate-300 bg-white px-3 py-2.5 text-[14px] font-medium leading-7 text-slate-950 outline-none focus:border-[#0076b6] focus:ring-2 focus:ring-sky-100"
                       placeholder="Komisyon kararınızı ve gerekçesini buraya yazın..."
                     />
                   </label>
@@ -1994,25 +1972,30 @@ export default function GuncellemeWorkflowPage() {
               </section>
 
               {/* 2026-10-14: Muracaat ve Yardim Kayitlari altta, pencerenin tum genisliginde */}
-              <section className="flex min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden rounded-xl border border-[#9a3412]/35 border-l-[5px] border-l-[#9a3412] bg-[#fffaf5] shadow-sm xl:col-span-2">
-                <div className="flex shrink-0 flex-col gap-3 border-b-2 border-[#b8860b] bg-[#9a3412] px-3 py-2 text-white md:px-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
+              {/* 2026-10-15: kurumsal gorunum (lacivert/altin), ozet tek etikette,
+                  satir yuksekligi kadar alan + durum renk aciklamasi */}
+              <section className="flex min-h-0 min-w-0 w-full max-w-full flex-col overflow-hidden rounded-xl border border-[#0b1f3f]/25 border-l-[5px] border-l-[#b8860b] bg-white shadow-sm xl:col-span-2">
+                <div className="flex shrink-0 flex-col gap-2 border-b-2 border-[#b8860b] bg-gradient-to-r from-[#0b1f3f] via-[#12305f] to-[#1a4580] px-3 py-1.5 text-white md:px-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <h4 className="text-[14px] font-bold uppercase tracking-[0.06em]">Müracaat ve Yardım Kayıtları</h4>
-                    <p className="mt-0.5 text-[12px] font-medium text-slate-300">Ekmek, Gıda, Destek Paketi ve Hazır Yemek — satırda değiştirip “Güncelle” ile kaydedin</p>
+                    <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-0.5 text-[12px] font-semibold text-slate-100">
+                      <span><b className="text-white">{applicationCount}</b> müracaat</span>
+                      <span className="text-white/40">•</span>
+                      <span><b className="text-white">{assistanceCount}</b> yardım</span>
+                      <span className="text-white/40">•</span>
+                      <span><b className="text-white">{visibleServiceTypeCount}</b> tür</span>
+                    </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="rounded-md border border-white/20 bg-white/10 px-2.5 py-1 text-center">
-                      <div className="text-[10.5px] font-bold uppercase tracking-wide text-slate-300">Müracaat</div>
-                      <div className="text-[15px] font-black text-white">{applicationCount}</div>
-                    </div>
-                    <div className="rounded-md border border-white/20 bg-white/10 px-2.5 py-1 text-center">
-                      <div className="text-[10.5px] font-bold uppercase tracking-wide text-slate-300">Yardım</div>
-                      <div className="text-[15px] font-black text-white">{assistanceCount}</div>
-                    </div>
-                    <div className="rounded-md border border-white/20 bg-white/10 px-2.5 py-1 text-center">
-                      <div className="text-[10.5px] font-bold uppercase tracking-wide text-slate-300">Tür</div>
-                      <div className="text-[15px] font-black text-white">{visibleServiceTypeCount}</div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDigerKurumAcik(true)}
+                      title="Dosyanın diğer kurumlardan aldığı yardımları ve toplamını göster"
+                      className="inline-flex h-8 items-center gap-2 rounded-md border border-white/70 bg-white px-3.5 text-[12.5px] font-bold text-[#5b21b6] shadow-sm hover:bg-violet-50"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6" /></svg>
+                      Diğer Kurum Yardımları
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -2020,7 +2003,7 @@ export default function GuncellemeWorkflowPage() {
                         setQuickAddError('')
                       }}
                       disabled={quickAddStatus === 'saving'}
-                      className="h-8 rounded-md border border-[#6fb744] bg-[#6fb744] px-3.5 text-[12px] font-bold text-white shadow-sm hover:bg-[#5b9f35] disabled:cursor-wait disabled:opacity-60"
+                      className="h-8 rounded-md border border-[#6fb744] bg-[#6fb744] px-3.5 text-[12.5px] font-bold text-white shadow-sm hover:bg-[#5b9f35] disabled:cursor-wait disabled:opacity-60"
                     >
                       + Yardım Ekle
                     </button>
@@ -2070,8 +2053,6 @@ export default function GuncellemeWorkflowPage() {
                           {periodOptions.map((period) => (
                             <option key={period} value={period}>{period}</option>
                           ))}
-                          <option value="Sureli">Süreli (Tek Seferlik)</option>
-                          <option value="Periyodik">Periyodik</option>
                           <option value={KIS_DONEMI_PERIOD_LABEL}>{KIS_DONEMI_PERIOD_LABEL}</option>
                         </select>
                       </label>
@@ -2161,8 +2142,6 @@ export default function GuncellemeWorkflowPage() {
                                 {periodOptions.map((period) => (
                                   <option key={period} value={period}>{period}</option>
                                 ))}
-                                <option value="Sureli">Süreli (Tek Seferlik)</option>
-                                <option value="Periyodik">Periyodik</option>
                                 <option value={KIS_DONEMI_PERIOD_LABEL}>{KIS_DONEMI_PERIOD_LABEL}</option>
                               </select>
                             </label>
@@ -2209,7 +2188,7 @@ export default function GuncellemeWorkflowPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="min-h-0 min-w-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
+                  <div className="min-h-0 min-w-0 flex-1 overflow-auto [scrollbar-gutter:stable]" style={{ maxHeight: YARDIM_ALANI_AZAMI_YUKSEKLIK, flex: 'none' }}>
                     {/* Kullanici istegi (14 Eylul 2026, 2. tur): "alanlar tek
                         satırda normal görünsün, sığmıyor ise kaydırma
                         çubuğu ile bu alanı yana kaydıralım" - bir onceki
@@ -2218,7 +2197,7 @@ export default function GuncellemeWorkflowPage() {
                         "overflow-auto" sarmalayici zaten yatay kaydirmayi
                         sagliyor. */}
                     <table className="w-full min-w-max border-collapse text-left text-[14px]">
-                      <thead className="sticky top-0 z-10 bg-[#eef2f7] text-[12px] font-bold uppercase tracking-wide text-[#1E2A38] shadow-sm">
+                      <thead className="sticky top-0 z-10 bg-[#f1f4f9] text-[11.5px] font-bold uppercase tracking-[0.08em] text-[#12305f] shadow-[0_1px_0_#cbd5e1]">
                         <tr>
                           <th style={{ width: serviceColumnWidths.process }} className="whitespace-nowrap border-b-2 border-slate-300 px-2.5 py-1.5">Süreç</th>
                           <th style={{ width: serviceColumnWidths.type }} className="whitespace-nowrap border-b-2 border-slate-300 px-2.5 py-1.5">Yardım</th>
@@ -2231,12 +2210,12 @@ export default function GuncellemeWorkflowPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {assistanceRows.map((row, index) => {
+                        {assistanceRows.map((row) => {
                           const rowKey = `${row.kind}:${row.sourceTable}:${row.recordId}`
                           const isSavingRow = savingAssistanceKey === rowKey
 
                           return (
-                            <tr key={rowKey} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} hover:bg-sky-50/70`}>
+                            <tr key={rowKey} style={{ boxShadow: `inset 5px 0 0 ${yardimDurumRengi(row).serit}` }} className={`${yardimDurumRengi(row).satir} transition-colors`}>
                               <td style={{ width: serviceColumnWidths.process }} className="whitespace-nowrap border-b border-slate-100 px-3 py-1 align-middle">
                                 <span className={`inline-flex rounded-full px-2.5 py-1 text-[11.5px] font-bold uppercase ring-1 ${
                                   row.kind === 'application'
@@ -2257,15 +2236,14 @@ export default function GuncellemeWorkflowPage() {
                                   className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-[14px] font-semibold text-slate-900 outline-none focus:border-[#0076b6] focus:ring-2 focus:ring-sky-100"
                                 >
                                   <option value="">Periyot seçiniz...</option>
-                                  {row.periodInfo && !periodOptions.includes(row.periodInfo) && !['Sureli', 'Periyodik', KIS_DONEMI_PERIOD_LABEL].includes(row.periodInfo) && (
+                                  {row.periodInfo && !periodOptions.includes(row.periodInfo) && row.periodInfo !== KIS_DONEMI_PERIOD_LABEL && row.periodInfo !== KAPALI_DONEM && (
                                     <option value={row.periodInfo}>{row.periodInfo}</option>
                                   )}
                                   {periodOptions.map((period) => (
                                     <option key={period} value={period}>{period}</option>
                                   ))}
-                                  <option value="Sureli">Süreli (Tek Seferlik)</option>
-                                  <option value="Periyodik">Periyodik</option>
                                   <option value={KIS_DONEMI_PERIOD_LABEL}>{KIS_DONEMI_PERIOD_LABEL}</option>
+                                  <option value={KAPALI_DONEM}>{KAPALI_DONEM}</option>
                                 </select>
                                 {isKisDonemiBekleyen(row) && row.kind === 'application' && (
                                   <div className="mt-0.5 text-[10.5px] font-bold text-amber-700">01 Kasım’da otomatik açılır</div>
@@ -2306,7 +2284,7 @@ export default function GuncellemeWorkflowPage() {
                                   value={row.status}
                                   onChange={(event) => updateAssistanceRow(rowKey, { status: event.target.value })}
                                   style={{ width: serviceColumnWidths.status }}
-                                  className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-[14px] font-semibold text-slate-900 outline-none focus:border-[#0076b6] focus:ring-2 focus:ring-sky-100"
+                                  className={`h-8 rounded-md border-2 px-2.5 text-[14px] font-bold outline-none focus:ring-2 focus:ring-sky-100 ${yardimDurumRengi(row).secim}`}
                                 >
                                   <option value="">-</option>
                                   {row.status && !assistanceStatusOptions.some((option) => option.id === row.status) && (
@@ -2322,8 +2300,9 @@ export default function GuncellemeWorkflowPage() {
                                   type="button"
                                   onClick={() => void saveAssistanceRow(row)}
                                   disabled={Boolean(savingAssistanceKey)}
-                                  className="h-8 rounded-md border border-[#6fb744] bg-[#f1faed] px-3.5 text-[12.5px] font-bold uppercase text-[#3f7f28] hover:bg-[#e5f5dc] disabled:cursor-wait disabled:opacity-60"
+                                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#12305f] px-3.5 text-[12.5px] font-bold text-white shadow-sm hover:bg-[#1a4580] disabled:cursor-wait disabled:opacity-60"
                                 >
+                                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
                                   {isSavingRow ? 'Kaydediliyor...' : 'Güncelle'}
                                 </button>
                               </td>
@@ -2332,6 +2311,18 @@ export default function GuncellemeWorkflowPage() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                {assistanceRows.length > 0 && (
+                  <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-200 bg-slate-50 px-4 py-1.5 text-[11.5px] font-semibold text-slate-600">
+                    <span className="font-bold uppercase tracking-wide text-slate-400">Durum</span>
+                    {assistanceStatusOptions.filter((secenek, i, liste) => YARDIM_DURUM_RENKLERI[secenek.id] && liste.findIndex((x) => x.name === secenek.name) === i).map((secenek) => (
+                      <span key={secenek.id} className="inline-flex items-center gap-1.5">
+                        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: YARDIM_DURUM_RENKLERI[secenek.id].serit }} />
+                        {secenek.name}
+                      </span>
+                    ))}
+                    <span className="ml-auto text-slate-500">Periyot seçilince başlangıç bugün, bitiş periyot sonu olur · Kış Dönemi: 01.11–30.04, durum tarihlere göre kendiliğinden değişir</span>
                   </div>
                 )}
               </section>
@@ -2602,14 +2593,6 @@ export default function GuncellemeWorkflowPage() {
               </button>
               <button
                 type="button"
-                onClick={() => void openAssistancesWithReport()}
-                disabled={resultStatus !== 'idle' || quickAddStatus === 'saving'}
-                className="h-9 rounded-md border border-[#6fb744] bg-[#6fb744] px-5 text-[13px] font-bold text-white shadow-sm hover:bg-[#5b9f35] disabled:cursor-wait disabled:opacity-60"
-              >
-                {resultStatus === 'opening' ? 'Yardımlar Açılıyor...' : 'Yardımları Aç'}
-              </button>
-              <button
-                type="button"
                 onClick={() => void saveResultReport()}
                 disabled={resultStatus !== 'idle'}
                 className="h-9 rounded-md border border-[#1E2A38] bg-[#1E2A38] px-6 text-[13px] font-bold text-white shadow-sm hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60"
@@ -2617,9 +2600,243 @@ export default function GuncellemeWorkflowPage() {
                 {resultStatus === 'saving' ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
             </div>
+      </>
+    )
+  }
+
+  return (
+    <div className="space-y-5 text-slate-950">
+      {/* 2026-10-15: form sekmesinde liste yerine yalniz form (asagida) */}
+      {formModuDosyaId && !resultTarget && (
+        formSekmesiHatasi ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-4 text-base font-bold text-blue-900">
+            <span>{formSekmesiHatasi}</span>
+            <button type="button" onClick={() => formSekmesiniKapat('guncelleme')} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700">Listeye Dön</button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-blue-200 bg-white p-10 text-center text-base font-bold text-slate-500">Form yükleniyor...</div>
+        )
+      )}
+      {!formModuDosyaId && (<>
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-sky-200 bg-white px-5 py-4 shadow-sm">
+        <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-[#0076b6] to-[#6fb744]" />
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[12px] font-black uppercase tracking-wide text-[#0076b6]">İş Akışı</p>
+            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal text-slate-950 md:text-[34px]">Güncelleme Dosyaları</h1>
+            <p className="mt-1 text-sm font-bold text-slate-500">Dosya durumu güncelleme olan kayıtlar</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-black text-[#005f95] shadow-sm">
+              Toplam {filteredRows.length} kayıt
+            </div>
+            {/* Kullanici istegi (13 Eylul 2026): "hangi mahallede kaç dosya
+                var üstte özet olarak da görünsün" - ön inceleme/tahkikat
+                sayfalarindaki AYNI ozet kutusu. */}
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800 shadow-sm">
+              {neighborhoodGroups.length} mahalleden {filteredRows.length} dosya
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-[17px] font-black uppercase tracking-wide text-[#1E2A38]">Güncelleme Listesi</h2>
+            <p className="mt-1 text-[15px] font-bold text-slate-500">Dosya no, sahip bilgisi, mahalle, adres, son ev ziyareti ve kullanıcı</p>
+          </div>
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Dosya no, ad soyad, telefon, mahalle, adres, ev ziyareti bilgisi veya kullanıcı ara..."
+            className="h-11 w-full rounded-md border border-slate-200 px-3 text-[15px] font-bold text-slate-950 outline-none transition focus:border-[#0076b6] md:w-[460px]"
+          />
+        </div>
+
+        {/* Kullanici istegi (13 Eylul 2026): mahalle secici chip listesi -
+            ön inceleme/tahkikat sayfalarindaki AYNI desen. */}
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+          <button
+            type="button"
+            onClick={() => setSelectedNeighborhood('all')}
+            className={`rounded-full border px-4 py-1.5 text-[16px] font-black transition ${selectedNeighborhood === 'all' ? 'border-[#0076b6] bg-[#0076b6] text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+          >
+            Tümü ({filteredRows.length})
+          </button>
+          {neighborhoodGroups.map((group) => (
+            <button
+              key={group.neighborhood}
+              type="button"
+              onClick={() => setSelectedNeighborhood(group.neighborhood)}
+              className={`rounded-full border px-4 py-1.5 text-[16px] font-black transition ${selectedNeighborhood === group.neighborhood ? 'border-[#0076b6] bg-[#0076b6] text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              {group.neighborhood} ({group.files.length})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+          {error}
+        </div>
+      )}
+
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-2 p-3 md:hidden">
+          {status === 'loading' ? (
+            <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-8 text-center text-sm font-bold text-slate-500">
+              Güncelleme dosyaları yükleniyor...
+            </div>
+          ) : displayedRows.length === 0 ? (
+            <div className="rounded-lg border border-slate-200 bg-white px-3 py-8 text-center text-sm font-bold text-slate-500">
+              {selectedNeighborhood === 'all' ? 'Güncelleme durumunda dosya bulunamadı.' : `${selectedNeighborhood} mahallesinde güncelleme durumunda dosya bulunamadı.`}
+            </div>
+          ) : selectedNeighborhood === 'all' ? (
+            neighborhoodGroups.map((group) => (
+              <div key={`grup-m-${group.neighborhood}`} className="space-y-2">
+                <div className="rounded-md bg-emerald-100 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-900">
+                  {group.neighborhood} — {group.files.length} dosya
+                </div>
+                {group.files.map((row) => (
+                  <GuncellemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
+                ))}
+              </div>
+            ))
+          ) : (
+            displayedRows.map((row) => (
+              <GuncellemeMobileCard key={row.fileId} row={row} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
+            ))
+          )}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="ns-tablo ns-tablo-sonuc w-full min-w-[1400px] border-collapse text-left text-[15px]">
+            <thead className="bg-sky-50 text-[12px] font-black uppercase text-[#005f95]">
+              <tr>
+                <th className="border-b border-sky-100 px-4 py-3">Dosya No</th>
+                <th className="border-b border-sky-100 px-4 py-3">Adı Soyadı</th>
+                <th className="border-b border-sky-100 px-4 py-3">Mahalle</th>
+                <th className="border-b border-sky-100 px-4 py-3">Adres</th>
+                <th className="border-b border-sky-100 px-4 py-3">Son Ev Ziyareti Bilgisi</th>
+                <th className="border-b border-sky-100 px-4 py-3 text-right">İnceleme Formları</th>
+              </tr>
+            </thead>
+            <tbody>
+              {status === 'loading' ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-14 text-center text-sm font-bold text-slate-500">
+                    Güncelleme dosyaları yükleniyor...
+                  </td>
+                </tr>
+              ) : displayedRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-14 text-center text-sm font-bold text-slate-500">
+                    {selectedNeighborhood === 'all' ? 'Güncelleme durumunda dosya bulunamadı.' : `${selectedNeighborhood} mahallesinde güncelleme durumunda dosya bulunamadı.`}
+                  </td>
+                </tr>
+              ) : selectedNeighborhood === 'all' ? (
+                neighborhoodGroups.map((group) => (
+                  <Fragment key={`grup-${group.neighborhood}`}>
+                    <tr className="bg-emerald-100">
+                      <td colSpan={6} className="border-l-4 border-l-emerald-600 px-4 py-2.5 text-[18.5px] font-black uppercase tracking-wide text-emerald-900">
+                        {group.neighborhood} <span className="ml-2 rounded-full bg-white px-2.5 py-0.5 text-[15px] text-emerald-800 ring-1 ring-emerald-300">{group.files.length} dosya</span>
+                      </td>
+                    </tr>
+                    {group.files.map((row, index) => (
+                      <GuncellemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
+                    ))}
+                  </Fragment>
+                ))
+              ) : (
+                displayedRows.map((row, index) => (
+                  <GuncellemeTableRow key={row.fileId} row={row} index={index} onOpenFile={openFile} onOpenReport={openResultForm} lock={kilitler.get(row.fileId)} />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      </>)}
+
+      {resultTarget && formModuDosyaId && (
+        // Form sekmesi: pencere sayfa icinde (tasima/boyutlandirma yok)
+        // Mobilde eskisi gibi tam ekran; masaustunde sekmenin TAMAMINI doldurur
+        // (yukseklik sayfa olcegiyle kuculmesin diye --shell-unzoom ile dengelenir).
+        <div
+          className="fixed inset-0 z-[2200] flex flex-col overflow-hidden bg-white lg:static lg:z-auto lg:h-[calc((100dvh-105px)*var(--shell-unzoom,1))] lg:min-h-[560px] lg:rounded-lg lg:border-2 lg:border-blue-500 lg:shadow-sm"
+          onInputCapture={() => { taslakDegistiRef.current = true }}
+          onChangeCapture={() => { taslakDegistiRef.current = true }}
+        >
+          {sonucFormIcerigi()}
+        </div>
+      )}
+
+      {resultTarget && !formModuDosyaId && (
+        <div ref={anaOverlayRef} className="fixed inset-0 z-[2200] bg-slate-950/75 backdrop-blur-sm">
+          <div ref={anaPanelRef} style={anaPencere.panelStyle} className="flex flex-col overflow-hidden rounded-lg border border-sky-200 bg-white shadow-2xl">
+            <div
+              {...anaPencere.resizeHandleProps}
+              className="absolute bottom-0 right-0 z-30 h-5 w-5"
+              aria-hidden="true"
+            >
+              <svg className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 8 8 18M18 13l-5 5" /></svg>
+            </div>
+            {sonucFormIcerigi()}
           </div>
         </div>
       )}
+
+      {/* 2026-10-15: Kaydet'e basilinca hemen gorunur - kullanici islemin
+          surdugunu gorsun, tekrar basmasin; bitince pencere kapanir ve dosya
+          guncel haliyle acilir. */}
+      {resultStatus === 'saving' && (
+        <div className="fixed inset-0 z-[2600] flex items-center justify-center bg-slate-950/55 backdrop-blur-[2px]" role="alert" aria-live="assertive">
+          <div className="flex items-center gap-4 rounded-xl border border-[#b8860b] bg-white px-7 py-5 shadow-2xl">
+            <span className="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-[#0b1f3f]" />
+            <div>
+              <p className="text-[17px] font-black text-[#0b1f3f]">Kaydediliyor…</p>
+              <p className="text-[13.5px] font-semibold text-slate-500">Lütfen bekleyin, işlem bitince pencere kapanıp dosya açılacak.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {haneAcik && resultTarget && (
+        <HaneBireyleriPenceresi
+          fileId={resultTarget.fileId}
+          fileNo={resultTarget.fileNo}
+          applicantName={resultTarget.applicantName}
+          onClose={() => setHaneAcik(false)}
+        />
+      )}
+
+      {digerKurumAcik && resultTarget && (
+        <DigerKurumYardimlariPenceresi
+          fileId={resultTarget.fileId}
+          fileNo={resultTarget.fileNo}
+          applicantName={resultTarget.applicantName}
+          onClose={() => setDigerKurumAcik(false)}
+        />
+      )}
+
+      {tekrarAcik && resultTarget && (
+        <EvZiyaretiTekrariPenceresi
+          fileId={resultTarget.fileId}
+          fileNo={resultTarget.fileNo}
+          applicantName={resultTarget.applicantName}
+          onClose={() => setTekrarAcik(false)}
+          onSaved={() => {
+            // Dosya Tahkikat'a dondu: listeden duser, taslak silinir, form kapanir
+            const fileId = resultTarget.fileId
+            setTekrarAcik(false)
+            sonucTaslagiSil(fileId)
+            setRows((currentRows) => currentRows.filter((row) => row.fileId !== fileId))
+            closeResultForm()
+          }}
+        />
+      )}
+
     </div>
   )
 }

@@ -11,6 +11,7 @@ import {
 import OpenAI from 'openai'
 import Anthropic from '@anthropic-ai/sdk'
 import { settingService } from '@/lib/services/settings.service'
+import { bilgiTabaniniTemizle, bilgiTabaniTalimati, VARSAYILAN_BILGI_TABANI, type AsistanBilgiTabani } from '@/lib/asistan/bilgiTabani'
 import { predefinedValuesService } from '@/lib/services/predefinedValues.service'
 import { resolvePredefinedCategory } from '@/lib/constants/predefinedValues'
 import {
@@ -90,6 +91,9 @@ type SosyalAsistanSettings = {
   // girilebilen, HER sohbette sistem talimatina eklenen serbest metin
   // (terim tanimlari, is kurallari, tercih edilen ifade bicimleri vb.).
   customInstructions?: string
+  // 2026-10-15: yapilandirilmis bilgi tabani (terim/kural/ornek/hazir soru) -
+  // bkz. lib/asistan/bilgiTabani.ts. Hic kaydedilmemisse varsayilan icerik.
+  bilgiTabani?: AsistanBilgiTabani
   // Eski (24. tur oncesi) tek-saglayicili (Gemini) kayit bicimi - geriye
   // donuk uyumluluk icin okunur, YENI kayitlarda kullanilmaz.
   apiKey?: string
@@ -149,6 +153,18 @@ export async function getCustomInstructions(): Promise<string> {
 export async function saveCustomInstructions(text: string) {
   const settings = await getSosyalAsistanSettings()
   await settingService.set(SOSYAL_ASISTAN_SETTINGS_KEY, { ...settings, customInstructions: text.trim() })
+}
+
+export async function getBilgiTabani(): Promise<AsistanBilgiTabani> {
+  const settings = await getSosyalAsistanSettings()
+  return settings.bilgiTabani ? bilgiTabaniniTemizle(settings.bilgiTabani) : VARSAYILAN_BILGI_TABANI
+}
+
+export async function saveBilgiTabani(girdi: unknown): Promise<AsistanBilgiTabani> {
+  const settings = await getSosyalAsistanSettings()
+  const temiz = bilgiTabaniniTemizle(girdi)
+  await settingService.set(SOSYAL_ASISTAN_SETTINGS_KEY, { ...settings, bilgiTabani: temiz })
+  return temiz
 }
 
 export type AssistantChatMessage = {
@@ -1000,9 +1016,16 @@ export async function runAssistantChat(
   // sohbette sistem talimatinin SONUNA eklenir. Boylece terim/kisaltma
   // tanimlari veya is kurallari icin her seferinde koda gelmeye gerek kalmaz.
   const customInstructions = await getCustomInstructions()
-  const systemPrompt = customInstructions
+  const baseSystemPrompt = customInstructions
     ? `${SYSTEM_PROMPT}\n\nKULLANICI TARAFINDAN TANIMLANMIŞ EK KURALLAR (bunlara MUTLAKA uy, yukarıdaki kurallarla çelişirse bu ek kurallar önceliklidir):\n${customInstructions}`
     : SYSTEM_PROMPT
+  // 2026-10-15: yapilandirilmis bilgi tabani (Ayarlar > Sosyal Asistan) -
+  // serbest metin talimatlarin ARDINDAN eklenir; serbest metinle celisirse
+  // serbest metin (yukarisi) onceliklidir.
+  const bilgiTabaniMetni = bilgiTabaniTalimati(await getBilgiTabani())
+  const systemPrompt = bilgiTabaniMetni
+    ? `${baseSystemPrompt}\n\nKURUM BİLGİ TABANI (bu da kural 17'deki ek kurallar kapsamındadır; yalnız serbest metin ek kurallarla çelişirse onlar önceliklidir):\n${bilgiTabaniMetni}`
+    : baseSystemPrompt
 
   let queriesRun = 0
   const ctx: ToolExecutionContext = {

@@ -139,7 +139,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<Para
       const opinionFlowTables = ['yrd_ekmek', 'yrd_gidabankasi', 'yrd_destekpaketi', 'yrd_haziryemek']
       for (const table of opinionFlowTables) {
         await prisma.$executeRawUnsafe(
-          `UPDATE "${table}" SET durumu = 3, durumutarih = CURRENT_DATE, bittarih = CURRENT_DATE WHERE dosyaid = $1::bigint AND durumu = 0`,
+          `UPDATE "${table}" SET durumu = 3, durumutarih = CURRENT_DATE, bittarih = CURRENT_DATE, donem = 'Kapalı' WHERE dosyaid = $1::bigint AND durumu = 0`,
           dosyaIdText,
         )
       }

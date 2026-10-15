@@ -15,6 +15,18 @@ import {
 import { ColumnPickerReportModal, type ReportRow } from '@/components/shared/ColumnPickerReportModal'
 import { usePredefinedStatusMaps } from '@/lib/hooks/usePredefinedStatusMaps'
 import type { MessageTemplateTokenValues } from '@/lib/messageTemplateTokens'
+import {
+  CorporatePagination,
+  ToolbarDivider,
+  ToolbarIcon,
+  corporateSearchInput,
+  corporateTableCard,
+  corporateToolbarCard,
+  formatCount,
+  toolbarButton,
+  toolbarDangerButton,
+  toolbarPrimaryButton,
+} from '@/components/shared/corporateToolbar'
 
 type DocumentRow = Record<string, string | number | null>
 
@@ -29,29 +41,76 @@ const PAGE_SIZE = 50
 // Basliklardaki "▼" acilir menusunun "Sütundaki Değerler" listesini
 // sunucudan (TUM eslesen kayitlar uzerinden, sadece ekrandaki sayfadan
 // degil) besleyen sutunlar - bkz. /api/documents/filter-options.
-const CHAINABLE_FILTER_COLUMNS = ['mahalle', 'cadde', 'sokak', 'binaNo']
-const DOCUMENT_COLUMN_LABELS: Record<string, string> = {
-  dosyaId: 'Dosya ID',
-  dosyaNo: 'Dosya No',
-  incelemePuani: 'İnceleme Puanı',
-  dosyaSahibi: 'Dosya Sahibi',
-  durum: 'Dosya Durumu',
-  kartNo: 'Kart No',
-  muracaatTarihi: 'Müracaat Tarihi',
-  telefon: 'Telefon',
-  ceptel: 'Cep Telefonu',
-  mahalle: 'Mahalle',
-  cadde: 'Cadde',
-  sokak: 'Sokak',
-  binaNo: 'Bina No',
-  daireNo: 'Daire No',
-  adresNo: 'Adres No',
-  adres: 'Adres',
-  toplamBirey: 'Toplam Birey',
-  aciklama: 'Açıklama',
-  olusturmaTarihi: 'Oluşturma Tarihi',
-  guncellemeTarihi: 'Güncelleme Tarihi',
+const CHAINABLE_FILTER_COLUMNS = [
+  'mahalle', 'cadde', 'sokak', 'binaNo', 'site',
+  'aileNiteligi', 'konutTuru', 'konutDurumu', 'isinmaTuru', 'mulkiyetDurumu', 'yardimOncelikSirasi',
+  'kaydiAcan', 'sonIslemYapan', 'konumKaynagi', 'konumDurumu',
+]
+
+// 2026-10-15 kullanici istegi: dosyalar tablosunun TUM alanlari listede;
+// Sütun Görünürlüğü'nden ac/kapat. Sira = panelde ve ilk acilista gorunen sira.
+// grup = paneldeki grup; gizli = ilk acilista (ve kayitli duzende henuz
+// yoksa) kapali baslar.
+type DocumentColumnDef = { label: string; group: string; hidden?: boolean }
+const DOCUMENT_COLUMNS: Record<string, DocumentColumnDef> = {
+  dosyaId: { label: 'Dosya ID', group: 'Dosya' },
+  dosyaNo: { label: 'Dosya No', group: 'Dosya' },
+  durum: { label: 'Dosya Durumu', group: 'Dosya' },
+  incelemePuani: { label: 'İnceleme Puanı', group: 'Dosya' },
+  dosyaSahibi: { label: 'Dosya Sahibi', group: 'Dosya' },
+  kartNo: { label: 'Kart No', group: 'Dosya' },
+  muracaatTarihi: { label: 'Müracaat Tarihi', group: 'Dosya' },
+  durumTarihi: { label: 'Durum Tarihi', group: 'Dosya', hidden: true },
+  durumAciklamasi: { label: 'Durum Açıklaması', group: 'Dosya', hidden: true },
+  vizeTarihi: { label: 'Vize Tarihi', group: 'Dosya', hidden: true },
+  ilkKayitTarihi: { label: 'İlk Kayıt Tarihi', group: 'Dosya', hidden: true },
+  yardimOncelikSirasi: { label: 'Yardım Öncelik Sırası', group: 'Dosya', hidden: true },
+  telefon: { label: 'Telefon', group: 'İletişim ve Adres' },
+  ceptel: { label: 'Cep Telefonu', group: 'İletişim ve Adres' },
+  mahalle: { label: 'Mahalle', group: 'İletişim ve Adres' },
+  mahalleKodu: { label: 'Mahalle Kodu', group: 'İletişim ve Adres', hidden: true },
+  cadde: { label: 'Cadde', group: 'İletişim ve Adres' },
+  sokak: { label: 'Sokak', group: 'İletişim ve Adres' },
+  site: { label: 'Site', group: 'İletişim ve Adres', hidden: true },
+  blok: { label: 'Blok', group: 'İletişim ve Adres', hidden: true },
+  binaNo: { label: 'Bina No', group: 'İletişim ve Adres' },
+  daireNo: { label: 'Daire No', group: 'İletişim ve Adres' },
+  adresNo: { label: 'Adres No', group: 'İletişim ve Adres' },
+  adres: { label: 'Adres', group: 'İletişim ve Adres' },
+  toplamBirey: { label: 'Toplam Birey', group: 'Hane ve Konut' },
+  kayitliBireySayisi: { label: 'Kayıtlı Birey Sayısı', group: 'Hane ve Konut', hidden: true },
+  aileNiteligi: { label: 'Aile Niteliği', group: 'Hane ve Konut', hidden: true },
+  konutTuru: { label: 'Konut Türü', group: 'Hane ve Konut', hidden: true },
+  konutDurumu: { label: 'Konut Durumu', group: 'Hane ve Konut', hidden: true },
+  isinmaTuru: { label: 'Isınma Türü', group: 'Hane ve Konut', hidden: true },
+  mulkiyetDurumu: { label: 'Mülkiyet Durumu', group: 'Hane ve Konut', hidden: true },
+  kiraMiktari: { label: 'Kira Miktarı', group: 'Hane ve Konut', hidden: true },
+  toplamGelir: { label: 'Toplam Gelir', group: 'Hane ve Konut', hidden: true },
+  aciklama: { label: 'Açıklama', group: 'Açıklama' },
+  eskiAciklama: { label: 'Eski Açıklama', group: 'Açıklama', hidden: true },
+  kaydiAcan: { label: 'Kaydı Açan', group: 'Kayıt Bilgisi', hidden: true },
+  sonIslemYapan: { label: 'Son İşlem Yapan', group: 'Kayıt Bilgisi', hidden: true },
+  olusturmaTarihi: { label: 'Oluşturma Tarihi', group: 'Kayıt Bilgisi' },
+  guncellemeTarihi: { label: 'Güncelleme Tarihi', group: 'Kayıt Bilgisi' },
+  konumEnlem: { label: 'Konum Enlem', group: 'Konum', hidden: true },
+  konumBoylam: { label: 'Konum Boylam', group: 'Konum', hidden: true },
+  konumKaynagi: { label: 'Konum Kaynağı', group: 'Konum', hidden: true },
+  konumDurumu: { label: 'Konum Durumu', group: 'Konum', hidden: true },
+  konumGuven: { label: 'Konum Güven Skoru', group: 'Konum', hidden: true },
+  konumAdresHash: { label: 'Konum Adres Özeti', group: 'Konum', hidden: true },
+  konumHata: { label: 'Konum Hatası', group: 'Konum', hidden: true },
+  konumTarihi: { label: 'Konum Tarihi', group: 'Konum', hidden: true },
 }
+const DOCUMENT_COLUMN_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(DOCUMENT_COLUMNS).map(([key, def]) => [key, def.label]),
+)
+const DOCUMENT_COLUMN_GROUPS: Record<string, string> = Object.fromEntries(
+  Object.entries(DOCUMENT_COLUMNS).map(([key, def]) => [key, def.group]),
+)
+const DOCUMENT_DEFAULT_HIDDEN_COLUMNS = Object.entries(DOCUMENT_COLUMNS)
+  .filter(([, def]) => def.hidden)
+  .map(([key]) => key)
+const DOCUMENT_COLUMN_ORDER = Object.keys(DOCUMENT_COLUMNS)
 
 export default function AllDocumentsPage() {
   const destructiveAuthorizationRef = useRef<DestructiveAuthorizationDialogHandle>(null)
@@ -191,6 +250,7 @@ export default function AllDocumentsPage() {
   const lastRecord = data.length === 0 ? 0 : firstRecord + data.length - 1
   const canGoPrevious = pagination.page > 1 && !loading
   const canGoNext = pagination.hasNext && !loading
+  const totalPages = Math.max(1, Math.ceil(totalCount / (pagination.limit || PAGE_SIZE)))
   const selectedRows = data.filter((row) => row.id && selectedRowIds.includes(String(row.id)))
 
   // Baska bir SAYFAdaki secimler, o an data icinde GORUNMEDIGI icin
@@ -402,13 +462,21 @@ export default function AllDocumentsPage() {
   }
 
   return (
-    <div className="dy-dosyalar space-y-6">
+    <div className="dy-dosyalar dy-tum-dosyalar space-y-4">
       <DestructiveAuthorizationDialog ref={destructiveAuthorizationRef} />
+      {/* 2026-10-15: lacivert/altin kurumsal baslik (dy-page-hero teal
+          ezmesi bu sayfada kaldirildi - Yardımlar/Dosya Yönetimi ile ayni dil). */}
       <ReportPageHeader
-        className="dy-page-hero"
         eyebrow="Dosya Yönetimi"
+        kicker="Dosya Yönetimi › Tüm Dosyalar"
         title="Tüm Dosyalar"
-        description={`${firstRecord}-${lastRecord} arası kayıtlar gösteriliyor.`}
+        subtitle={
+          <>
+            {formatCount(totalCount)} dosya
+            {data.length > 0 && <> · {formatCount(firstRecord)}–{formatCount(lastRecord)} arası gösteriliyor</>}
+            {selectedRowIds.length > 0 && <> · <span className="font-bold text-[#E9D9A8]">{formatCount(selectedRowIds.length)} seçili</span></>}
+          </>
+        }
         actions={
           <div className="flex flex-wrap gap-2">
             <button type="button" className={reportHeaderGhostButton} onClick={() => setIsReportModalOpen(true)}>
@@ -431,18 +499,23 @@ export default function AllDocumentsPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-4 rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50/80 via-white to-emerald-50/60 p-4 shadow-[0_14px_35px_rgba(0,118,182,0.10)] print:hidden">
-        <form onSubmit={handleSearch} className="flex w-full gap-2">
-          <input
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="Dosya no, dosyadaki herhangi bir bireyin adı/TC'si, kart no, telefon, mahalle, cadde/sokak, adres veya açıklama ara"
-            className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-[16px] font-bold text-slate-950 placeholder:text-slate-400 shadow-sm outline-none focus:border-[#0076b6]"
-          />
-          <button
-            type="submit"
-            className="rounded-md bg-[#0076b6] px-4 py-2 text-[15px] font-extrabold text-white hover:bg-[#00649b]"
-          >
+      {/* 2026-10-15: arac cubugu islev gruplarina ayrildi (Seçim · Dosya ·
+          Dışa Aktar · Temizle/Sil); renkli tekil dugmeler yerine tek kurumsal
+          dil. Islevler/onaylar AYNEN korunur. */}
+      <div className={corporateToolbarCard}>
+        <form onSubmit={handleSearch} className="flex w-full flex-wrap gap-2 sm:flex-nowrap">
+          <div className="relative min-w-0 flex-1">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
+              <ToolbarIcon name="search" />
+            </span>
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Dosya no, bireyin adı/TC'si, kart no, telefon, mahalle, cadde/sokak, adres veya açıklama ara"
+              className={corporateSearchInput}
+            />
+          </div>
+          <button type="submit" className={`${toolbarPrimaryButton} min-h-11 px-5`}>
             Ara
           </button>
           {search && (
@@ -453,88 +526,95 @@ export default function AllDocumentsPage() {
                 setSearch('')
                 setPage(1)
               }}
-              className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[15px] font-extrabold text-slate-600 hover:bg-slate-50"
+              className={`${toolbarButton} min-h-11`}
             >
-              Temizle
+              <ToolbarIcon name="x" />
+              Aramayı Temizle
             </button>
           )}
         </form>
 
-        <div className="ns-arac-cubugu grid w-full grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 [&>button]:min-h-11 [&>button]:rounded-xl [&>button]:shadow-sm [&>span]:flex [&>span]:min-h-11 [&>span]:items-center [&>span]:justify-center [&>span]:rounded-xl">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[15px] font-black text-slate-600">
-            Seçili: {selectedRowIds.length} / Filtre Sonucu: {totalCount}
-          </span>
-          <button
-            type="button"
-            onClick={() => void selectAllFilteredRows()}
-            disabled={totalCount === 0 || isSelectingFiltered}
-            className="rounded-md border border-violet-300 bg-violet-50 px-3 py-2 text-[15px] font-black text-violet-700 hover:bg-violet-100 disabled:pointer-events-none disabled:opacity-50"
-          >
-            {isSelectingFiltered ? 'Seçiliyor...' : `Filtrelenenlerin Tümünü Seç (${totalCount})`}
-          </button>
-          {selectedRowIds.length > 0 && (
-            <button type="button" onClick={() => setSelectedRowIds([])} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[15px] font-black text-slate-600 hover:bg-slate-50">
-              Seçimi Kaldır
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-slate-100 pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex min-h-10 md:min-h-11 items-center gap-2 rounded-lg border border-[#E7DDC2] bg-[#FBF8F0] px-3 md:px-3.5 py-2 text-[14.5px] md:text-[17px] font-semibold text-slate-600">
+              Seçili
+              <strong className="text-[15.5px] md:text-[18px] font-black text-[#1E2A38]">{formatCount(selectedRowIds.length)}</strong>
+              <span className="text-slate-300">/</span>
+              <strong className="text-[15.5px] md:text-[18px] font-black text-[#1E2A38]">{formatCount(totalCount)}</strong>
+              kayıt
+            </span>
+            <button
+              type="button"
+              onClick={() => void selectAllFilteredRows()}
+              disabled={totalCount === 0 || isSelectingFiltered}
+              className={toolbarButton}
+            >
+              <ToolbarIcon name="check" />
+              {isSelectingFiltered ? 'Seçiliyor...' : `Filtrelenenlerin Tümünü Seç (${formatCount(totalCount)})`}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={refreshDocuments}
-            disabled={loading}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[15px] font-black text-slate-600 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-          >
-            {loading ? 'Yenileniyor...' : 'Yenile'}
-          </button>
-          <button
-            type="button"
-            onClick={openSelectedDocument}
-            disabled={selectedRowIds.length !== 1 || selectedRows.length !== 1}
-            className="rounded-md border border-[#0076b6] bg-white px-3 py-2 text-[15px] font-black text-[#0076b6] hover:bg-[#eaf7fd] disabled:pointer-events-none disabled:opacity-50"
-          >
-            Seçili Dosyayı Aç
-          </button>
-          <button
-            type="button"
-            onClick={exportSelectedRows}
-            disabled={selectedRowIds.length === 0}
-            className="rounded-md bg-[#3f7f28] px-3 py-2 text-[15px] font-black text-white hover:bg-[#346a21] disabled:pointer-events-none disabled:opacity-50"
-          >
-            Seçilenleri XLSX Aktar
-          </button>
-          <BulkWhatsappSendButton
-            recipients={bulkWhatsappRecipients}
-            className="rounded-md bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-[15px] font-black text-white shadow-sm hover:brightness-110 disabled:pointer-events-none disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={deleteSelectedRows}
-            disabled={selectedRowIds.length === 0 || isDeleting}
-            className="rounded-md bg-rose-600 px-3 py-2 text-[15px] font-black text-white hover:bg-rose-700 disabled:pointer-events-none disabled:opacity-50"
-          >
-            {isDeleting ? 'Siliniyor...' : 'Sil'}
-          </button>
-          <button
-            type="button"
-            onClick={exportAllRows}
-            disabled={exportStatus === 'loading'}
-            className="rounded-md bg-amber-500 px-3 py-2 text-[15px] font-black text-white hover:bg-amber-600 disabled:pointer-events-none disabled:opacity-60"
-          >
-            {exportStatus === 'loading' ? 'Aktarılıyor...' : 'Tüm Dosyaları XLSX Aktar'}
-          </button>
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[15px] font-black text-slate-600 hover:bg-slate-50"
-          >
-            Filtreleri Temizle
-          </button>
+            {selectedRowIds.length > 0 && (
+              <button type="button" onClick={() => setSelectedRowIds([])} className={toolbarButton}>
+                <ToolbarIcon name="x" />
+                Seçimi Kaldır
+              </button>
+            )}
+          </div>
+
+          <ToolbarDivider />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={openSelectedDocument}
+              disabled={selectedRowIds.length !== 1 || selectedRows.length !== 1}
+              className={toolbarPrimaryButton}
+              title="Tek bir dosya seçiliyken açar (satıra çift tıklayarak da açabilirsiniz)"
+            >
+              <ToolbarIcon name="open" />
+              Seçili Dosyayı Aç
+            </button>
+            <button type="button" onClick={refreshDocuments} disabled={loading} className={toolbarButton}>
+              <ToolbarIcon name="refresh" />
+              {loading ? 'Yenileniyor...' : 'Yenile'}
+            </button>
+          </div>
+
+          <ToolbarDivider />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={exportSelectedRows} disabled={selectedRowIds.length === 0} className={toolbarButton}>
+              <ToolbarIcon name="download" />
+              Seçilenleri XLSX
+            </button>
+            <button type="button" onClick={exportAllRows} disabled={exportStatus === 'loading'} className={toolbarButton}>
+              <ToolbarIcon name="download" />
+              {exportStatus === 'loading' ? 'Aktarılıyor...' : 'Tüm Dosyalar XLSX'}
+            </button>
+            <BulkWhatsappSendButton recipients={bulkWhatsappRecipients} className={toolbarButton} />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+            <button type="button" onClick={clearFilters} className={toolbarButton}>
+              <ToolbarIcon name="filterOff" />
+              Filtreleri Temizle
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelectedRows}
+              disabled={selectedRowIds.length === 0 || isDeleting}
+              className={toolbarDangerButton}
+            >
+              <ToolbarIcon name="trash" />
+              {isDeleting ? 'Siliniyor...' : selectedRowIds.length > 0 ? `Sil (${formatCount(selectedRowIds.length)})` : 'Sil'}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-sky-200 bg-white p-4 shadow-[0_14px_35px_rgba(15,23,42,0.08)]">
+      <div className={corporateTableCard}>
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-sky-600 border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#1E2A38] border-t-transparent" />
           </div>
         ) : error ? (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
@@ -557,11 +637,14 @@ export default function AllDocumentsPage() {
             getRowId={(row) => String(row.id)}
             showRowNumber
             rowNumberStart={firstRecord || 1}
-            preferredColumnOrder={['dosyaId', 'dosyaNo', 'durum', 'incelemePuani', 'dosyaSahibi']}
+            preferredColumnOrder={DOCUMENT_COLUMN_ORDER}
             // Kullanici istegi: hicbir sutun artik zorla gorunur/kilitli
             // degil - kullanici HER sutunu (Cep Telefonu dahil) gosterip
             // gizleyebilir.
             columnLabels={DOCUMENT_COLUMN_LABELS}
+            columnGroups={DOCUMENT_COLUMN_GROUPS}
+            defaultHiddenColumns={DOCUMENT_DEFAULT_HIDDEN_COLUMNS}
+            corporate
             fileStatusColumns={['durum']}
             fileStatusVariant="solid"
             columnReorderingControls
@@ -574,29 +657,17 @@ export default function AllDocumentsPage() {
         )}
 
         {!error && (
-          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-            <div className="text-xs font-bold text-slate-500">
-              Sayfa {pagination.page} (Toplam {totalCount} kayıt)
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={!canGoPrevious}
-                className="rounded border border-slate-200 bg-white px-3 py-1.5 text-[15px] font-extrabold transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-              >
-                Önceki
-              </button>
-              <button
-                type="button"
-                onClick={() => setPage((current) => current + 1)}
-                disabled={!canGoNext}
-                className="rounded border border-slate-200 bg-white px-3 py-1.5 text-[15px] font-extrabold transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-              >
-                Sonraki
-              </button>
-            </div>
-          </div>
+          <CorporatePagination
+            page={pagination.page}
+            totalPages={totalPages}
+            totalCount={totalCount}
+            firstRecord={firstRecord}
+            lastRecord={lastRecord}
+            hasRows={data.length > 0}
+            canGoPrevious={canGoPrevious}
+            canGoNext={canGoNext}
+            onPageChange={setPage}
+          />
         )}
       </div>
 

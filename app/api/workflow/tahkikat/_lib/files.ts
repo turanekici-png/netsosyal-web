@@ -3,6 +3,7 @@ import { foldTurkish } from '@/lib/utils'
 import { ensureTahkikatAtamalariTable } from './assignments'
 import { ensureTahkikatPaketleriTable } from './rotation'
 import { applyDueRotations } from './autoRotate'
+import { aktifEvZiyaretiTekrarlari, type EvZiyaretiTekrarUyarisi } from '@/lib/workflow/evZiyaretiTekrar'
 
 type PaketOwnerRow = {
   id: bigint | number | string
@@ -55,6 +56,8 @@ export type AnnotatedTahkikatFile = {
   zoneOwnerId: string | null
   zoneOwnerName: string | null
   effectiveOwnerId: string | null
+  // 2026-10-15: Sonuç Bekleyen'den "Ev Ziyareti Tekrarı" ile geri gelen dosya
+  evZiyaretiTekrari: EvZiyaretiTekrarUyarisi | null
 }
 
 // Tahkikat asamasindaki (dosyalar.durumu = 1) TUM dosyalari, her birinin
@@ -106,6 +109,7 @@ export async function getAnnotatedTahkikatFiles(): Promise<AnnotatedTahkikatFile
   `
 
   await applyDueRotations()
+  const tekrarlar = await aktifEvZiyaretiTekrarlari(rows.map((row) => String(row.file_id)))
 
   const paketRows = await prisma.$queryRaw<PaketOwnerRow[]>`
     SELECT p.id, p.mahalleler, p.sorumlukullaniciid,
@@ -154,6 +158,7 @@ export async function getAnnotatedTahkikatFiles(): Promise<AnnotatedTahkikatFile
       zoneOwnerId,
       zoneOwnerName,
       effectiveOwnerId,
+      evZiyaretiTekrari: tekrarlar.get(String(row.file_id)) ?? null,
     }
   })
 }

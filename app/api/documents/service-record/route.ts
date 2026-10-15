@@ -6,6 +6,8 @@ import { requireDestructiveAuthorization } from '@/lib/security/destructiveAutho
 import { getAuditMetaFromRequest, stampAuditUser, withAuditedWrite } from '@/lib/db/auditContext'
 import { CANCEL_REASON_SEPARATOR } from '@/lib/nakitAutoRejectText'
 import { ensureCashReasonColumnWidth } from '@/lib/services/cashReasonColumn'
+import { kesilenYardiminDoneminiKapat } from '@/lib/services/donemKapat.service'
+import { KIS_DONEMI_ETIKETI, KIS_DONEMI_TABLOLARI, YARDIM_DURUMU_BEKLIYOR, YARDIM_DURUMU_DEVAM, kisDonemiDurumu } from '@/lib/constants/kisDonemi'
 
 export const dynamic = 'force-dynamic'
 
@@ -453,6 +455,8 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ success: false, error: 'Güncellenecek kayıt bulunamadı.' }, { status: 404 })
       }
 
+      // 2026-10-15: kesilen yardimin donemi "Kapalı" olur (bkz. lib/constants/kisDonemi.ts)
+      await withAuditedWrite((tx) => kesilenYardiminDoneminiKapat(sourceTable, recordId.toString(), tx), getAuditMetaFromRequest(request)).catch(() => 0)
       return NextResponse.json({ success: true, updatedCount: result.updatedCount, reportAdded: result.reportAdded, cancelReason: storedReason })
     }
 
@@ -588,8 +592,34 @@ export async function PATCH(request: Request) {
         pushUpdate('muracaataciklama', description)
         pushUpdate('durumuaciklama', description)
       }
-      if (status !== null) {
-        pushUpdate('durumu', status)
+      // 2026-10-15: Kış Dönemi seçili yardımda "Devam Ediyor"/"Bekliyor"
+      // istendiginde durum TARIHLERE gore belirlenir (baslangic gelmediyse 7
+      // Bekliyor, donem icindeyse 2, bitis geldiyse 3) - bkz. lib/constants/
+      // kisDonemi.ts. Müracaat (0) ve elle verilen İptal/Durduruldu korunur.
+      let yazilacakDurum = status
+      if (
+        status !== null && (String(status) === YARDIM_DURUMU_DEVAM || String(status) === YARDIM_DURUMU_BEKLIYOR)
+        && (KIS_DONEMI_TABLOLARI as readonly string[]).includes(sourceTable)
+      ) {
+        let donemDegeri = hasField('period') ? period : null
+        let bas = hasField('startDate') ? startDate : null
+        let bit = hasField('endDate') ? endDate : null
+        if (!hasField('period') || !hasField('startDate') || !hasField('endDate')) {
+          const mevcut = await prisma.$queryRawUnsafe<Array<{ donem: string | null; bas: string | null; bit: string | null }>>(
+            `SELECT donem, TO_CHAR(bastarih, 'YYYY-MM-DD') AS bas, TO_CHAR(bittarih, 'YYYY-MM-DD') AS bit
+             FROM ${quoteIdentifier(sourceTable)} WHERE id = $1::bigint AND dosyaid = $2::bigint`,
+            recordId.toString(), fileId.toString(),
+          )
+          if (!hasField('period')) donemDegeri = mevcut[0]?.donem ?? null
+          if (!hasField('startDate')) bas = mevcut[0]?.bas ?? null
+          if (!hasField('endDate')) bit = mevcut[0]?.bit ?? null
+        }
+        if (String(donemDegeri ?? '').trim() === KIS_DONEMI_ETIKETI) {
+          yazilacakDurum = Number(kisDonemiDurumu(bas, bit))
+        }
+      }
+      if (yazilacakDurum !== null) {
+        pushUpdate('durumu', yazilacakDurum)
         pushUpdate('durumutarih', new Date().toISOString().slice(0, 10))
       }
       pushUpdate('islemtarihi', new Date().toISOString())
@@ -615,7 +645,9 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ success: false, error: 'Güncellenecek kayıt bulunamadı.' }, { status: 404 })
       }
 
-      return NextResponse.json({ success: true, updatedCount })
+      // 2026-10-15: kesilen yardimin donemi "Kapalı" olur (bkz. lib/constants/kisDonemi.ts)
+      await withAuditedWrite((tx) => kesilenYardiminDoneminiKapat(sourceTable, recordId.toString(), tx), getAuditMetaFromRequest(request)).catch(() => 0)
+      return NextResponse.json({ success: true, updatedCount, status: yazilacakDurum })
     }
 
     if (!recordId || !fileId || status === null) {
@@ -699,6 +731,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, error: 'Güncellenecek kayıt bulunamadı.' }, { status: 404 })
     }
 
+    await withAuditedWrite((tx) => kesilenYardiminDoneminiKapat(sourceTable, recordId.toString(), tx), getAuditMetaFromRequest(request)).catch(() => 0)
     return NextResponse.json({ success: true, updatedCount })
   } catch (error) {
     return NextResponse.json(

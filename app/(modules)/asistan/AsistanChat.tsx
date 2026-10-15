@@ -7,6 +7,44 @@ import { formatCellValue, saveAsistanReport, downloadResultAsXlsx } from '@/lib/
 
 type ChatTable = { columns: string[]; rows: Record<string, unknown>[]; truncated: boolean } | null
 
+type HazirSoru = { id: string; kategori: string; etiket: string; soru: string }
+
+const HAZIR_SORU_GRUPLARI: Record<string, string> = {
+  istatistik: 'İstatistik',
+  rapor: 'Raporlar',
+  'is-akisi': 'İş Akışı',
+  online: 'Online Başvuru',
+  dosya: 'Dosya İşlemleri',
+}
+
+function HazirSoruListesi({ sorular, onSec, compact }: { sorular: HazirSoru[]; onSec: (soru: string) => void; compact: boolean }) {
+  const gruplar = Object.keys(HAZIR_SORU_GRUPLARI)
+    .map((kategori) => ({ kategori, sorular: sorular.filter((s) => s.kategori === kategori) }))
+    .filter((grup) => grup.sorular.length > 0)
+  return (
+    <div className={compact ? 'space-y-2' : 'space-y-3'}>
+      {gruplar.map((grup) => (
+        <div key={grup.kategori}>
+          <p className={`mb-1.5 font-bold uppercase tracking-[0.12em] text-[#8A6D2B] ${compact ? 'text-[10.5px]' : 'text-[13px]'}`}>{HAZIR_SORU_GRUPLARI[grup.kategori]}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {grup.sorular.map((soru) => (
+              <button
+                key={soru.id}
+                type="button"
+                onClick={() => onSec(soru.soru)}
+                title={soru.soru}
+                className={`rounded-lg border border-[#D5DDE2] bg-white font-semibold text-[#1E2A38] shadow-[0_1px_2px_rgba(16,30,43,0.05)] transition hover:border-[#1E2A38] hover:bg-[#F6F3EA] ${compact ? 'px-2.5 py-1 text-[12.5px]' : 'px-3.5 py-2 text-[16px]'}`}
+              >
+                {soru.etiket}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 type ChatMessage = {
   role: 'user' | 'model'
   text: string
@@ -182,6 +220,16 @@ export function AsistanChat({ compact = false }: { compact?: boolean } = {}) {
     setMessages(loadStoredMessages())
   }, [])
 
+  // 2026-10-15: Ayarlar > Sosyal Asistan > Hazır Sorular'dan gelen kisayollar.
+  const [hazirSorular, setHazirSorular] = useState<HazirSoru[]>([])
+  const [hazirAcik, setHazirAcik] = useState(false)
+  useEffect(() => {
+    fetch('/api/asistan/hazir-sorular', { cache: 'no-store' })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => { if (payload?.success && Array.isArray(payload.data)) setHazirSorular(payload.data) })
+      .catch(() => { /* hazir sorular olmadan da sohbet calisir */ })
+  }, [])
+
   useEffect(() => {
     if (isFirstSaveRef.current) {
       isFirstSaveRef.current = false
@@ -200,8 +248,19 @@ export function AsistanChat({ compact = false }: { compact?: boolean } = {}) {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }))
   }
 
-  const sendMessage = async () => {
-    const trimmed = input.trim()
+  // Hazir soru: metin bosluk/":" ile bitiyorsa kullanici tamamlasin diye
+  // sadece yazma alanina yerlestirilir, aksi halde dogrudan sorulur.
+  const hazirSoruSec = (soru: string) => {
+    setHazirAcik(false)
+    if (/[\s:]$/.test(soru)) {
+      setInput(soru)
+      return
+    }
+    void sendMessage(soru)
+  }
+
+  const sendMessage = async (dogrudanMetin?: string) => {
+    const trimmed = (dogrudanMetin ?? input).trim()
     if (!trimmed || isSending) return
 
     const nextMessages: ChatMessage[] = [...messages, { role: 'user', text: trimmed }]
@@ -301,9 +360,16 @@ export function AsistanChat({ compact = false }: { compact?: boolean } = {}) {
       )}
       <div className={`app-visible-scroll min-h-0 flex-1 space-y-3 overflow-y-auto ${compact ? 'p-3' : 'p-4 sm:p-6'}`}>
         {messages.length === 0 && (
-          <div className={`rounded-lg border border-dashed border-slate-300 bg-slate-50 font-semibold text-slate-500 ${compact ? 'p-3 text-base' : 'p-5 text-xl'}`}>
-            Örnek sorular: &quot;Bu ay kaç nakit yardımı ödendi?&quot;, &quot;Filizli mahallesinde kaç aktif dosya var?&quot;, &quot;Son 30 günde incelenecek aşamasında kaç başvuru var?&quot;
-          </div>
+          hazirSorular.length > 0 ? (
+            <div className={`rounded-xl border border-[#D5DDE2] bg-[#F7F8FA] ${compact ? 'p-3' : 'p-5'}`}>
+              <p className={`mb-3 font-semibold text-slate-600 ${compact ? 'text-[13px]' : 'text-lg'}`}>Bir soru yazın ya da aşağıdaki hazır sorulardan birini seçin:</p>
+              <HazirSoruListesi sorular={hazirSorular} onSec={hazirSoruSec} compact={compact} />
+            </div>
+          ) : (
+            <div className={`rounded-lg border border-dashed border-slate-300 bg-slate-50 font-semibold text-slate-500 ${compact ? 'p-3 text-base' : 'p-5 text-xl'}`}>
+              Örnek sorular: &quot;Bu ay kaç nakit yardımı ödendi?&quot;, &quot;Filizli mahallesinde kaç aktif dosya var?&quot;, &quot;Son 30 günde incelenecek aşamasında kaç başvuru var?&quot;
+            </div>
+          )
         )}
         {messages.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -331,6 +397,23 @@ export function AsistanChat({ compact = false }: { compact?: boolean } = {}) {
         <div ref={bottomRef} />
       </div>
 
+      {messages.length > 0 && hazirSorular.length > 0 && (
+        <div className={`shrink-0 border-t border-slate-200 ${compact ? 'px-3 pt-2' : 'px-4 pt-3'}`}>
+          <button
+            type="button"
+            onClick={() => setHazirAcik((acik) => !acik)}
+            aria-expanded={hazirAcik}
+            className={`font-bold text-[#1E2A38] hover:text-[#8A6D2B] ${compact ? 'text-[12.5px]' : 'text-[15px]'}`}
+          >
+            {hazirAcik ? '▾' : '▸'} Hazır Sorular
+          </button>
+          {hazirAcik && (
+            <div className={`mt-2 max-h-56 overflow-y-auto rounded-lg border border-[#D5DDE2] bg-[#F7F8FA] ${compact ? 'p-2.5' : 'p-3'}`}>
+              <HazirSoruListesi sorular={hazirSorular} onSec={hazirSoruSec} compact={compact} />
+            </div>
+          )}
+        </div>
+      )}
       <div className={`flex shrink-0 items-end gap-2 border-t border-slate-200 ${compact ? 'p-3' : 'p-4'}`}>
         <textarea
           value={input}

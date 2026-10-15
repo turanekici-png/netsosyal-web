@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma'
 import { requireApiAccess } from '@/lib/apiAuth'
 import { parseSessionValue, readSessionCookie } from '@/lib/auth'
 import { getAuditMetaFromRequest, stampAuditUser } from '@/lib/db/auditContext'
+import { evZiyaretiTekrarTablosunuHazirla } from '@/lib/workflow/evZiyaretiTekrar'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     const currentUserId = getCurrentUserId(request)
+    await evZiyaretiTekrarTablosunuHazirla()
     const result = await prisma.$transaction(async (tx) => {
       await stampAuditUser(tx, undefined, getAuditMetaFromRequest(request))
 
@@ -81,6 +83,12 @@ export async function POST(request: NextRequest) {
       if (Number(updatedCount) === 0) {
         throw new Error('Guncellenecek dosya bulunamadi.')
       }
+
+      // 2026-10-15: yeni ziyaret raporu - "Ev Ziyareti Tekrarı" uyarisi kapanir
+      await tx.$executeRaw`
+        UPDATE public.ev_ziyareti_tekrar SET kapanma_tarihi = NOW()
+        WHERE dosyaid = ${fileId} AND kapanma_tarihi IS NULL;
+      `
 
       return reports[0]
     })

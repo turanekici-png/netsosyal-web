@@ -112,12 +112,20 @@ export function PwaProvider({ children }: { children: ReactNode }) {
     isInstalled,
     isIOS,
     isSecureContext,
+    // 2026-10-15: prompt() bazi bilgisayarlarda REDDEDILEBILIR (istem daha
+    // once kullanilmis/bayatlamis, tarayici politikasi yuklemeyi engelliyor,
+    // uygulama zaten yuklu). Eskiden bu hata yakalanmiyordu -> dugme hata
+    // veriyordu. Artik firlatilir ama istem temizlenir; cagiran (dugme)
+    // yakalayip talimat penceresini acar.
     promptInstall: async () => {
       if (!deferredPrompt) return false
-      await deferredPrompt.prompt()
-      const choice = await deferredPrompt.userChoice
-      setDeferredPrompt(null)
-      return choice.outcome === 'accepted'
+      try {
+        await deferredPrompt.prompt()
+        const choice = await deferredPrompt.userChoice
+        return choice.outcome === 'accepted'
+      } finally {
+        setDeferredPrompt(null)
+      }
     },
   }), [deferredPrompt, isInstalled, isIOS, isSecureContext])
 

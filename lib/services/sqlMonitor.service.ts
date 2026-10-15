@@ -36,7 +36,12 @@ export interface SqlMonitorColumn {
   columnName: string
   dataType: string
   isNullable: boolean
+  // 2026-10-15: SQL Monitor "Yeni Kayıt" - varsayilan degeri olan (ör.
+  // nextval(...) otomatik artan id) kolonlar bos birakilinca DB doldurur.
+  columnDefault?: string | null
 }
+
+type RowQueryOptions = { limit?: number; offset?: number; search?: string; sort?: string; dir?: string; filters?: Record<string, string> }
 
 export interface SqlCommandResult {
   command: string
@@ -141,10 +146,10 @@ class SqlMonitorService extends ModuleService {
     const pool = getSqlMonitorPool()
 
     const columns = await pool.query<
-      { column_name: string; data_type: string; is_nullable: string }
+      { column_name: string; data_type: string; is_nullable: string; column_default: string | null }
     >(
       `
-      SELECT column_name, data_type, is_nullable
+      SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = $1
@@ -157,29 +162,15 @@ class SqlMonitorService extends ModuleService {
       columnName: column.column_name,
       dataType: column.data_type,
       isNullable: column.is_nullable === 'YES',
+      columnDefault: column.column_default,
     }))
   }
 
-  // Kullanici istegi (Eylul 2026): "SQL Monitor - basliklardan siralama +
-  // sutun bazli filtre". "sort" (sutun adi), "dir" (asc/desc) ve "filters"
-  // (sutun -> ILIKE degeri) ARTIK gercek sutun listesine gore DOGRULANIR
-  // (SQL injection yok - sutun adlari whitelist, degerler parametreli).
-  async getTableRows(
-    tableName: string,
-    options: { limit?: number; search?: string; sort?: string; dir?: string; filters?: Record<string, string> } | number = {},
-    legacySearch = '',
-  ) {
-    await this.ensurePublicTable(tableName)
-    const pool = getSqlMonitorPool()
-
-    // Geriye donuk uyum: eski imza getTableRows(name, limit, search)
-    const opts = typeof options === 'number' ? { limit: options, search: legacySearch } : options
-
-    const safeLimit = Math.min(Math.max(Number(opts.limit) || 100, 1), 500)
-    const quotedTable = this.quoteIdentifier(tableName)
-    const columns = await this.getTableColumns(tableName)
+  // Arama + sutun filtrelerinden WHERE parcasi (getTableRows ve
+  // countTableRows AYNI kosulu kullansin diye ortak). Sutun adlari gercek
+  // listeye karsi dogrulanir, degerler parametrelidir.
+  private buildRowWhere(columns: SqlMonitorColumn[], opts: RowQueryOptions) {
     const columnSet = new Set(columns.map((column) => column.columnName))
-
     const params: unknown[] = []
     const whereParts: string[] = []
 
@@ -201,16 +192,76 @@ class SqlMonitorService extends ModuleService {
       }
     }
 
+    return { whereSql: whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '', params, columnSet }
+  }
+
+  // 2026-10-15: sayfalama icin filtreye uyan TOPLAM satir sayisi.
+  async countTableRows(tableName: string, opts: RowQueryOptions = {}) {
+    await this.ensurePublicTable(tableName)
+    const columns = await this.getTableColumns(tableName)
+    const { whereSql, params } = this.buildRowWhere(columns, opts)
+    const result = await getSqlMonitorPool().query<{ count: string }>(
+      `SELECT COUNT(*)::bigint AS count FROM public.${this.quoteIdentifier(tableName)} AS t ${whereSql};`,
+      params,
+    )
+    return Number(result.rows[0]?.count ?? 0)
+  }
+
+  // 2026-10-15: "Yeni Kayıt" - parametreli INSERT. Bos birakilan alanlar
+  // gonderilmez (DB varsayilani / otomatik id / NULL devreye girer).
+  async insertTableRow(tableName: string, values: Record<string, unknown>) {
+    await this.ensurePublicTable(tableName)
+    const columns = await this.getTableColumns(tableName)
+    const columnByName = new Map(columns.map((column) => [column.columnName, column]))
+    const entries = Object.entries(values ?? {}).filter(([columnName, value]) => (
+      columnByName.has(columnName) && value !== undefined && !(value === '' || value === null)
+    ))
+
+    const quotedTable = this.quoteIdentifier(tableName)
+    const sql = entries.length === 0
+      ? `INSERT INTO public.${quotedTable} DEFAULT VALUES RETURNING ctid::text AS "__rowid", *;`
+      : `INSERT INTO public.${quotedTable} (${entries.map(([c]) => this.quoteIdentifier(c)).join(', ')})
+         VALUES (${entries.map((_, i) => `$${i + 1}`).join(', ')})
+         RETURNING ctid::text AS "__rowid", *;`
+
+    try {
+      const result = await getSqlMonitorPool().query(sql, entries.map(([, value]) => value))
+      return this.serializeData(result.rows[0] ?? null)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Kayıt eklenemedi: ${message}`)
+    }
+  }
+
+  // Kullanici istegi (Eylul 2026): "SQL Monitor - basliklardan siralama +
+  // sutun bazli filtre". "sort" (sutun adi), "dir" (asc/desc) ve "filters"
+  // (sutun -> ILIKE degeri) ARTIK gercek sutun listesine gore DOGRULANIR
+  // (SQL injection yok - sutun adlari whitelist, degerler parametreli).
+  async getTableRows(
+    tableName: string,
+    options: RowQueryOptions | number = {},
+    legacySearch = '',
+  ) {
+    await this.ensurePublicTable(tableName)
+    const pool = getSqlMonitorPool()
+
+    // Geriye donuk uyum: eski imza getTableRows(name, limit, search)
+    const opts: RowQueryOptions = typeof options === 'number' ? { limit: options, search: legacySearch } : options
+
+    const safeLimit = Math.min(Math.max(Number(opts.limit) || 100, 1), 500)
+    const safeOffset = Math.max(Math.floor(Number(opts.offset) || 0), 0)
+    const quotedTable = this.quoteIdentifier(tableName)
+    const columns = await this.getTableColumns(tableName)
+    const { whereSql, params, columnSet } = this.buildRowWhere(columns, opts)
+
     let orderBySql = ''
     if (opts.sort && columnSet.has(opts.sort)) {
       const direction = String(opts.dir ?? 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC'
       orderBySql = `ORDER BY t.${this.quoteIdentifier(opts.sort)} ${direction} NULLS LAST`
     }
 
-    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : ''
-
     const rows = await pool.query(
-      `SELECT t.ctid::text AS "__rowid", t.* FROM public.${quotedTable} AS t ${whereSql} ${orderBySql} LIMIT ${safeLimit};`,
+      `SELECT t.ctid::text AS "__rowid", t.* FROM public.${quotedTable} AS t ${whereSql} ${orderBySql} LIMIT ${safeLimit} OFFSET ${safeOffset};`,
       params,
     )
 

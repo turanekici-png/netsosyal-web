@@ -2,7 +2,7 @@
 
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Responsive, useContainerWidth, getCompactor, type Layout } from 'react-grid-layout'
 import { useUiScale } from '@/components/layout/ScaleContext'
 import { createParentAwareScaledStrategy } from '@/components/shared/rglParentAwareScaledStrategy'
@@ -604,6 +604,32 @@ export function DashboardGrid({
     persistLayouts(next, hiddenIds)
   }
 
+  // 2026-10-15: kullanicinin sonradan ekledigi (ör. "Özet Rapor Ekle") ve
+  // kayitli duzende HENUZ yeri olmayan kutular, react-grid-layout'un 1x1'lik
+  // varsayilanina dusmesin diye en alta 16 sutunluk (satira 3 kutu) ve
+  // okunur yukseklikte yerlestirilir. Kullanici Tasarim Modu'nda tasirsa
+  // yeni yeri normal sekilde kaydedilir.
+  const effectiveLayouts = useMemo(() => {
+    const lg = Array.isArray(layouts.lg) ? layouts.lg : []
+    const placed = new Set(lg.map((item) => item.i))
+    const missing = widgets.filter((widget) => !placed.has(widget.id))
+    if (missing.length === 0) return layouts
+    const bottom = lg.reduce((max, item) => Math.max(max, item.y + item.h), 0)
+    const AUTO_W = 16
+    const AUTO_H = 44
+    const perRow = Math.max(1, Math.floor(COLS.lg / AUTO_W))
+    const extra = missing.map((widget, index) => ({
+      i: widget.id,
+      x: (index % perRow) * AUTO_W,
+      y: bottom + Math.floor(index / perRow) * AUTO_H,
+      w: AUTO_W,
+      h: AUTO_H,
+      minW: 8,
+      minH: 16,
+    }))
+    return { ...layouts, lg: [...lg, ...extra] }
+  }, [layouts, widgets])
+
   const resetMobileLayout = () => {
     // Sadece MOBIL SIRAYI varsayilana dondurur - masaustu ("lg") duzenine
     // ve gizli/gosterilen kutu tercihine (hiddenIds, iki taraf ortak)
@@ -618,7 +644,7 @@ export function DashboardGrid({
   return (
     <div>
       {canEdit && !isNarrowViewport && (
-        <div className={`mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[11px] font-bold shadow-sm ${designMode ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-500'}`}>
+        <div className={`mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[13px] font-semibold shadow-sm ${designMode ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-500'}`}>
           <span className="truncate">
             {designMode
               ? 'Tasarım modunu değiştiriyorsunuz - kutuların başlığından tutup sürükleyin, sağ-alt köşeden boyutlandırın. Başlığa tıklayıp seçtiğiniz kutuyu yön tuşlarıyla (Shift ile daha hızlı) taşıyabilir, Ctrl+yön tuşlarıyla boyutlandırabilirsiniz. Bu düzen hesabınıza kaydedilir.'
@@ -773,7 +799,7 @@ export function DashboardGrid({
         {mounted && isLoaded && (
           <Responsive
             key={gridInstanceKey}
-            layouts={layouts}
+            layouts={effectiveLayouts}
             breakpoints={BREAKPOINTS}
             cols={COLS}
             width={width}

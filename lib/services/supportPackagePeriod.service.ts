@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma'
+import { ensureWinterSeasonalAidActivation } from './winterSeasonalAid.service'
 
 const globalForSupportPackagePeriods = globalThis as unknown as {
   supportPackagePeriodRunDate?: string
@@ -39,6 +40,11 @@ export async function ensureMonthlySupportPackagePeriods() {
   }
 
   globalForSupportPackagePeriods.supportPackagePeriodPromise = (async () => {
+    // 2026-10-15: 01 Kasim'da Kış Dönemi "Bekliyor" yardimlari ONCE aktive
+    // edilir - yoksa o ayin "Odenmedi" donemi (yalniz durumu=2) olusmuyordu
+    // (zamanlayicida bu is aktivasyondan once calisiyor, gun anahtari ayni gun
+    // tekrar calismasini engelliyor).
+    if (parts.day === 1) await ensureWinterSeasonalAidActivation()
     if (parts.day !== 1) {
       globalForSupportPackagePeriods.supportPackagePeriodRunDate = parts.dateKey
       return

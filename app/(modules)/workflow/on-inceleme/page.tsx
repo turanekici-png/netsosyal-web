@@ -1,7 +1,9 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useTabs } from '@/lib/context/TabContext'
+import { usePathname } from 'next/navigation'
+import { formSekmesiDosyaId, formSekmesiTuru, useFormSekmesiAc, useFormSekmesiniKapat } from '@/lib/workflow/formSekmesi'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
 import { useHoldWorkflowRecord, useWorkflowLocks, workflowLockConfirmText, type WorkflowLock } from '@/lib/hooks/useWorkflowPresence'
 import { WORKFLOW_LOCKED_ROW_CLASS, WorkflowLockNotice } from '@/components/workflow/WorkflowLockNotice'
@@ -241,6 +243,22 @@ function OnIncelemeMobileCard({ row, onOpenFile, onOpenReport, lock }: {
   )
 }
 
+// 2026-10-15: Ön İnceleme formu AYRI (sari) sekmede; kaydedilmemis taslak bu
+// tarayicida dosya bazinda saklanir - sekmeden cikip donunce devam edilir.
+type OnIncelemeTaslagi = { reportDate: string; reportAnswers: Record<string, string>; reportDescription: string; zaman: string }
+const onIncelemeTaslakAnahtari = (fileId: string) => `netsosyal:on-inceleme-taslak:${fileId}`
+function onIncelemeTaslagiOku(fileId: string): OnIncelemeTaslagi | null {
+  try {
+    const ham = window.localStorage.getItem(onIncelemeTaslakAnahtari(fileId))
+    return ham ? (JSON.parse(ham) as OnIncelemeTaslagi) : null
+  } catch {
+    return null
+  }
+}
+function onIncelemeTaslagiSil(fileId: string) {
+  try { window.localStorage.removeItem(onIncelemeTaslakAnahtari(fileId)) } catch { /* yok say */ }
+}
+
 export default function OnIncelemeWorkflowPage() {
   const [rows, setRows] = useState<InvestigationFile[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -269,6 +287,14 @@ export default function OnIncelemeWorkflowPage() {
   const [updateFormRecordStatus, setUpdateFormRecordStatus] = useState<'loading' | 'ready'>('loading')
   const [notSuitableStatusId, setNotSuitableStatusId] = useState<string | null>(null)
   const { addTab } = useTabs()
+  const pathname = usePathname()
+  const formModuDosyaId = formSekmesiTuru(pathname) === 'on-inceleme' ? formSekmesiDosyaId(pathname) : null
+  const formSekmesiAc = useFormSekmesiAc()
+  const formSekmesiniKapat = useFormSekmesiniKapat()
+  const [taslakBilgisi, setTaslakBilgisi] = useState('')
+  const [formSekmesiHatasi, setFormSekmesiHatasi] = useState('')
+  const formBaslatildiRef = useRef(false)
+  const taslakDegistiRef = useRef(false)
 
   async function loadRows(isCancelled?: () => boolean) {
     setStatus('loading')
@@ -440,10 +466,20 @@ export default function OnIncelemeWorkflowPage() {
   const openReportModal = async (row: InvestigationFile) => {
     const kilit = kilitler.get(row.fileId)
     if (kilit && !(await confirmDialog(workflowLockConfirmText(kilit), 'Yine de Aç', 'Vazgeç'))) return
+    if (!formModuDosyaId && row.fileId) {
+      formSekmesiAc('on-inceleme', row.fileId, row.fileNo)
+      return
+    }
+    raporuBaslat(row)
+  }
+
+  const raporuBaslat = (row: InvestigationFile) => {
+    const taslak = onIncelemeTaslagiOku(row.fileId)
     setReportTarget(row)
-    setReportDate(getTodayInputDate())
-    setReportAnswers({})
-    setReportDescription('')
+    setReportDate(taslak?.reportDate || getTodayInputDate())
+    setReportAnswers(taslak?.reportAnswers ?? {})
+    setReportDescription(taslak?.reportDescription ?? '')
+    setTaslakBilgisi(taslak ? `Kaydedilmemiş taslak geri yüklendi (${new Date(taslak.zaman).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })}).` : '')
     setReportError('')
     setUpdateFormRecord(null)
     setUpdateFormRecordStatus('loading')
@@ -467,6 +503,11 @@ export default function OnIncelemeWorkflowPage() {
 
   const closeReportModal = () => {
     if (reportStatus === 'saving') return
+    // Form sekmesinde: sekme kapanir, listeye donulur (taslak saklanir)
+    if (formModuDosyaId) {
+      formSekmesiniKapat('on-inceleme')
+      return
+    }
     setReportTarget(null)
     setReportError('')
   }
@@ -502,6 +543,11 @@ export default function OnIncelemeWorkflowPage() {
         throw new Error(payload.error || 'Rapor kaydedilemedi.')
       }
 
+      onIncelemeTaslagiSil(reportTarget.fileId)
+      if (formModuDosyaId) {
+        formSekmesiniKapat('on-inceleme')
+        return
+      }
       setReportTarget(null)
       await loadRows()
     } catch (err) {
@@ -510,6 +556,24 @@ export default function OnIncelemeWorkflowPage() {
       setReportStatus('idle')
     }
   }
+
+  // Form sekmesi: liste yuklenince o dosyanin formu baslar
+  useEffect(() => {
+    if (!formModuDosyaId || formBaslatildiRef.current || status !== 'ready') return
+    formBaslatildiRef.current = true
+    const satir = rows.find((row) => row.fileId === formModuDosyaId)
+    if (satir) raporuBaslat(satir)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- tek seferlik baslangic
+    else setFormSekmesiHatasi('Bu dosya artık Ön İnceleme listesinde değil (başka biri işlem yapmış olabilir).')
+  }, [formModuDosyaId, status, rows])
+
+  // Kullanici bir sey degistirdikce taslak yazilir
+  useEffect(() => {
+    if (!formModuDosyaId || !reportTarget || !taslakDegistiRef.current) return
+    try {
+      window.localStorage.setItem(onIncelemeTaslakAnahtari(reportTarget.fileId), JSON.stringify({ reportDate, reportAnswers, reportDescription, zaman: new Date().toISOString() } satisfies OnIncelemeTaslagi))
+    } catch { /* depolama kapali */ }
+  }, [formModuDosyaId, reportTarget, reportDate, reportAnswers, reportDescription])
 
   const saveReport = () => {
     void submitReport()
@@ -531,6 +595,17 @@ export default function OnIncelemeWorkflowPage() {
 
   return (
     <div className="space-y-5 text-slate-950">
+      {formModuDosyaId && !reportTarget && (
+        formSekmesiHatasi ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-4 text-base font-bold text-amber-900">
+            <span>{formSekmesiHatasi}</span>
+            <button type="button" onClick={() => formSekmesiniKapat('on-inceleme')} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-400">Listeye Dön</button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-amber-200 bg-white p-10 text-center text-base font-bold text-slate-500">Form yükleniyor...</div>
+        )
+      )}
+      {!formModuDosyaId && (<>
       <div className="ns-sayfa-baslik relative overflow-hidden rounded-lg border border-orange-200 bg-white px-5 py-4 shadow-sm">
         <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-orange-500 to-[#0076b6]" />
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -675,10 +750,15 @@ export default function OnIncelemeWorkflowPage() {
           </table>
         </div>
       </section>
+      </>)}
 
       {reportTarget && (
-        <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4">
-          <div className="flex max-h-[94vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-orange-200 bg-white shadow-2xl">
+        <div
+          className={formModuDosyaId ? 'fixed inset-0 z-[2200] flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4 lg:static lg:z-auto lg:block lg:bg-transparent lg:p-0 lg:backdrop-blur-none' : 'fixed inset-0 z-[2200] flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4'}
+          onInputCapture={() => { taslakDegistiRef.current = true }}
+          onChangeCapture={() => { taslakDegistiRef.current = true }}
+        >
+          <div className={`flex w-full flex-col overflow-hidden rounded-xl bg-white ${formModuDosyaId ? 'max-h-[94vh] max-w-4xl border-2 border-amber-400 shadow-2xl lg:h-[calc((100dvh-105px)*var(--shell-unzoom,1))] lg:max-h-none lg:max-w-none lg:shadow-sm' : 'max-h-[94vh] max-w-4xl border border-orange-200 shadow-2xl'}`}>
             <div className="flex shrink-0 items-center justify-between border-b border-orange-100 bg-orange-50 px-4 py-3 md:px-5 md:py-4">
               <div>
                 <h3 className="text-lg font-black text-orange-900">Ön İnceleme Raporu Ekle</h3>
@@ -697,6 +777,9 @@ export default function OnIncelemeWorkflowPage() {
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-5">
+              {taslakBilgisi && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">{taslakBilgisi}</div>
+              )}
               {reportError && (
                 <div className="rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700">
                   {reportError}

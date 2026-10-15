@@ -33,6 +33,8 @@ interface ActionResponse {
   data?: UserRow
 }
 
+type SortKey = 'name' | 'username' | 'phone' | 'role' | 'status'
+
 const roleLabel = (yetki?: number | null) => {
   if (yetki === 1) return 'Yönetici'
   if (yetki === 2) return 'Yetkili Kullanıcı'
@@ -50,7 +52,7 @@ function UserAvatar({ userId, name }: { userId: string; name?: string }) {
 
   if (hasError) {
     return (
-      <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-slate-100 text-xl font-black text-slate-400">
+      <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-slate-100 text-xl lg:text-2xl font-black text-slate-400">
         {initial}
       </div>
     )
@@ -115,7 +117,7 @@ function UserFormFields({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-4">
-        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-slate-300 bg-slate-100 text-2xl font-black text-slate-400">
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-slate-300 bg-slate-100 text-2xl lg:text-3xl font-black text-slate-400">
           {showPreviewImage ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -129,7 +131,7 @@ function UserFormFields({
           )}
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-lg font-black text-slate-700 transition hover:bg-slate-50">
+          <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-lg lg:text-xl font-black text-slate-700 transition hover:bg-slate-50">
             Fotoğraf Seç
             <input
               type="file"
@@ -146,7 +148,7 @@ function UserFormFields({
             <button
               type="button"
               onClick={onPhotoRemove}
-              className="inline-flex w-fit items-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-lg font-black text-rose-600 transition hover:bg-rose-100"
+              className="inline-flex w-fit items-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-lg lg:text-xl font-black text-rose-600 transition hover:bg-rose-100"
             >
               Fotoğrafı Kaldır
             </button>
@@ -154,73 +156,73 @@ function UserFormFields({
         </div>
       </div>
       <div>
-        <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Ad Soyad</label>
+        <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Ad Soyad</label>
         <input
           value={form.name}
           onChange={(event) => onChange({ ...form, name: event.target.value })}
-          className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+          className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           required
         />
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Kullanıcı Adı</label>
+          <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Kullanıcı Adı</label>
           <input
             value={form.username}
             onChange={(event) => onChange({ ...form, username: event.target.value })}
             autoComplete="off"
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
             required
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">E-posta</label>
+          <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">E-posta</label>
           <input
             type="email"
             value={form.email}
             onChange={(event) => onChange({ ...form, email: event.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           />
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Telefon</label>
+          <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Telefon</label>
           <input
             type="tel"
             value={form.phone}
             onChange={(event) => onChange({ ...form, phone: event.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Adres</label>
+          <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Adres</label>
           <input
             value={form.address}
             onChange={(event) => onChange({ ...form, address: event.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           />
         </div>
       </div>
       <div>
-        <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Şifre{passwordRequired ? '' : ' (opsiyonel)'}</label>
+        <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Şifre{passwordRequired ? '' : ' (opsiyonel)'}</label>
         <input
           type="password"
           value={form.password}
           onChange={(event) => onChange({ ...form, password: event.target.value })}
           autoComplete="new-password"
-          className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+          className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           required={passwordRequired}
         />
-        <p className="mt-1.5 text-lg font-semibold text-slate-500">{passwordHint}</p>
+        <p className="mt-1.5 text-lg lg:text-xl font-semibold text-slate-500">{passwordHint}</p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Yetki</label>
+          <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Yetki</label>
           <select
             value={form.yetki}
             onChange={(event) => onChange({ ...form, yetki: event.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           >
             <option value="1">Yönetici</option>
             <option value="2">Yetkili Kullanıcı</option>
@@ -228,11 +230,11 @@ function UserFormFields({
           </select>
         </div>
         <div>
-          <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Durum</label>
+          <label className="mb-1.5 block text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">Durum</label>
           <select
             value={form.status}
             onChange={(event) => onChange({ ...form, status: event.target.value })}
-            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38] focus:bg-white"
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57] focus:bg-white"
           >
             <option value="1">Aktif</option>
             <option value="0">Pasif</option>
@@ -246,6 +248,9 @@ function UserFormFields({
 export default function UsersPage() {
   const [userSearch, setUserSearch] = useState('')
   const [permissionSearch, setPermissionSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'passive'>('all')
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' })
   const [users, setUsers] = useState<UserRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -444,6 +449,30 @@ export default function UsersPage() {
     setPasswordModalUser(user)
   }
 
+  // 2026-10-15: kullanici silme. Sunucu SADECE hic islem kaydi olmayan
+  // hesabi siler (gecmis kayitlarin "kim yapti" bilgisi korunur); kaydi
+  // olan icin Pasif yapma onerilir - bkz. app/api/users/[id]/route.ts DELETE.
+  const deleteUser = async (user: UserRow) => {
+    const userName = user.name || user.kullanicitamadi || user.username || 'Seçilen kullanıcı'
+    if (!(await confirmDialog(`${userName} (${user.username || '-'}) kullanıcısı KALICI olarak silinsin mi? Bu işlem geri alınamaz.`, 'Evet, Sil', 'Vazgeç'))) return
+
+    setDeletingUserId(user.id)
+    setActionMessage(null)
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'DELETE' })
+      const payload = await response.json().catch(() => null) as ActionResponse | null
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Kullanıcı silinemedi.')
+      }
+      setActionMessage({ tone: 'success', text: `${userName} kullanıcısı silindi.` })
+      await loadUsers()
+    } catch (error) {
+      setActionMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Kullanıcı silinemedi.' })
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
+
   const generateRandomPassword = async () => {
     if (!passwordModalUser) return
     const userName = passwordModalUser.name || passwordModalUser.kullanicitamadi || passwordModalUser.username || 'Seçilen kullanıcı'
@@ -553,184 +582,272 @@ export default function UsersPage() {
 
   const activeCount = users.filter(user => user.status === 1).length
   const passiveCount = users.length - activeCount
+  const adminCount = users.filter(user => user.yetki === 1).length
+  // 2026-10-15 (kurumsal tur): ozet kartlari tiklanabilir durum filtresi -
+  // arama alanlariyla BIRLIKTE calisir, veri/islem mantigi degismedi.
+  const statusFilteredUsers = statusFilter === 'all'
+    ? filteredUsers
+    : filteredUsers.filter(user => (statusFilter === 'active' ? user.status === 1 : user.status !== 1))
+  // 2026-10-15: sutun basliklarina tiklayarak siralama (artan/azalan) -
+  // sadece gorunum sirasi, veri degismez.
+  const sortValue = (user: UserRow): string | number => {
+    switch (sort.key) {
+      case 'username': return user.username || ''
+      case 'phone': return (user.phone || '').trim() || '￿'
+      case 'role': return user.yetki ?? 99
+      case 'status': return user.status === 1 ? 0 : 1
+      default: return user.name || user.kullanicitamadi || user.username || ''
+    }
+  }
+  const displayedUsers = [...statusFilteredUsers].sort((a, b) => {
+    const va = sortValue(a)
+    const vb = sortValue(b)
+    const fark = typeof va === 'number' && typeof vb === 'number'
+      ? va - vb
+      : String(va).localeCompare(String(vb), 'tr-TR', { numeric: true, sensitivity: 'base' })
+    const sonuc = fark !== 0 ? fark : (a.name || a.username || '').localeCompare(b.name || b.username || '', 'tr-TR')
+    return sort.dir === 'asc' ? sonuc : -sonuc
+  })
+  const toggleSort = (key: SortKey) => {
+    setSort(prev => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
+  }
+  const sortHeader = (key: SortKey, label: string) => (
+    <button
+      type="button"
+      onClick={() => toggleSort(key)}
+      className="inline-flex items-center gap-1.5 uppercase tracking-wide hover:!text-[#e8cf7a]"
+      title={`${label} sütununa göre sırala`}
+    >
+      {label}
+      <span className={`text-[11px] ${sort.key === key ? 'text-[#e8cf7a]' : 'text-white/40'}`}>
+        {sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : '▲▼'}
+      </span>
+    </button>
+  )
+  const hasFilter = Boolean(userSearch || permissionSearch || statusFilter !== 'all')
+
+  const summaryCards: Array<{ key: 'all' | 'active' | 'passive' | null; label: string; value: number; accent: string; hint: string }> = [
+    { key: 'all', label: 'Toplam Kullanıcı', value: users.length, accent: 'bg-[#0a3a57]', hint: 'Tüm hesaplar' },
+    { key: 'active', label: 'Aktif', value: activeCount, accent: 'bg-emerald-600', hint: 'Giriş yapabilir' },
+    { key: 'passive', label: 'Pasif', value: passiveCount, accent: 'bg-rose-600', hint: 'Girişi kapalı' },
+    { key: null, label: 'Yönetici', value: adminCount, accent: 'bg-[#c9a227]', hint: 'Rolü yönetici olan' },
+  ]
 
   return (
-    <div className="space-y-5 text-slate-950">
-      <div className="overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm">
-        <div className="ns-sayfa-baslik border-b border-slate-200 bg-[#1E2A38] px-6 py-6 text-white">
+    <div className="ns-yazi-masaustu space-y-4 text-slate-950">
+      {/* Kurumsal baslik - lacivert/altin dil (Dosya Yönetimi, Tahkikat ile ayni) */}
+      <div className="ns-sayfa-baslik overflow-hidden rounded-xl border border-[#0a3a57]/20 bg-white shadow-sm">
+        <div className="border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] via-[#0d4f6e] to-[#0a3a57] px-6 py-5 text-white">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xl font-black uppercase tracking-wide text-white/80">Kullanıcı ve Yetki Yönetimi</p>
-              <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Sistem Kullanıcıları</h1>
-              <p className="mt-2 max-w-2xl text-xl font-semibold text-white/75">Sisteme giriş yapabilen tüm personel hesapları burada listelenir. Yetkileri düzenlemek için ilgili kullanıcının satırındaki düğmeyi kullanın.</p>
+            <div className="flex items-center gap-4">
+              <span className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/25 sm:flex">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#e8cf7a" strokeWidth="1.8" className="h-8 w-8" aria-hidden>
+                  <circle cx="9" cy="8" r="3.5" />
+                  <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" strokeLinecap="round" />
+                  <circle cx="17.5" cy="9" r="2.6" />
+                  <path d="M16 14.2c3.2-.3 5.5 1.8 5.5 4.8" strokeLinecap="round" />
+                </svg>
+              </span>
+              <div>
+                <p className="text-sm lg:text-base font-bold uppercase tracking-[0.18em] text-[#e8cf7a]">Kullanıcı ve Yetki Yönetimi</p>
+                <h1 className="mt-0.5 text-[26px] font-black leading-tight md:text-[30px] lg:text-[36px]">Sistem Kullanıcıları</h1>
+                <p className="mt-1 max-w-2xl text-base lg:text-lg font-medium text-white/75">
+                  Sisteme giriş yapabilen personel hesapları. Sayfa ve işlem yetkileri için satırdaki <span className="font-bold text-white">Yetkiler</span> düğmesini kullanın.
+                </p>
+              </div>
             </div>
-            <button
-              onClick={openAddModal}
-              className="rounded-md bg-white px-6 py-3 text-xl font-extrabold text-[#1E2A38] shadow-sm transition-colors hover:bg-slate-100"
-            >
-              Yeni Kullanıcı Ekle
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href="/settings?tab=userPermissions"
+                className="inline-flex items-center justify-center rounded-lg border border-white/30 bg-white/10 px-5 py-2.5 text-base lg:text-lg font-bold text-white transition hover:bg-white/20"
+              >
+                Kullanıcı Yetkileri
+              </a>
+              <button
+                onClick={openAddModal}
+                className="inline-flex items-center gap-2 rounded-lg bg-[#c9a227] px-5 py-2.5 text-base lg:text-lg font-black text-[#0a3a57] shadow-sm transition hover:bg-[#d8b440]"
+              >
+                <span className="text-xl lg:text-2xl leading-none">+</span> Yeni Kullanıcı
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-3 bg-slate-50 p-5 md:grid-cols-4">
-          <div className="rounded-lg border border-slate-300 bg-white p-4">
-            <p className="text-lg font-black uppercase text-slate-400">Toplam Kullanıcı</p>
-            <p className="mt-1.5 text-3xl font-black text-slate-900">{users.length}</p>
-          </div>
-          <div className="rounded-lg border border-emerald-200 bg-white p-4">
-            <p className="text-lg font-black uppercase text-emerald-600">Aktif</p>
-            <p className="mt-1.5 text-3xl font-black text-emerald-700">{activeCount}</p>
-          </div>
-          <div className="rounded-lg border border-rose-200 bg-white p-4">
-            <p className="text-lg font-black uppercase text-rose-600">Pasif</p>
-            <p className="mt-1.5 text-3xl font-black text-rose-700">{passiveCount}</p>
-          </div>
-          <div className="rounded-lg border border-slate-300 bg-white p-4">
-            <p className="text-lg font-black uppercase text-[#1E2A38]">Filtre Sonucu</p>
-            <p className="mt-1.5 text-3xl font-black text-[#1E2A38]">{filteredUsers.length}</p>
-          </div>
+        <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 lg:grid-cols-4">
+          {summaryCards.map(card => {
+            const isSelected = card.key !== null && statusFilter === card.key
+            const content = (
+              <>
+                <span className={`absolute inset-y-0 left-0 w-1.5 ${card.accent}`} />
+                <p className="text-sm lg:text-base font-black uppercase tracking-wide text-slate-500">{card.label}</p>
+                <p className="mt-1 text-[30px] lg:text-[35px] font-black leading-none text-slate-900">{card.value}</p>
+                <p className="mt-1.5 text-sm lg:text-base font-semibold text-slate-400">{card.hint}</p>
+              </>
+            )
+            return card.key ? (
+              <button
+                key={card.label}
+                type="button"
+                onClick={() => setStatusFilter(card.key === 'all' || statusFilter === card.key ? 'all' : card.key!)}
+                className={`relative overflow-hidden rounded-lg border bg-white py-3 pl-5 pr-4 text-left shadow-sm transition hover:shadow ${isSelected ? 'border-[#0a3a57] ring-2 ring-[#0a3a57]/20' : 'border-slate-200'}`}
+              >
+                {content}
+              </button>
+            ) : (
+              <div key={card.label} className="relative overflow-hidden rounded-lg border border-slate-200 bg-white py-3 pl-5 pr-4 shadow-sm">
+                {content}
+              </div>
+            )
+          })}
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-2">
-          <p className="text-xl font-black uppercase tracking-wide text-[#1E2A38]">Arama ve Filtreleme</p>
-          <h2 className="text-2xl font-extrabold text-slate-900">Kullanıcı kayıtlarını hızlı bulun</h2>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Kullanıcı Arama</label>
-            <input
-              type="text"
-              placeholder="Ad soyad, kullanıcı adı veya e-posta..."
-              value={userSearch}
-              onChange={(event) => setUserSearch(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold outline-none transition focus:border-[#1E2A38] focus:bg-white focus:ring-2 focus:ring-sky-100"
-            />
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        {/* Arama cubugu + liste basligi tek kartta */}
+        <div className="flex flex-col gap-3 border-b border-slate-200 bg-white px-5 py-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="shrink-0">
+            <h2 className="flex items-center gap-2 text-xl lg:text-2xl font-black text-[#0a3a57]">
+              <span className="h-6 w-1.5 rounded-full bg-[#c9a227]" />
+              Kullanıcı Listesi
+            </h2>
+            <p className="mt-1 text-sm lg:text-base font-semibold text-slate-500">{displayedUsers.length} / {users.length} kullanıcı listeleniyor</p>
           </div>
-          <div>
-            <label className="mb-1.5 block text-xl font-black uppercase text-slate-500">Yetki Arama</label>
-            <input
-              type="text"
-              placeholder="Yönetici, yetkili, standart, aktif veya pasif..."
-              value={permissionSearch}
-              onChange={(event) => setPermissionSearch(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-xl font-bold outline-none transition focus:border-[#1E2A38] focus:bg-white focus:ring-2 focus:ring-sky-100"
-            />
+          <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:max-w-[900px]">
+            <label className="relative block">
+              <span className="mb-1 block text-xs lg:text-sm font-black uppercase tracking-wide text-slate-500">Kullanıcı Ara</span>
+              <input
+                type="text"
+                placeholder="Ad soyad, kullanıcı adı veya e-posta..."
+                value={userSearch}
+                onChange={(event) => setUserSearch(event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base lg:text-lg font-semibold outline-none transition focus:border-[#0a3a57] focus:bg-white focus:ring-2 focus:ring-[#0a3a57]/10"
+              />
+            </label>
+            <label className="relative block">
+              <span className="mb-1 block text-xs lg:text-sm font-black uppercase tracking-wide text-slate-500">Rol / Durum Ara</span>
+              <input
+                type="text"
+                placeholder="Yönetici, yetkili, standart, aktif, pasif..."
+                value={permissionSearch}
+                onChange={(event) => setPermissionSearch(event.target.value)}
+                className="h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3.5 text-base lg:text-lg font-semibold outline-none transition focus:border-[#0a3a57] focus:bg-white focus:ring-2 focus:ring-[#0a3a57]/10"
+              />
+            </label>
           </div>
-        </div>
-        {(userSearch || permissionSearch) && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-slate-100 px-4 py-1.5 text-lg font-black text-[#1E2A38]">{filteredUsers.length} kayit listeleniyor</span>
+          {hasFilter && (
             <button
               type="button"
               onClick={() => {
                 setUserSearch('')
                 setPermissionSearch('')
+                setStatusFilter('all')
               }}
-              className="rounded-full border border-slate-300 px-4 py-1.5 text-lg font-black text-slate-500 hover:bg-slate-50"
+              className="h-11 shrink-0 rounded-lg border border-slate-300 bg-white px-4 text-sm lg:text-base font-black text-slate-600 hover:bg-slate-50"
             >
               Filtreleri Temizle
             </button>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm md:p-8">
-        <div className="mb-6 flex flex-col items-start justify-between gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-2xl font-extrabold text-[#1E2A38]">Kullanıcı Listesi</h2>
-            <p className="mt-1.5 text-xl font-bold text-slate-500">"Yetkileri Düzenle" düğmesi kullanıcıyı doğrudan yetki ekranında açar.</p>
-          </div>
-          <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-lg font-black text-slate-500">
-            Canlı veri
-          </div>
+          )}
         </div>
 
         {actionMessage && (
-          <div className={`mb-4 flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-xl font-bold ${actionMessage.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
+          <div className={`mx-5 mt-4 flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-base lg:text-lg font-bold ${actionMessage.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>
             <span>{actionMessage.text}</span>
-            <button type="button" onClick={() => setActionMessage(null)} className="shrink-0 rounded px-3 py-1.5 text-lg hover:bg-white/70">Kapat</button>
+            <button type="button" onClick={() => setActionMessage(null)} className="shrink-0 rounded px-3 py-1 text-sm lg:text-base hover:bg-white/70">Kapat</button>
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-lg border border-slate-300">
-          <table className="ns-tablo ns-tablo-buyuk w-full min-w-[900px] border-collapse text-left text-xl font-semibold">
-            <thead className="border-b border-slate-200 bg-slate-50 text-lg font-extrabold uppercase text-slate-600">
-              <tr>
-                <th className="px-4 py-3">Foto</th>
-                <th className="px-4 py-3">Ad Soyad</th>
-                <th className="px-4 py-3">Kullanıcı Adı</th>
-                <th className="px-4 py-3">E-posta</th>
-                <th className="px-4 py-3">Rol / Yetki</th>
-                <th className="px-4 py-3">Durum</th>
-                <th className="px-4 py-3 text-right">İşlemler</th>
+        <div className="overflow-x-auto p-4">
+          <table className="ns-tablo ns-tablo-buyuk ns-tablo-kullanici w-full min-w-[1000px] border-separate border-spacing-0 text-left text-base lg:text-lg">
+            <thead>
+              <tr className="text-sm lg:text-lg font-black uppercase tracking-wide text-white">
+                <th className="rounded-tl-lg bg-[#0a3a57] px-4 py-3">{sortHeader('name', 'Kullanıcı')}</th>
+                <th className="bg-[#0a3a57] px-4 py-3">{sortHeader('username', 'Kullanıcı Adı')}</th>
+                <th className="bg-[#0a3a57] px-4 py-3">{sortHeader('phone', 'İletişim')}</th>
+                <th className="bg-[#0a3a57] px-4 py-3">{sortHeader('role', 'Rol')}</th>
+                <th className="bg-[#0a3a57] px-4 py-3">{sortHeader('status', 'Durum')}</th>
+                <th className="rounded-tr-lg bg-[#0a3a57] px-4 py-3 text-right">İşlemler</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-xl font-bold text-slate-500">
+                  <td colSpan={6} className="border-b border-slate-200 px-4 py-12 text-center text-base lg:text-xl font-bold text-slate-500">
                     Kullanıcılar yükleniyor...
                   </td>
                 </tr>
               ) : loadError ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-xl font-bold text-rose-600">
+                  <td colSpan={6} className="border-b border-slate-200 px-4 py-12 text-center text-base lg:text-xl font-bold text-rose-600">
                     {loadError}
                   </td>
                 </tr>
-              ) : filteredUsers.length > 0 ? (
-                filteredUsers.map((row, index) => (
-                  <tr key={row.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'} border-b border-slate-200 transition-colors last:border-0 hover:bg-slate-50`}>
-                    <td className="px-4 py-3">
-                      <UserAvatar userId={row.id} name={row.name || row.kullanicitamadi || row.username} />
+              ) : displayedUsers.length > 0 ? (
+                displayedUsers.map((row, index) => (
+                  <tr key={row.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'} transition-colors hover:bg-sky-50/60`}>
+                    <td className="border-b border-slate-200 px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <UserAvatar userId={row.id} name={row.name || row.kullanicitamadi || row.username} />
+                        <span className="font-black text-slate-900">{row.name || row.kullanicitamadi || '-'}</span>
+                      </div>
                     </td>
-                    <td className="px-4 py-3 font-extrabold text-slate-900">{row.name || row.kullanicitamadi || '-'}</td>
-                    <td className="px-4 py-3 text-[#1E2A38]">{row.username || '-'}</td>
-                    <td className="px-4 py-3 text-slate-900">{row.email || '-'}</td>
-                    <td className="px-4 py-3 text-slate-900">
-                      <span className={`inline-flex rounded-full border px-3 py-1.5 text-lg font-extrabold ${roleBadgeClass(row.yetki)}`}>
+                    <td className="border-b border-slate-200 px-4 py-2.5">
+                      <span className="rounded bg-slate-100 px-2 py-1 font-mono text-[15px] lg:text-[19px] font-bold text-[#0a3a57]">{row.username || '-'}</span>
+                    </td>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-[15px] lg:text-[19px] font-semibold text-slate-600">
+                      <span className="block">{row.phone && row.phone.trim() ? row.phone : <span className="text-slate-300">Telefon yok</span>}</span>
+                      {row.email && row.email.trim() && row.email.trim() !== '"' && <span className="block text-sm lg:text-lg text-slate-400">{row.email}</span>}
+                    </td>
+                    <td className="border-b border-slate-200 px-4 py-2.5">
+                      <span className={`inline-flex rounded-md border px-2.5 py-1 text-sm lg:text-lg font-black ${roleBadgeClass(row.yetki)}`}>
                         {roleLabel(row.yetki)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-900">
-                      <span className={`inline-flex rounded-full px-3 py-1.5 text-lg font-extrabold tracking-wide ${
-                        row.status === 1 ? 'bg-[#e6f3dd] text-[#4f8f2f]' : 'bg-rose-100 text-rose-700'
+                    <td className="border-b border-slate-200 px-4 py-2.5">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm lg:text-lg font-black ${
+                        row.status === 1 ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
                       }`}>
-                        {row.status === 1 ? 'AKTIF' : 'PASIF'}
+                        <span className={`h-2 w-2 rounded-full ${row.status === 1 ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                        {row.status === 1 ? 'Aktif' : 'Pasif'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(row)}
-                        className="inline-block rounded-md border border-slate-300 bg-white px-4 py-2 text-lg font-black text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Düzenle
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openPasswordModal(row)}
-                        className="inline-block rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-lg font-black text-amber-800 transition hover:bg-amber-100"
-                      >
-                        Şifre İşlemleri
-                      </button>
-                      <a
-                        href={`/settings?tab=userPermissions&user=${encodeURIComponent(row.id)}`}
-                        className="inline-block rounded-md border border-[#1E2A38] bg-white px-4 py-2 text-lg font-black text-[#1E2A38] transition hover:bg-slate-100"
-                      >
-                        Yetkileri Düzenle
-                      </a>
+                    <td className="border-b border-slate-200 px-4 py-2.5 text-right">
+                      <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 bg-white shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(row)}
+                          className="px-3.5 py-2 text-sm lg:text-lg font-black text-slate-700 transition hover:bg-slate-100"
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openPasswordModal(row)}
+                          className="border-l border-slate-300 px-3.5 py-2 text-sm lg:text-lg font-black text-amber-800 transition hover:bg-amber-50"
+                        >
+                          Şifre
+                        </button>
+                        <a
+                          href={`/settings?tab=userPermissions&user=${encodeURIComponent(row.id)}`}
+                          className="border-l border-slate-300 bg-[#0a3a57] px-3.5 py-2 text-sm lg:text-lg font-black text-white transition hover:bg-[#0d4f6e]"
+                        >
+                          Yetkiler
+                        </a>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => void deleteUser(row)}
+                        disabled={deletingUserId === row.id}
+                        title="Kullanıcıyı sil (yalnızca hiç işlem kaydı olmayan hesaplar)"
+                        className="ml-2 inline-flex items-center rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm lg:text-lg font-black text-rose-600 shadow-sm transition hover:bg-rose-50 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        {deletingUserId === row.id ? 'Siliniyor...' : 'Sil'}
+                      </button>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-xl font-bold text-slate-500">
+                  <td colSpan={6} className="border-b border-slate-200 px-4 py-12 text-center text-base lg:text-xl font-bold text-slate-500">
                     Kullanıcı bulunamadı.
                   </td>
                 </tr>
@@ -743,9 +860,9 @@ export default function UsersPage() {
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <form onSubmit={submitAddUser} className="w-full max-w-lg rounded-2xl border border-slate-300 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Sisteme Kullanıcı Ekle</h3>
-              <button type="button" onClick={() => setIsAddModalOpen(false)} className="rounded-full p-1.5 text-xl text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500">
+            <div className="flex items-center justify-between rounded-t-2xl border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-6 py-4">
+              <h3 className="text-xl lg:text-2xl font-black text-white">Sisteme Kullanıcı Ekle</h3>
+              <button type="button" onClick={() => setIsAddModalOpen(false)} className="rounded-full px-2.5 py-1 text-lg lg:text-xl font-black text-white/70 transition-colors hover:bg-white/10 hover:text-white">
                 X
               </button>
             </div>
@@ -761,10 +878,10 @@ export default function UsersPage() {
               />
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <button type="button" onClick={() => setIsAddModalOpen(false)} className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-xl font-extrabold text-slate-600 hover:bg-slate-100">
+              <button type="button" onClick={() => setIsAddModalOpen(false)} className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-xl lg:text-2xl font-extrabold text-slate-600 hover:bg-slate-100">
                 Vazgeç
               </button>
-              <button type="submit" disabled={isSavingAdd} className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-xl font-extrabold text-white shadow-sm transition-colors hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60">
+              <button type="submit" disabled={isSavingAdd} className="rounded-md bg-[#0a3a57] px-5 py-2.5 text-xl lg:text-2xl font-extrabold text-white shadow-sm transition-colors hover:bg-[#0d4f6e] disabled:cursor-wait disabled:opacity-60">
                 {isSavingAdd ? 'Kaydediliyor...' : 'Kullanıcı Oluştur'}
               </button>
             </div>
@@ -775,9 +892,9 @@ export default function UsersPage() {
       {editingUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <form onSubmit={submitEditUser} className="w-full max-w-lg rounded-2xl border border-slate-300 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Kullanıcıyı Düzenle</h3>
-              <button type="button" onClick={() => setEditingUser(null)} className="rounded-full p-1.5 text-xl text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500">
+            <div className="flex items-center justify-between rounded-t-2xl border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-6 py-4">
+              <h3 className="text-xl lg:text-2xl font-black text-white">Kullanıcıyı Düzenle</h3>
+              <button type="button" onClick={() => setEditingUser(null)} className="rounded-full px-2.5 py-1 text-lg lg:text-xl font-black text-white/70 transition-colors hover:bg-white/10 hover:text-white">
                 X
               </button>
             </div>
@@ -793,10 +910,10 @@ export default function UsersPage() {
               />
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-              <button type="button" onClick={() => setEditingUser(null)} className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-xl font-extrabold text-slate-600 hover:bg-slate-100">
+              <button type="button" onClick={() => setEditingUser(null)} className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-xl lg:text-2xl font-extrabold text-slate-600 hover:bg-slate-100">
                 Vazgeç
               </button>
-              <button type="submit" disabled={isSavingEdit} className="rounded-md bg-[#1E2A38] px-5 py-2.5 text-xl font-extrabold text-white shadow-sm transition-colors hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60">
+              <button type="submit" disabled={isSavingEdit} className="rounded-md bg-[#0a3a57] px-5 py-2.5 text-xl lg:text-2xl font-extrabold text-white shadow-sm transition-colors hover:bg-[#0d4f6e] disabled:cursor-wait disabled:opacity-60">
                 {isSavingEdit ? 'Kaydediliyor...' : 'Değişiklikleri Kaydet'}
               </button>
             </div>
@@ -807,64 +924,64 @@ export default function UsersPage() {
       {passwordModalUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-slate-300 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-2xl font-extrabold text-[#1E2A38]">Şifre İşlemleri</h3>
-              <button type="button" onClick={() => setPasswordModalUser(null)} className="rounded-full p-1.5 text-xl text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500">
+            <div className="flex items-center justify-between rounded-t-2xl border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-6 py-4">
+              <h3 className="text-xl lg:text-2xl font-black text-white">Şifre İşlemleri</h3>
+              <button type="button" onClick={() => setPasswordModalUser(null)} className="rounded-full px-2.5 py-1 text-lg lg:text-xl font-black text-white/70 transition-colors hover:bg-white/10 hover:text-white">
                 X
               </button>
             </div>
             <div className="space-y-5 p-6">
-              <p className="text-xl font-bold text-slate-600">
+              <p className="text-xl lg:text-2xl font-bold text-slate-600">
                 {passwordModalUser.name || passwordModalUser.kullanicitamadi || passwordModalUser.username} kullanıcısı şifresini unuttuysa, aşağıdaki yollardan birini kullanabilirsiniz.
               </p>
 
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-lg font-black uppercase text-emerald-800">Yol 1 - Şifreyi Kullanıcının Telefonuna Gönder (Önerilen)</p>
-                <p className="mt-1.5 text-lg font-semibold text-emerald-700">
+                <p className="text-lg lg:text-xl font-black uppercase text-emerald-800">Yol 1 - Şifreyi Kullanıcının Telefonuna Gönder (Önerilen)</p>
+                <p className="mt-1.5 text-lg lg:text-xl font-semibold text-emerald-700">
                   Sistem yeni bir geçici şifre üretip <span className="font-black">kullanıcının kayıtlı cep telefonuna SMS ile</span> gönderir. Şifreyi siz görmezsiniz. Kullanıcı bu şifreyle girip kendi şifresini belirler.
                 </p>
-                <p className="mt-1.5 text-lg font-bold text-emerald-600">
+                <p className="mt-1.5 text-lg lg:text-xl font-bold text-emerald-600">
                   Kayıtlı telefon: {passwordModalUser.phone && passwordModalUser.phone.trim() ? passwordModalUser.phone : '— (yok, önce Düzenle ile ekleyin)'}
                 </p>
                 <button
                   type="button"
                   onClick={() => void sendPasswordBySms()}
                   disabled={isPasswordBusy || !passwordModalUser.phone || !passwordModalUser.phone.trim()}
-                  className="mt-3 w-full rounded-md bg-emerald-600 px-4 py-2.5 text-xl font-extrabold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-3 w-full rounded-md bg-emerald-600 px-4 py-2.5 text-xl lg:text-2xl font-extrabold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Geçici Şifreyi SMS ile Gönder
                 </button>
               </div>
 
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                <p className="text-lg font-black uppercase text-amber-800">Yol 2 - Rastgele Geçici Şifre (Ekranda Göster)</p>
-                <p className="mt-1.5 text-lg font-semibold text-amber-700">Sistem güvenli, rastgele bir şifre üretir; ekranda bir kez gösterilir, kullanıcıya iletmeniz gerekir.</p>
+                <p className="text-lg lg:text-xl font-black uppercase text-amber-800">Yol 2 - Rastgele Geçici Şifre (Ekranda Göster)</p>
+                <p className="mt-1.5 text-lg lg:text-xl font-semibold text-amber-700">Sistem güvenli, rastgele bir şifre üretir; ekranda bir kez gösterilir, kullanıcıya iletmeniz gerekir.</p>
                 <button
                   type="button"
                   onClick={() => void generateRandomPassword()}
                   disabled={isPasswordBusy}
-                  className="mt-3 w-full rounded-md bg-amber-500 px-4 py-2.5 text-xl font-extrabold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-wait disabled:opacity-60"
+                  className="mt-3 w-full rounded-md bg-amber-500 px-4 py-2.5 text-xl lg:text-2xl font-extrabold text-white shadow-sm transition hover:bg-amber-600 disabled:cursor-wait disabled:opacity-60"
                 >
                   Rastgele Şifre Oluştur
                 </button>
               </div>
 
               <form onSubmit={submitManualPassword} className="rounded-lg border border-slate-300 bg-slate-50 p-4">
-                <p className="text-lg font-black uppercase text-[#1E2A38]">Yol 3 - Kendiniz Belirleyin</p>
-                <p className="mt-1.5 text-lg font-semibold text-slate-600">Kullanıcıya telefonla/yüz yüze bildireceğiniz belirli bir şifre girin.</p>
+                <p className="text-lg lg:text-xl font-black uppercase text-[#1E2A38]">Yol 3 - Kendiniz Belirleyin</p>
+                <p className="mt-1.5 text-lg lg:text-xl font-semibold text-slate-600">Kullanıcıya telefonla/yüz yüze bildireceğiniz belirli bir şifre girin.</p>
                 <input
                   type="password"
                   value={manualPassword}
                   onChange={(event) => setManualPassword(event.target.value)}
                   placeholder="Yeni şifre (en az 6 karakter, 1 büyük + 1 küçük harf)"
                   autoComplete="new-password"
-                  className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-xl font-bold text-slate-900 outline-none focus:border-[#1E2A38]"
+                  className="mt-3 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-lg lg:text-xl font-bold text-slate-900 outline-none focus:border-[#0a3a57]"
                   required
                 />
                 <button
                   type="submit"
                   disabled={isPasswordBusy}
-                  className="mt-3 w-full rounded-md bg-[#1E2A38] px-4 py-2.5 text-xl font-extrabold text-white shadow-sm transition hover:bg-[#2A3B4D] disabled:cursor-wait disabled:opacity-60"
+                  className="mt-3 w-full rounded-md bg-[#0a3a57] px-4 py-2.5 text-xl lg:text-2xl font-extrabold text-white shadow-sm transition hover:bg-[#0d4f6e] disabled:cursor-wait disabled:opacity-60"
                 >
                   Bu Şifreyi Ata
                 </button>

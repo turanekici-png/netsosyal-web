@@ -8,6 +8,14 @@ import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
 import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
 import { buildMultiColumnOrderBy, parseSortParam } from '@/lib/sortSpec'
 import { computeNeighborhoodPaymentWindow } from '@/lib/utils/paymentWindow'
+import {
+  ASSISTANCE_ALWAYS_EXCLUDED,
+  ASSISTANCE_COLUMN_GROUPS,
+  ASSISTANCE_COLUMN_LABELS,
+  ASSISTANCE_USER_COLUMNS_SELECT,
+  ASSISTANCE_USER_COLUMN_SQL,
+  assistanceHiddenColumns,
+} from '@/lib/assistance/assistanceColumns'
 import { AssistanceModeTabs } from './AssistanceModeTabs'
 import {
   ASSISTANCE_MODE_TABS_CONFIG,
@@ -340,6 +348,8 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
     // KENDI tckimlikno alani eslestirilir (dosya uzerinden DEGIL, dogrudan
     // TC ile - kart HENUZ bir dosyaya baglanmamis olsa bile eslesir).
     filterColumnMap.gulkart = 'gk.kartno'
+    // 2026-10-15: kaydi acan / son islem yapan kullanici adlari (skaler alt sorgu).
+    Object.assign(filterColumnMap, ASSISTANCE_USER_COLUMN_SQL)
     // Kullanici istegi: liste sayfalarindaki HER sutun basligina tiklayinca
     // GERCEKTEN siralama yapsin - eskiden bu sorgu "sort"/"dir" parametrelerini
     // hic okumuyordu, her zaman sabit "t.id DESC" donuyordu (baslik aktif
@@ -491,7 +501,8 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
         mh.mahalle_odeme_gunu,
         mh.mahalle_odeme_gunu_bitis,
         ` : ''}
-        t.*
+        t.*,
+        ${ASSISTANCE_USER_COLUMNS_SELECT}
         ${needsMessageLogJoin ? `,
         sm.created_at AS son_mesaj_tarihi,
         CASE sm.kanal WHEN 'whatsapp' THEN 'WhatsApp' WHEN 'sms' THEN 'SMS' ELSE sm.kanal END AS son_mesaj_kanali,
@@ -698,12 +709,18 @@ export async function AssistanceListPage({ searchParams, config }: AssistanceLis
         // (abitiş)" kisayollarinin JS tarafinda hesaplanmasi icin secilen,
         // kullaniciya gosterilmesi anlamsiz HAM kolonlardir - her sayfanin
         // kendi config'ine eklemek yerine burada TEK yerden gizlenir.
-        excludedColumns={[...config.excludedColumns, 'mahalle_odeme_gunu', 'mahalle_odeme_gunu_bitis']}
+        // 2026-10-15: config'teki eski excludedColumns artik TAMAMEN gizlemiyor,
+        // "gizli baslar" - kullanici Sütun Görünürlüğü'nden acabilir (bkz.
+        // lib/assistance/assistanceColumns.ts). Sadece teknik alanlar haric.
+        excludedColumns={ASSISTANCE_ALWAYS_EXCLUDED}
+        defaultHiddenColumns={assistanceHiddenColumns(config.excludedColumns)}
+        columnGroups={ASSISTANCE_COLUMN_GROUPS}
         // Kullanici istegi: hicbir sutun artik zorla gorunur/kilitli degil -
         // eskiden bazi sutunlarin "gorunurluk" onay kutusu pasifti, kullanici
         // sayfa tasarimini (sutun ekleme/kaldirma) ozgurce yapamiyordu.
         columnReorderingControls={config.routePath.startsWith('/assistance/nakit')}
         columnLabels={{
+          ...ASSISTANCE_COLUMN_LABELS,
           inceleme_puani: 'İnceleme Puanı',
           mahalle: 'Mahalle',
           dosya_adresi: 'Dosya Adresi',

@@ -5,6 +5,7 @@ import { getAssistanceKicker } from '../../_components/assistanceModeTabsConfig'
 import { getAssistanceStatusMap } from '@/lib/services/assistanceStatusLabels.service'
 import { sqlMonitorService } from '@/lib/services/sqlMonitor.service'
 import { buildMappedFilterCondition, buildTextSearchClause } from '@/lib/utils'
+import { ASSISTANCE_COLUMN_GROUPS, ASSISTANCE_COLUMN_LABELS, ASSISTANCE_USER_COLUMN_SQL } from '@/lib/assistance/assistanceColumns'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,7 +46,24 @@ const FILTER_COLUMN_MAP: Record<string, string> = {
   islemtarihi: 't.islemtarihi',
 }
 
+// 2026-10-15: yrd_ekmek'in listede olmayan diger TUM alanlari - gizli baslar
+// (bkz. ../page.tsx ayni liste).
+const EKMEK_EXTRA_COLUMNS = [
+  'etiket', 'muracaataciklama', 'durumutarih', 'durumuaciklama',
+  'donemadi', 'donemint', 'donemstr', 'dnm_durumu', 'dnm_bastarih', 'dnm_durumuaciklama',
+  'kullaniciid', 'ilkkullaniciid', 'ilkislemtarihi',
+]
+for (const column of EKMEK_EXTRA_COLUMNS) FILTER_COLUMN_MAP[column] = `t.${column}`
+FILTER_COLUMN_MAP.kaydi_acan = ASSISTANCE_USER_COLUMN_SQL.kaydi_acan
+const EKMEK_HIDDEN_COLUMNS = ['id', 'dosyaid', 'kaydi_acan', ...EKMEK_EXTRA_COLUMNS]
+const EKMEK_COLUMN_GROUPS: Record<string, string> = {
+  ...ASSISTANCE_COLUMN_GROUPS,
+  telefon: ASSISTANCE_COLUMN_GROUPS.dosya_telefonu,
+  sorumlu_personel: ASSISTANCE_COLUMN_GROUPS.son_islem_yapan,
+}
+
 const COLUMN_LABELS: Record<string, string> = {
+  ...ASSISTANCE_COLUMN_LABELS,
   id: 'Kayıt ID',
   dosyano: 'Dosya No',
   inceleme_puani: 'İnceleme Puanı',
@@ -170,7 +188,9 @@ export default async function EkmekYardimiAlmayanlarPage({
         t.aciklama,
         t.karttarih,
         t.kartaciklama,
-        t.islemtarihi
+        t.islemtarihi,
+        ${EKMEK_EXTRA_COLUMNS.map((column) => `t.${column}`).join(', ')},
+        ${ASSISTANCE_USER_COLUMN_SQL.kaydi_acan} AS kaydi_acan
       FROM yrd_ekmek t
       LEFT JOIN dosyalar d ON t.dosyaid = d.id
       LEFT JOIN kullanicilar k ON k.id::text = t.kullaniciid::text
@@ -346,7 +366,9 @@ export default async function EkmekYardimiAlmayanlarPage({
         searchPlaceholder="Dosya no, kart no, müracaat eden, telefon, mahalle, adres, personel veya açıklama ara"
         emptyMessage="Görüntülenecek ekmek yardımı kaydı bulunamadı."
         statusMap={statusMap}
-        excludedColumns={['dosyaid', 'id']}
+        // 2026-10-15: id/dosyaid artik tamamen gizli degil, "gizli baslar".
+        defaultHiddenColumns={EKMEK_HIDDEN_COLUMNS}
+        columnGroups={EKMEK_COLUMN_GROUPS}
         // Kullanici istegi (2026-09-30, 10. tur): sekmeler artik (Nakit
         // Yardimi ile AYNI yontemle) basligin ALTINDA.
         corporateHeader={{ kicker: getAssistanceKicker('/assistance/ekmek') }}

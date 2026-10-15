@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireApiAccess } from '@/lib/apiAuth'
 import { getSqlMonitorPool } from '@/lib/services/sqlMonitor.service'
+import { foldTurkish, sqlFoldExpr } from '@/lib/utils'
+import { performansEsitle } from '@/lib/workflow/performans'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +31,20 @@ type ReportType = 'guncelleme' | 'on-inceleme' | 'inceleme' | 'summary'
 //                                   eslesir - /api/reports/[id] ile duzenlenir/silinir)
 //  - "on-inceleme" zaten dogru tabloyu (on_inceleme_raporlari) okuyordu.
 
+// 2026-10-15: arama dosya no'nun yaninda ad soyad, TC ve telefonla da
+// yapilir; Turkce harf/buyuk-kucuk farki gozetilmez.
+function aramaKosulu(values: string[], search: string, extraColumns: string[] = []) {
+  values.push(`%${foldTurkish(search)}%`)
+  const p = '$' + values.length
+  const kolonlar = ['d.dosyano', 'owner.adisoyadi', 'owner.tckimlikno', 'd.telefon', ...extraColumns]
+  return '(' + kolonlar.map((k) => `${sqlFoldExpr(k)} LIKE ${p}`).join(' OR ') + ')'
+}
+
+// Sonuç Bekleyen = Sonuç Bekleyen ekranindan yazilan komisyon raporlari.
+// tahkikatraporlari eski sistemin tum raporlarini (GÜNCELLEME, BİLGİ...)
+// da tasidigi icin is_akisi_performans'taki kayitlarla daraltilir.
+const KOMISYON_JOIN_SQL = `JOIN public.is_akisi_performans perf ON perf.kaynak_tablo = 'tahkikatraporlari' AND perf.kaynak_id = g.id`
+
 function normalizeDate(value: string | null) {
   if (!value) return null
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
@@ -49,7 +65,8 @@ const OWNER_JOIN_SQL = `
     SELECT COALESCE(
       NULLIF(BTRIM(b.adisoyadi), ''),
       NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(BTRIM(b.adi), ''), NULLIF(BTRIM(b.soyadi), ''))), '')
-    ) AS adisoyadi
+    ) AS adisoyadi,
+    b.tckimlikno AS tckimlikno
     FROM bireyler b
     WHERE b.dosyaid = d.id
     ORDER BY CASE WHEN b.tipi = 1 THEN 0 WHEN b.yakinligi = 0 THEN 1 ELSE 2 END, b.id ASC
@@ -80,6 +97,8 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search')?.trim() || ''
 
     const pool = getSqlMonitorPool()
+    // Komisyon raporlarini ayirt eden is_akisi_performans guncel olsun
+    await performansEsitle().catch(() => {})
 
     if (type === 'guncelleme') {
       if (!(await tableExists(pool, 'tahkikatraporlari'))) return NextResponse.json({ success: true, data: [] })
@@ -88,22 +107,23 @@ export async function GET(request: NextRequest) {
       const values: string[] = []
       if (dateFrom) { values.push(dateFrom); clauses.push(`g.tarih >= $${values.length}::date`) }
       if (dateTo) { values.push(dateTo); clauses.push(`g.tarih <= $${values.length}::date`) }
-      if (search) { values.push(`%${search}%`); clauses.push(`d.dosyano ILIKE $${values.length}`) }
+      if (search) clauses.push(aramaKosulu(values, search))
       const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
 
       const result = await pool.query(
         `
           SELECT g.id::text AS id, g.dosyaid::text AS "dosyaid", d.dosyano AS "dosyaNo",
                  owner.adisoyadi AS "dosyaSahibi", d.telefon AS "telefon", ${ADRES_EXPRESSION} AS "adres",
-                 ku.kullanicitamadi AS "islemYapan",
+                 COALESCE(perf.kullanici_adi, ku.kullanicitamadi) AS "islemYapan",
                  g.tarih AS "formTarihi", g.konu AS "sonuc", g.rapor AS "aciklama", g.islemtarihi
           FROM public.tahkikatraporlari g
+          ${KOMISYON_JOIN_SQL}
           LEFT JOIN dosyalar d ON d.id = g.dosyaid
           LEFT JOIN kullanicilar ku ON ku.id = g.kullaniciid
           ${OWNER_JOIN_SQL}
           ${whereSql}
           ORDER BY g.tarih DESC, g.id DESC
-          LIMIT 1000;
+          LIMIT 3000;
         `,
         values,
       )
@@ -117,7 +137,7 @@ export async function GET(request: NextRequest) {
       const values: string[] = []
       if (dateFrom) { values.push(dateFrom); clauses.push(`o.tarih >= $${values.length}::date`) }
       if (dateTo) { values.push(dateTo); clauses.push(`o.tarih <= $${values.length}::date`) }
-      if (search) { values.push(`%${search}%`); clauses.push(`d.dosyano ILIKE $${values.length}`) }
+      if (search) clauses.push(aramaKosulu(values, search))
       const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
 
       const result = await pool.query(
@@ -125,14 +145,14 @@ export async function GET(request: NextRequest) {
           SELECT o.id::text AS id, o.dosyaid::text AS "dosyaid", d.dosyano AS "dosyaNo",
                  owner.adisoyadi AS "dosyaSahibi", d.telefon AS "telefon", ${ADRES_EXPRESSION} AS "adres",
                  ku.kullanicitamadi AS "islemYapan",
-                 o.tarih, o.sonuc, o.aciklama, o.islemtarihi
+                 o.tarih, o.sonuc, o.aciklama, o.cevaplar, o.islemtarihi
           FROM public.on_inceleme_raporlari o
           LEFT JOIN dosyalar d ON d.id = o.dosyaid
           LEFT JOIN kullanicilar ku ON ku.id = o.kullaniciid
           ${OWNER_JOIN_SQL}
           ${whereSql}
           ORDER BY o.tarih DESC, o.id DESC
-          LIMIT 1000;
+          LIMIT 3000;
         `,
         values,
       )
@@ -146,7 +166,7 @@ export async function GET(request: NextRequest) {
       const values: string[] = []
       if (dateFrom) { values.push(dateFrom); clauses.push(`i.tarih >= $${values.length}::date`) }
       if (dateTo) { values.push(dateTo); clauses.push(`i.tarih <= $${values.length}::date`) }
-      if (search) { values.push(`%${search}%`); clauses.push(`d.dosyano ILIKE $${values.length}`) }
+      if (search) clauses.push(aramaKosulu(values, search, ['i.ad_soyad', 'i.tc_kimlik_no']))
       const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
 
       // 2026-10-13: Tahkikat Formu artik "Hane Ziyareti ve Sosyal İnceleme
@@ -167,7 +187,7 @@ export async function GET(request: NextRequest) {
           ${OWNER_JOIN_SQL}
           ${whereSql}
           ORDER BY i.tarih DESC, i.id DESC
-          LIMIT 1000;
+          LIMIT 3000;
         `,
         values,
       )
@@ -193,11 +213,11 @@ export async function GET(request: NextRequest) {
 
     if (hasGuncelleme) {
       const values: string[] = []
-      const whereSql = dateClauseFor('tarih', values)
+      const whereSql = dateClauseFor('g.tarih', values)
       const [totalRow, sonucRows] = await Promise.all([
-        pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM public.tahkikatraporlari ${whereSql};`, values),
+        pool.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM public.tahkikatraporlari g ${KOMISYON_JOIN_SQL} ${whereSql};`, values),
         pool.query<{ sonuc: string | null; count: string }>(
-          `SELECT COALESCE(NULLIF(konu, ''), 'Belirtilmemiş') AS sonuc, COUNT(*)::text AS count FROM public.tahkikatraporlari ${whereSql} GROUP BY 1 ORDER BY 2 DESC;`,
+          `SELECT COALESCE(NULLIF(g.konu, ''), 'Belirtilmemiş') AS sonuc, COUNT(*)::text AS count FROM public.tahkikatraporlari g ${KOMISYON_JOIN_SQL} ${whereSql} GROUP BY 1 ORDER BY 2 DESC;`,
           values,
         ),
       ])

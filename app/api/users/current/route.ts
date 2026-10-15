@@ -8,6 +8,7 @@ import {
   type UserPermissionsById,
 } from '@/lib/constants/userPermissions'
 import { isRestrictedAccessFromHeaders } from '@/lib/remoteMobileAccess'
+import { ekipDurumunuGetir } from '@/lib/auth/tahkikatEkip'
 
 export const dynamic = 'force-dynamic'
 
@@ -52,7 +53,18 @@ export async function GET() {
       )
     }
 
-    return NextResponse.json({ success: true, data: user })
+    // Tahkikat ekip hesabi + tableti kullanan personel (bkz.
+    // lib/auth/tahkikatEkip.ts). Ekip degilse null - diger kullanicilar
+    // icin cevap degismez.
+    const ekip = await ekipDurumunuGetir(user, cookieStore)
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...user,
+        ekipPersoneli: ekip?.aktifPersonel ?? null,
+        ekipPersonelSecimiGerekli: Boolean(ekip && !ekip.aktifPersonel),
+      },
+    })
   } catch (error) {
     return NextResponse.json(
       { success: false, error: (error as Error).message },

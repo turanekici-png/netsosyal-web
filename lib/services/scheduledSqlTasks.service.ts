@@ -2,6 +2,7 @@ import { sqlMonitorService, getSqlMonitorPool } from './sqlMonitor.service'
 import { ensureMonthlyFoodBankPeriods } from './foodBankPeriod.service'
 import { ensureMonthlySupportPackagePeriods } from './supportPackagePeriod.service'
 import { ensureWinterSeasonalAidActivation, ensureWinterSeasonalAidCutoff } from './winterSeasonalAid.service'
+import { kesilenYardimlarinDonemleriniKapat } from './donemKapat.service'
 
 export type ScheduledSqlTaskType = 'daily' | 'weekly'
 export type ScheduledSqlTaskStatus = 'idle' | 'success' | 'error'
@@ -182,6 +183,8 @@ export const scheduledSqlTasksService = {
         await ensureMonthlySupportPackagePeriods()
         await ensureWinterSeasonalAidActivation()
         await ensureWinterSeasonalAidCutoff()
+        // 2026-10-15: kesilmis yardimlarin donemi "Kapalı" (gecmis kayitlar dahil)
+        await kesilenYardimlarinDonemleriniKapat().catch((error) => console.error('[Dönem kapat] hata:', error))
 
         const tasks = await this.getAll()
         const now = new Date()

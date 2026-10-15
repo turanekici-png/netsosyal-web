@@ -1112,7 +1112,14 @@ export async function GET(request: NextRequest) {
         t.aciklama::text AS aciklama
       FROM yrd_digerkrmalyrdm t
       LEFT JOIN bireyler b ON b.dosyaid = t.dosyaid AND b.adisoyadi = t.adisoyadi
+      -- 2026-10-15: ice aktarilan kayitlarin bir kismi dosyaya bagli degil (dosyaid
+      -- bos, yalniz T.C.) - hanedeki bireylerin T.C.'siyle eslesenler de gelir
+      -- (Sonuç Bekleyen > Diğer Kurum Yardımları ile ayni kural).
       WHERE t.dosyaid = ${file.file_id}
+         OR (t.dosyaid IS NULL AND NULLIF(BTRIM(t.tckimlikno), '') IN (
+              SELECT BTRIM(hb.tckimlikno) FROM bireyler hb
+              WHERE hb.dosyaid = ${file.file_id} AND NULLIF(BTRIM(hb.tckimlikno), '') IS NOT NULL
+            ))
       ORDER BY t.tarih DESC NULLS LAST
     `
 

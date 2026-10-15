@@ -1157,9 +1157,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             </details>
           )}
 
-          {(canViewAnyPath(['/workflow/on-inceleme', '/workflow/tahkikat', '/workflow/guncelleme', '/workflow/sonuc', '/workflow/mahalle-gruplari']) || hasHizliSatisAccess(permissionConfig) || canViewPath('/dernek') || otherModules.length > 0 || canViewAnyPath(['/settings', '/users', '/logs/history', '/logs/trash', '/sql-monitor', '/scheduled-tasks', '/asistan'])) && <p className="dy-nav-label">Yönetim</p>}
+          {(canViewAnyPath(['/workflow/on-inceleme', '/workflow/tahkikat', '/workflow/guncelleme', '/workflow/sonuc', '/workflow/mahalle-gruplari', '/workflow/performans']) || hasHizliSatisAccess(permissionConfig) || canViewPath('/dernek') || otherModules.length > 0 || canViewAnyPath(['/settings', '/users', '/logs/history', '/logs/trash', '/sql-monitor', '/scheduled-tasks', '/asistan'])) && <p className="dy-nav-label">Yönetim</p>}
           {/* İş Akışı Ana Başlığı (Açılır/Kapanır) */}
-          {canViewAnyPath(['/workflow/on-inceleme', '/workflow/tahkikat', '/workflow/guncelleme', '/workflow/sonuc', '/workflow/mahalle-gruplari']) && (
+          {canViewAnyPath(['/workflow/on-inceleme', '/workflow/tahkikat', '/workflow/guncelleme', '/workflow/sonuc', '/workflow/mahalle-gruplari', '/workflow/performans']) && (
           <details
             className="group"
             open={openMenus.workflow}
@@ -1360,6 +1360,35 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 <span title="Mahalle Grupları" className="truncate text-[14px] font-extrabold">Mahalle Grupları</span>
                 <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
                   pathname === '/workflow/mahalle-gruplari' || pathname.startsWith('/workflow/mahalle-gruplari/')
+                    ? 'bg-[#B98A34] opacity-100'
+                    : 'bg-slate-300 opacity-0 group-hover:opacity-100'
+                }`} />
+              </Link>
+              )}
+              {/* 2026-10-15: Performans Raporu - personelin Ön İnceleme/Tahkikat/
+                  Sonuç Bekleyen islem sayilari (gunluk/haftalik/aylik/yillik). */}
+              {canViewPath('/workflow/performans') && (
+              <Link
+                href="/workflow/performans"
+                className={`group relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-all duration-200 ${
+                  pathname === '/workflow/performans'
+                    ? 'bg-amber-50 text-[#0a3a57] shadow-sm'
+                    : 'text-slate-600 hover:bg-amber-50 hover:text-[#0a3a57]'
+                }`}
+              >
+                {pathname === '/workflow/performans' && (
+                  <span className="absolute -left-[10px] h-6 w-1 rounded-r-full bg-[#c9a227]" />
+                )}
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-transform group-hover:scale-110 text-[10px] ${
+                    pathname === '/workflow/performans' ? 'border-[#0a3a57] bg-[#0a3a57] text-[#e8cf7a]' : 'border-amber-200 bg-amber-50 text-[#0a3a57]'
+                  }`}
+                >
+                  PR
+                </span>
+                <span title="Performans Raporu" className="truncate text-[14px] font-extrabold">Performans Raporu</span>
+                <span className={`ml-auto h-1.5 w-1.5 rounded-full transition-all ${
+                  pathname === '/workflow/performans'
                     ? 'bg-[#B98A34] opacity-100'
                     : 'bg-slate-300 opacity-0 group-hover:opacity-100'
                 }`} />

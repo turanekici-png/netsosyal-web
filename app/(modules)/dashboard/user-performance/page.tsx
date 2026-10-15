@@ -92,19 +92,19 @@ export default function UserPerformancePage() {
   }))
 
   return (
-    <div className="space-y-5 text-slate-950">
-      <div className="rounded-md border border-emerald-600 bg-gradient-to-r from-emerald-800 via-teal-700 to-cyan-600 px-5 py-4 text-white shadow-sm">
+    <div className="ns-kurumsal-pencere space-y-5 text-slate-950">
+      <div className="rounded-xl border border-[#2A3B4D] bg-[#1E2A38] px-5 py-4 text-white shadow-[0_1px_2px_rgba(16,30,43,0.06),0_8px_24px_rgba(16,30,43,0.08)]">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[15px] font-black uppercase tracking-wide text-white/90">Personel Performansı</p>
-            <h1 className="mt-1 text-3xl font-black leading-tight tracking-normal md:text-[34px]">Kullanıcı Genel İşlem Performansı</h1>
-            <p className="mt-1 text-sm font-bold text-white/85">Sistem hareket ve denetim kayıtlarına göre bu ayki kullanıcı bazlı işlem sayıları</p>
+            <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-[#D4B26A]">Personel Performansı</p>
+            <h1 className="mt-1 text-[20px] font-semibold uppercase leading-tight tracking-wide md:text-[26px]">Kullanıcı Genel İşlem Performansı</h1>
+            <p className="mt-1 text-[13.5px] font-medium text-slate-300">Sistem hareket ve denetim kayıtlarına göre bu ayki kullanıcı bazlı işlem sayıları</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <div className="rounded-md border border-white/30 bg-white/15 px-4 py-2 text-sm font-bold">
+            <div className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-[14px] font-bold">
               Bugün İşlem Yapan: {isLoading ? '...' : formatNumber(activeToday)}
             </div>
-            <div className="rounded-md border border-white/30 bg-white/15 px-4 py-2 text-sm font-bold">
+            <div className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-[14px] font-bold">
               Bugünkü Toplam: {isLoading ? '...' : formatNumber(totalToday)}
             </div>
           </div>
@@ -128,6 +128,7 @@ export default function UserPerformancePage() {
       ) : (
         <div className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
           <AdvancedTable
+            corporate
             data={tableRows as unknown as Record<string, unknown>[]}
             tableId="dashboard_user_performance"
             excludedColumns={['sira']}

@@ -7,8 +7,15 @@ import {
   setActiveProvider,
   getCustomInstructions,
   saveCustomInstructions,
+  getBilgiTabani,
+  saveBilgiTabani,
   type AssistantProvider,
 } from '@/lib/services/aiAssistant.service'
+
+async function settingsPayload() {
+  const [statuses, customInstructions, bilgiTabani] = await Promise.all([getProviderStatuses(), getCustomInstructions(), getBilgiTabani()])
+  return { ...statuses, customInstructions, bilgiTabani }
+}
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -28,8 +35,7 @@ export async function GET() {
   const accessDenied = await requireApiAccess({ action: 'settings.update', page: '/settings' })
   if (accessDenied) return accessDenied
 
-  const [statuses, customInstructions] = await Promise.all([getProviderStatuses(), getCustomInstructions()])
-  return NextResponse.json({ success: true, data: { ...statuses, customInstructions } })
+  return NextResponse.json({ success: true, data: await settingsPayload() })
 }
 
 export async function POST(request: Request) {
@@ -38,13 +44,19 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null)
 
+  // 2026-10-15: yapilandirilmis bilgi tabani (terim/kural/ornek/hazir soru)
+  // kaydi - serbest metin talimatlardan ve API anahtarlarindan BAGIMSIZ.
+  if (body && typeof body.bilgiTabani === 'object' && body.bilgiTabani !== null) {
+    await saveBilgiTabani(body.bilgiTabani)
+    return NextResponse.json({ success: true, data: await settingsPayload() })
+  }
+
   // Kullanici istegi (15 Eylul 2026, 33. tur): "ben soyle dedigimde sen
   // boyle anla" - saglayici anahtarindan BAGIMSIZ, kendi basina gonderilen
   // ozel talimat kaydi. `customInstructions` alani varsa SADECE bunu isler.
   if (typeof body?.customInstructions === 'string') {
     await saveCustomInstructions(body.customInstructions)
-    const [statuses, customInstructions] = await Promise.all([getProviderStatuses(), getCustomInstructions()])
-    return NextResponse.json({ success: true, data: { ...statuses, customInstructions } })
+    return NextResponse.json({ success: true, data: await settingsPayload() })
   }
 
   const provider = body?.provider
@@ -64,6 +76,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: 'API anahtarı boş olamaz.' }, { status: 400 })
   }
 
-  const [statuses, customInstructions] = await Promise.all([getProviderStatuses(), getCustomInstructions()])
-  return NextResponse.json({ success: true, data: { ...statuses, customInstructions } })
+  return NextResponse.json({ success: true, data: await settingsPayload() })
 }

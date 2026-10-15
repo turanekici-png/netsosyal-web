@@ -1,11 +1,23 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTabs } from '@/lib/context/TabContext'
-import { formatFileNo } from '@/lib/utils'
+import { foldTurkish, formatFileNo } from '@/lib/utils'
 import { confirmDialog } from '@/components/shared/GlobalConfirmDialog'
+import {
+  PRELIMINARY_REVIEW_FORM_TEMPLATE_SETTING_KEY,
+  type PreliminaryReviewFormTemplate,
+} from '@/lib/constants/preliminaryReviewForm'
 
-type GuncellemeRow = {
+// İş Akışı > İnceleme Formları (2026-10-15 kurumsal tur): yapilan TUM Ön
+// İnceleme, Tahkikat ve Sonuç Bekleyen (komisyon) raporlari dosyaya gore
+// gruplu ya da tek liste; dosya no / ad soyad / TC / telefon ile aranir,
+// her raporun formu sayfadan cikmadan goruntulenir. Duzenle/Sil islevleri
+// onceki surumle AYNI API'leri kullanir. Veri: /api/workflow/sonuc-raporu.
+
+type Tur = 'onInceleme' | 'inceleme' | 'guncelleme'
+
+type HamOrtak = {
   id: string
   dosyaid: string | null
   dosyaNo: string | null
@@ -13,936 +25,571 @@ type GuncellemeRow = {
   telefon: string | null
   adres: string | null
   islemYapan: string | null
-  formTarihi: string | null
-  sonuc: string | null
-  aciklama: string | null
   islemtarihi: string | null
 }
-
-type OnIncelemeRow = {
-  id: string
-  dosyaid: string | null
-  dosyaNo: string | null
-  dosyaSahibi: string | null
-  telefon: string | null
-  adres: string | null
-  islemYapan: string | null
-  tarih: string | null
-  sonuc: string | null
-  aciklama: string | null
-  islemtarihi: string | null
-}
-
-type IncelemeRow = {
-  id: string
-  dosyaid: string | null
-  dosyaNo: string | null
-  dosyaSahibi: string | null
-  telefon: string | null
-  adres: string | null
-  islemYapan: string | null
+type GuncellemeRow = HamOrtak & { formTarihi: string | null; sonuc: string | null; aciklama: string | null }
+type OnIncelemeRow = HamOrtak & { tarih: string | null; sonuc: string | null; aciklama: string | null; cevaplar: Record<string, string> | null }
+type IncelemeRow = HamOrtak & {
   formTarihi: string | null
   adSoyad: string | null
-  // 2026-10-13: Hane Ziyareti ve Sosyal İnceleme Formu - puan/karar yerine
   ziyaretSonucu: string | null
   aciliyet: string | null
   oncelikliIhtiyac: string | null
   onDegerlendirme: string | null
   ozet: string | null
-  islemtarihi: string | null
 }
-
 type SummaryData = {
   totals: { guncelleme: number; onInceleme: number; inceleme: number; all: number }
   bySonuc: Array<{ type: string; sonuc: string; count: number }>
 }
 
-// "Sonuç Özeti" sekmesindeki detay tablosu icin: her form turunden gelen
-// satirlari TEK bir listede birlestirir - hangi dosyada, kim tarafindan,
-// ne sonuçla islem yapildigini tek yerden gorebilmek icin.
-// Kullanici istegi (13 Eylul 2026): "herhangi bir ön inceleme yada tahkikat
-// gibi bir rapor düzenlenebilsin yada silinebilsin yada iptal edilebilsin" -
-// hangi API'nin cagrilacagini bilmek icin her birlesik satirin gercek
-// kaynak turu ve HAM (prefiksiz) id'si de tasiniyor.
-type ReportSourceType = 'guncelleme' | 'onInceleme' | 'inceleme'
-
-type CombinedRow = {
+// Birlesik satir: her turden rapor tek bicimde
+type Rapor = {
+  anahtar: string
   id: string
-  rawId: string
-  sourceType: ReportSourceType
-  formTuru: string
+  tur: Tur
   tarih: string | null
+  islemZamani: string | null
   dosyaid: string | null
   dosyaNo: string | null
   dosyaSahibi: string | null
   telefon: string | null
   adres: string | null
   sonuc: string | null
+  aciklama: string | null
   islemYapan: string | null
 }
 
-type TabId = 'guncelleme' | 'onInceleme' | 'inceleme' | 'summary' | 'grouped'
+// Is Akisi renkleri (menu ve form sekmeleriyle ayni)
+const TUR: Record<Tur, { ad: string; rozet: string; serit: string; nokta: string; kart: string }> = {
+  onInceleme: { ad: 'Ön İnceleme', rozet: 'bg-amber-100 text-amber-900 ring-amber-300', serit: 'border-l-amber-400', nokta: 'bg-amber-400', kart: 'bg-amber-500' },
+  inceleme: { ad: 'Tahkikat', rozet: 'bg-orange-100 text-orange-900 ring-orange-300', serit: 'border-l-orange-500', nokta: 'bg-orange-500', kart: 'bg-orange-600' },
+  guncelleme: { ad: 'Sonuç Bekleyen', rozet: 'bg-blue-100 text-blue-900 ring-blue-300', serit: 'border-l-blue-600', nokta: 'bg-blue-600', kart: 'bg-blue-600' },
+}
+const TUR_SIRASI: Tur[] = ['onInceleme', 'inceleme', 'guncelleme']
 
-const TABS: Array<{ id: TabId; label: string; accent: 'indigo' | 'amber' | 'teal' | 'violet' }> = [
-  { id: 'grouped', label: 'Dosyaya Göre Gruplu', accent: 'violet' },
-  { id: 'guncelleme', label: 'Sonuç Bekleyen Raporları', accent: 'indigo' },
-  { id: 'onInceleme', label: 'Ön İnceleme Formları', accent: 'amber' },
-  { id: 'inceleme', label: 'Tahkikat Formları', accent: 'teal' },
-  { id: 'summary', label: 'Sonuç Özeti', accent: 'violet' },
-]
-
-const TAB_ACCENT_CLASSES: Record<'indigo' | 'amber' | 'teal' | 'violet', { active: string; inactive: string; head: string; row: string; gradient: string; border: string }> = {
-  indigo: { active: 'border-indigo-600 bg-indigo-600 text-white', inactive: 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100', head: 'bg-indigo-50 text-indigo-700', row: 'hover:bg-indigo-50/50', gradient: 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-indigo-400', border: 'border-indigo-200' },
-  amber: { active: 'border-amber-600 bg-amber-600 text-white', inactive: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100', head: 'bg-amber-50 text-amber-700', row: 'hover:bg-amber-50/50', gradient: 'bg-gradient-to-r from-amber-600 via-amber-500 to-amber-400', border: 'border-amber-200' },
-  teal: { active: 'border-teal-600 bg-teal-600 text-white', inactive: 'border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100', head: 'bg-teal-50 text-teal-700', row: 'hover:bg-teal-50/50', gradient: 'bg-gradient-to-r from-teal-600 via-teal-500 to-teal-400', border: 'border-teal-200' },
-  violet: { active: 'border-violet-600 bg-violet-600 text-white', inactive: 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100', head: 'bg-violet-50 text-violet-700', row: 'hover:bg-violet-50/50', gradient: 'bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-500', border: 'border-violet-200' },
+function sonucRozeti(sonuc: string) {
+  const n = foldTurkish(sonuc)
+  if (n.includes('uygun degil') || n.includes('iptal') || n.includes('yapilamaz') || n.startsWith('acil')) return 'bg-rose-50 text-rose-800 ring-rose-200'
+  if (n.includes('oncelikli')) return 'bg-amber-50 text-amber-800 ring-amber-200'
+  if (n.includes('rutin') || n.includes('belirtilmemis')) return 'bg-slate-100 text-slate-700 ring-slate-200'
+  return 'bg-emerald-50 text-emerald-800 ring-emerald-200'
 }
 
-function normalizeTr(value: string) {
-  return value
-    .toLocaleLowerCase('tr-TR')
-    .replace(/ı/g, 'i').replace(/ğ/g, 'g').replace(/ü/g, 'u')
-    .replace(/ş/g, 's').replace(/ö/g, 'o').replace(/ç/g, 'c')
-}
-
-function sonucBadgeClass(sonuc: string) {
-  const normalized = normalizeTr(sonuc)
-  if (normalized.includes('uygun degil') || normalized.includes('iptal') || normalized.includes('yardim yapilamaz')) return 'bg-rose-600'
-  if (!normalized || normalized === 'belirtilmemis' || normalized.includes('aciliyet belirtilmemis')) return 'bg-slate-400'
-  // Tahkikat (Hane Ziyareti ve Sosyal İnceleme) formlarinin aciliyet degerleri
-  if (normalized.includes('acil (0')) return 'bg-rose-600'
-  if (normalized.includes('oncelikli')) return 'bg-amber-500'
-  if (normalized.includes('rutin')) return 'bg-slate-500'
-  return 'bg-emerald-600'
-}
-
-function formatDate(value: string | null) {
+function tarihMetni(value: string | null) {
   if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('tr-TR')
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString('tr-TR')
 }
-
-function formatDateTime(value: string | null) {
+function zamanMetni(value: string | null) {
   if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' })
 }
-
-function isoDaysAgo(days: number) {
-  const date = new Date()
-  date.setDate(date.getDate() - days)
-  return date.toISOString().slice(0, 10)
+function isoGunOnce(gun: number) {
+  const d = new Date()
+  d.setDate(d.getDate() - gun)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+const bugun = () => isoGunOnce(0)
+const yilBasi = () => `${new Date().getFullYear()}-01-01`
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10)
-}
+type Gorunum = 'dosya' | 'liste' | 'ozet'
 
-// Her sekmedeki tablo aynı "sütun başlığına tıkla → sırala, başlığın
-// altındaki kutuya yaz → filtrele" davranışını paylaşır. Veri zaten
-// istemciye tam olarak (tarih aralığına göre, en fazla 1000 satır) çekildiği
-// için sıralama/filtreleme sunucuya gitmeden, tarayıcıda çalışır.
-type ColumnDef<T> = {
-  key: string
-  label: string
-  align?: 'left' | 'right'
-  filterText: (row: T) => string
-  sortValue?: (row: T) => string | number
-  render: (row: T) => ReactNode
-  headClassName?: string
-}
-
-function useSortableFilterableRows<T>(rows: T[], columns: ColumnDef<T>[]) {
-  // Filtre/siralama durumu bilerek sekme basina AYRI bir React state'i olarak
-  // yasiyor: her sekme kendi <DataTable> ornegini sadece o sekme aktifken
-  // mount ediyor (asagida `{activeTab === 'guncelleme' && <DataTable ... />}`
-  // deseni) - sekme degisince eski tablo tamamen unmount olup yenisi sifir
-  // durumla mount oluyor. Ayrica bir "sekme degisince sifirla" efektine
-  // gerek yok; boyle bir efekt (columns her render'da yeni bir dizi
-  // referansi aldigi icin) kullanici filtre kutusuna her harf yazdiginda
-  // yanlislikla filtreyi sifirlardi.
-  const [filters, setFilters] = useState<Record<string, string>>({})
-  const [sortKey, setSortKey] = useState<string | null>(null)
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
-
-  const filteredRows = useMemo(() => {
-    const activeFilters = Object.entries(filters).filter(([, value]) => value.trim() !== '')
-    if (activeFilters.length === 0) return rows
-
-    return rows.filter((row) => activeFilters.every(([key, value]) => {
-      const column = columns.find((col) => col.key === key)
-      if (!column) return true
-      return normalizeTr(column.filterText(row)).includes(normalizeTr(value.trim()))
-    }))
-  }, [rows, filters, columns])
-
-  const sortedRows = useMemo(() => {
-    if (!sortKey) return filteredRows
-    const column = columns.find((col) => col.key === sortKey)
-    if (!column) return filteredRows
-
-    const getValue = column.sortValue || column.filterText
-    const result = [...filteredRows].sort((a, b) => {
-      const av = getValue(a)
-      const bv = getValue(b)
-      if (typeof av === 'number' && typeof bv === 'number') return av - bv
-      return String(av).localeCompare(String(bv), 'tr-TR')
-    })
-    if (sortDir === 'desc') result.reverse()
-    return result
-  }, [filteredRows, sortKey, sortDir, columns])
-
-  const toggleSort = (key: string) => {
-    if (sortKey !== key) { setSortKey(key); setSortDir('asc'); return }
-    setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'))
-  }
-
-  return { rows: sortedRows, filters, setFilters, sortKey, sortDir, toggleSort }
-}
-
-function DataTable<T extends { id: string }>({
-  rows, columns, accent, emptyMessage, minWidth, title, description,
-}: {
-  rows: T[]
-  columns: ColumnDef<T>[]
-  accent: 'indigo' | 'amber' | 'teal' | 'violet'
-  emptyMessage: string
-  minWidth: number
-  title?: string
-  description?: string
-}) {
-  const { rows: visibleRows, filters, setFilters, sortKey, sortDir, toggleSort } = useSortableFilterableRows(rows, columns)
-  const accentClasses = TAB_ACCENT_CLASSES[accent]
-  const activeFilterCount = Object.values(filters).filter((value) => value.trim() !== '').length
-
-  return (
-    <div className={`overflow-hidden rounded-xl border shadow-sm ${accentClasses.border}`}>
-      {title && (
-        <div className={`flex flex-col gap-1 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between ${accentClasses.gradient}`}>
-          <div className="min-w-0">
-            <h2 className="text-sm font-black uppercase tracking-wide text-white">{title}</h2>
-            {description && <p className="mt-0.5 text-xs font-semibold text-white/85">{description}</p>}
-          </div>
-          <span className="inline-flex w-fit items-center justify-center rounded-full border border-white/40 bg-white/15 px-3 py-1 text-xs font-black text-white">
-            {visibleRows.length.toLocaleString('tr-TR')} kayıt
-          </span>
-        </div>
-      )}
-      <div className={`flex items-center justify-between border-b bg-slate-50/80 px-4 py-2 ${accentClasses.border}`}>
-        <p className="text-[11px] font-semibold text-slate-500">Başlığa tıklayarak sırala, kutuya yazarak filtrele.</p>
-        <div className="flex items-center gap-2">
-          {activeFilterCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setFilters({})}
-              className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-black text-rose-600 hover:bg-rose-100"
-            >
-              Filtreleri temizle ({activeFilterCount})
-            </button>
-          )}
-          {!title && (
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{visibleRows.length.toLocaleString('tr-TR')} kayıt</span>
-          )}
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="ns-tablo-olcu w-full text-left text-sm" style={{ minWidth }}>
-          <thead className={`text-[11px] font-black uppercase ${accentClasses.head}`}>
-            <tr className={`border-b ${accentClasses.border}`}>
-              {columns.map((column) => (
-                <th key={column.key} className={`px-4 py-3 ${column.align === 'right' ? 'text-right' : 'text-left'}`}>
-                  <button
-                    type="button"
-                    onClick={() => toggleSort(column.key)}
-                    className={`inline-flex items-center gap-1.5 transition-colors hover:opacity-70 ${sortKey === column.key ? 'text-slate-950' : ''}`}
-                  >
-                    {column.label}
-                    <span className={`text-[10px] ${sortKey === column.key ? 'opacity-100' : 'opacity-40'}`}>{sortKey === column.key ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
-                  </button>
-                </th>
-              ))}
-            </tr>
-            <tr>
-              {columns.map((column) => (
-                <th key={`${column.key}-filter`} className="bg-white px-3 py-2">
-                  <input
-                    value={filters[column.key] || ''}
-                    onChange={(event) => setFilters((prev) => ({ ...prev, [column.key]: event.target.value }))}
-                    placeholder="Filtrele..."
-                    className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 normal-case outline-none focus:border-[#0076b6] focus:bg-white"
-                  />
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {visibleRows.length > 0 ? visibleRows.map((row) => (
-              <tr key={row.id} className={`odd:bg-white even:bg-slate-50/60 transition-colors ${accentClasses.row}`}>
-                {columns.map((column) => (
-                  <td key={column.key} className={`px-4 py-3.5 align-top ${column.align === 'right' ? 'text-right' : ''}`}>{column.render(row)}</td>
-                ))}
-              </tr>
-            )) : (
-              <tr><td colSpan={columns.length} className="px-4 py-14 text-center">
-                <p className="text-sm font-black text-slate-500">{emptyMessage}</p>
-                <p className="mt-1 text-xs font-semibold text-slate-400">Tarih aralığını veya filtreleri değiştirerek tekrar deneyin.</p>
-              </td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
-// Kullanici istegi (13 Eylul 2026): "tüm yapılan ön inceleme, tahkikat ve
-// sonuç bekleyen raporları GRUPLAR HALİNDE görünsün" - dosyaya gore
-// gruplanmis, her dosya icin acilir/kapanir (native <details>) bir bolum,
-// icinde o dosyanin TUM raporlarini (turu ne olursa olsun) tarihe gore en
-// yeniden eskiye siralar ve her satirda Düzenle/İptal Et/Sil aksiyonlarini
-// gosterir.
-function GroupedByFileView({ rows, onOpenFile, onEdit, onCancel, onDelete, formTuruBadgeClass, sonucBadgeClass }: {
-  rows: CombinedRow[]
-  onOpenFile: (dosyaid: string | null, dosyaNo: string | null) => void
-  onEdit: (row: CombinedRow) => void
-  onCancel: (row: CombinedRow) => void
-  onDelete: (row: CombinedRow) => void
-  formTuruBadgeClass: Record<ReportSourceType, string>
-  sonucBadgeClass: (sonuc: string) => string
-}) {
-  const groups = useMemo(() => {
-    const map = new Map<string, { dosyaid: string | null; dosyaNo: string | null; dosyaSahibi: string | null; rows: CombinedRow[] }>()
-    for (const row of rows) {
-      const key = row.dosyaid || row.dosyaNo || `bilinmiyor-${row.id}`
-      const existing = map.get(key)
-      if (existing) {
-        existing.rows.push(row)
-        if (!existing.dosyaSahibi && row.dosyaSahibi) existing.dosyaSahibi = row.dosyaSahibi
-      } else {
-        map.set(key, { dosyaid: row.dosyaid, dosyaNo: row.dosyaNo, dosyaSahibi: row.dosyaSahibi, rows: [row] })
-      }
-    }
-    return [...map.values()]
-      .map((group) => ({ ...group, rows: [...group.rows].sort((a, b) => (b.tarih || '').localeCompare(a.tarih || '')) }))
-      .sort((a, b) => (b.rows[0]?.tarih || '').localeCompare(a.rows[0]?.tarih || ''))
-  }, [rows])
-
-  if (groups.length === 0) {
-    return (
-      <div className="rounded-lg border border-slate-200 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">
-        Seçilen aralıkta kayıt bulunamadı.
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-bold text-violet-700">
-        {groups.length.toLocaleString('tr-TR')} dosya, toplam {rows.length.toLocaleString('tr-TR')} rapor
-      </div>
-      {groups.map((group) => (
-        <details key={group.dosyaid || group.dosyaNo || group.rows[0].id} className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" open>
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-500 px-4 py-3 text-white">
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={(event) => { event.preventDefault(); onOpenFile(group.dosyaid, group.dosyaNo) }}
-                className="shrink-0 rounded-full border border-white/50 bg-white/15 px-3 py-1 text-xs font-black hover:bg-white/25"
-              >
-                {formatFileNo(group.dosyaNo) || `#${group.dosyaid}`}
-              </button>
-              <span className="truncate text-sm font-black">{group.dosyaSahibi || 'Ad Soyad Belirtilmemiş'}</span>
-            </div>
-            <span className="shrink-0 rounded-full border border-white/40 bg-white/15 px-3 py-1 text-[11px] font-black">
-              {group.rows.length} rapor
-            </span>
-          </summary>
-          <div className="divide-y divide-slate-100">
-            {group.rows.map((row) => (
-              <div key={row.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${formTuruBadgeClass[row.sourceType]}`}>{row.formTuru}</span>
-                  <span className="text-xs font-bold text-slate-500">{formatDate(row.tarih)}</span>
-                  {row.sonuc && <span className={`rounded-full px-2.5 py-1 text-[11px] font-black text-white ${sonucBadgeClass(row.sonuc)}`}>{row.sonuc}</span>}
-                  {row.islemYapan && <span className="text-xs font-semibold text-slate-500">İşlemi yapan: {row.islemYapan}</span>}
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                  {row.sourceType === 'inceleme' ? (
-                    <button type="button" onClick={() => onCancel(row)} className="rounded-md border border-teal-200 bg-teal-50 px-2 py-1 text-[10px] font-black uppercase text-teal-700 hover:bg-teal-100">Görüntüle</button>
-                  ) : (
-                    <button type="button" onClick={() => onEdit(row)} className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-black uppercase text-sky-700 hover:bg-sky-100">Düzenle</button>
-                  )}
-                  <button type="button" onClick={() => onDelete(row)} className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-black uppercase text-rose-700 hover:bg-rose-100">Sil</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
-      ))}
-    </div>
-  )
-}
-
-export default function WorkflowSonucPage() {
+export default function InclemeFormlariPage() {
   const { addTab } = useTabs()
-  const [activeTab, setActiveTab] = useState<TabId>('grouped')
-  const [dateFrom, setDateFrom] = useState(isoDaysAgo(30))
-  const [dateTo, setDateTo] = useState(todayIso())
-  const [search, setSearch] = useState('')
+  const [gorunum, setGorunum] = useState<Gorunum>('dosya')
+  const [turFiltresi, setTurFiltresi] = useState<Tur | 'hepsi'>('hepsi')
+  const [baslangic, setBaslangic] = useState(isoGunOnce(30))
+  const [bitis, setBitis] = useState(bugun())
+  const [aramaKutusu, setAramaKutusu] = useState('')
+  const [arama, setArama] = useState('')
 
   const [guncelleme, setGuncelleme] = useState<GuncellemeRow[]>([])
   const [onInceleme, setOnInceleme] = useState<OnIncelemeRow[]>([])
   const [inceleme, setInceleme] = useState<IncelemeRow[]>([])
-  const [summary, setSummary] = useState<SummaryData | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [ozet, setOzet] = useState<SummaryData | null>(null)
+  const [yukleniyor, setYukleniyor] = useState(true)
+  const [hata, setHata] = useState('')
+  const [islemHatasi, setIslemHatasi] = useState('')
+  const [onIncelemeSablonu, setOnIncelemeSablonu] = useState<PreliminaryReviewFormTemplate>([])
+
+  // Yazmayi bitirince ara (her harfte sunucuya gitmesin)
+  useEffect(() => {
+    const t = window.setTimeout(() => setArama(aramaKutusu.trim()), 400)
+    return () => window.clearTimeout(t)
+  }, [aramaKutusu])
 
   useEffect(() => {
     const controller = new AbortController()
-    setIsLoading(true)
-    setError('')
-
-    const query = new URLSearchParams()
-    if (dateFrom) query.set('dateFrom', dateFrom)
-    if (dateTo) query.set('dateTo', dateTo)
-    if (search.trim()) query.set('search', search.trim())
-
-    Promise.all([
-      fetch(`/api/workflow/sonuc-raporu?type=guncelleme&${query.toString()}`, { signal: controller.signal, cache: 'no-store' }).then((r) => r.json()),
-      fetch(`/api/workflow/sonuc-raporu?type=on-inceleme&${query.toString()}`, { signal: controller.signal, cache: 'no-store' }).then((r) => r.json()),
-      fetch(`/api/workflow/sonuc-raporu?type=inceleme&${query.toString()}`, { signal: controller.signal, cache: 'no-store' }).then((r) => r.json()),
-      fetch(`/api/workflow/sonuc-raporu?type=summary&${query.toString()}`, { signal: controller.signal, cache: 'no-store' }).then((r) => r.json()),
-    ])
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- veri yukleme efekti
+    setYukleniyor(true)
+    setHata('')
+    const q = new URLSearchParams()
+    if (baslangic) q.set('dateFrom', baslangic)
+    if (bitis) q.set('dateTo', bitis)
+    if (arama) q.set('search', arama)
+    const al = (tip: string) => fetch(`/api/workflow/sonuc-raporu?type=${tip}&${q.toString()}`, { signal: controller.signal, cache: 'no-store' }).then((r) => r.json())
+    Promise.all([al('guncelleme'), al('on-inceleme'), al('inceleme'), al('summary')])
       .then(([g, o, i, s]) => {
-        if (!g.success || !o.success || !i.success || !s.success) {
-          throw new Error(g.error || o.error || i.error || s.error || 'Rapor alınamadı.')
-        }
+        if (!g.success || !o.success || !i.success || !s.success) throw new Error(g.error || o.error || i.error || s.error || 'Rapor alınamadı.')
         setGuncelleme(g.data)
         setOnInceleme(o.data)
         setInceleme(i.data)
-        setSummary(s.data)
+        setOzet(s.data)
       })
       .catch((err) => {
-        if (err.name === 'AbortError') return
-        setError(err instanceof Error ? err.message : 'Rapor alınamadı.')
+        if (err?.name === 'AbortError') return
+        setHata(err instanceof Error ? err.message : 'Rapor alınamadı.')
       })
-      .finally(() => setIsLoading(false))
-
+      .finally(() => setYukleniyor(false))
     return () => controller.abort()
-  }, [dateFrom, dateTo, search])
+  }, [baslangic, bitis, arama])
 
-  const tabCounts = useMemo(() => ({
-    guncelleme: guncelleme.length,
-    onInceleme: onInceleme.length,
-    inceleme: inceleme.length,
-    summary: summary?.totals.all ?? 0,
-    grouped: guncelleme.length + onInceleme.length + inceleme.length,
-  }), [guncelleme, onInceleme, inceleme, summary])
+  useEffect(() => {
+    fetch(`/api/settings/${PRELIMINARY_REVIEW_FORM_TEMPLATE_SETTING_KEY}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((p) => { if (Array.isArray(p?.data?.value)) setOnIncelemeSablonu(p.data.value) })
+      .catch(() => {})
+  }, [])
 
-  // Kullanici istegi (13 Eylul 2026): "silinebilsin yada iptal edilebilsin" -
-  // her rapor turunun GERCEKTEN sahip oldugu backend islemine baglanir:
-  // Ön İnceleme -> DELETE (on_inceleme_raporlari), Tahkikat -> DELETE
-  // (saha_inceleme_formu; 2026-10-13'ten beri onay/iptal yok, yerine
-  // "Görüntüle" formun yazdirilabilir halini acar), Sonuç Bekleyen/Komisyon
-  // Raporu (tahkikatraporlari, Prisma "Report") -> DELETE (/api/reports/[id],
-  // zaten var olan CRUD).
-  const [actionError, setActionError] = useState('')
+  const raporlar: Rapor[] = useMemo(() => [
+    ...onInceleme.map((r): Rapor => ({ anahtar: `o-${r.id}`, id: r.id, tur: 'onInceleme', tarih: r.tarih, islemZamani: r.islemtarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, sonuc: r.sonuc, aciklama: r.aciklama, islemYapan: r.islemYapan })),
+    ...inceleme.map((r): Rapor => ({ anahtar: `i-${r.id}`, id: r.id, tur: 'inceleme', tarih: r.formTarihi, islemZamani: r.islemtarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi || r.adSoyad, telefon: r.telefon, adres: r.adres, sonuc: r.ziyaretSonucu || (r.aciliyet ? `Aciliyet: ${r.aciliyet}` : null), aciklama: r.ozet || r.onDegerlendirme, islemYapan: r.islemYapan })),
+    ...guncelleme.map((r): Rapor => ({ anahtar: `g-${r.id}`, id: r.id, tur: 'guncelleme', tarih: r.formTarihi, islemZamani: r.islemtarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, sonuc: r.sonuc, aciklama: r.aciklama, islemYapan: r.islemYapan })),
+  ].sort((a, b) => (b.tarih || '').localeCompare(a.tarih || '') || (b.islemZamani || '').localeCompare(a.islemZamani || '')), [onInceleme, inceleme, guncelleme])
 
-  const deleteGuncelleme = async (id: string) => {
-    if (!(await confirmDialog('Bu Sonuç Bekleyen raporunu silmek istediğinize emin misiniz?'))) return
-    setActionError('')
-    try {
-      const response = await fetch(`/api/reports/${id}`, { method: 'DELETE' })
-      const payload = await response.json()
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Rapor silinemedi.')
-      setGuncelleme((rows) => rows.filter((row) => row.id !== id))
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Rapor silinemedi.')
+  const gorunenRaporlar = useMemo(() => (turFiltresi === 'hepsi' ? raporlar : raporlar.filter((r) => r.tur === turFiltresi)), [raporlar, turFiltresi])
+
+  const sayilar = useMemo(() => ({ onInceleme: onInceleme.length, inceleme: inceleme.length, guncelleme: guncelleme.length }), [onInceleme, inceleme, guncelleme])
+
+  const gruplar = useMemo(() => {
+    const map = new Map<string, { dosyaid: string | null; dosyaNo: string | null; dosyaSahibi: string | null; telefon: string | null; adres: string | null; raporlar: Rapor[] }>()
+    for (const r of gorunenRaporlar) {
+      const k = r.dosyaid || r.dosyaNo || r.anahtar
+      const g = map.get(k)
+      if (g) {
+        g.raporlar.push(r)
+        g.dosyaSahibi ||= r.dosyaSahibi
+        g.telefon ||= r.telefon
+        g.adres ||= r.adres
+      } else map.set(k, { dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, raporlar: [r] })
     }
-  }
+    return [...map.values()]
+  }, [gorunenRaporlar])
 
-  const deleteOnInceleme = async (id: string) => {
-    if (!(await confirmDialog('Bu Ön İnceleme raporunu silmek istediğinize emin misiniz?'))) return
-    setActionError('')
-    try {
-      const response = await fetch(`/api/workflow/on-inceleme/report?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
-      const payload = await response.json()
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Rapor silinemedi.')
-      setOnInceleme((rows) => rows.filter((row) => row.id !== id))
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Rapor silinemedi.')
-    }
-  }
-
-  const deleteInceleme = async (id: string) => {
-    if (!(await confirmDialog('Bu Tahkikat Formu kaydını silmek istediğinize emin misiniz?'))) return
-    setActionError('')
-    try {
-      const response = await fetch(`/api/documents/saha-inceleme/${id}`, { method: 'DELETE' })
-      const payload = await response.json()
-      if (!response.ok || !payload.success) throw new Error(payload.error || 'Form silinemedi.')
-      setInceleme((rows) => rows.filter((row) => row.id !== id))
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Form silinemedi.')
-    }
-  }
-
-  // Formun yazdirilabilir hali (PDF'teki duzen) yeni sekmede acilir.
-  const viewInceleme = (id: string) => {
-    window.open(`/api/documents/saha-inceleme/yazdir?id=${encodeURIComponent(id)}`, '_blank', 'noopener,noreferrer')
-  }
-
-  const deleteBySourceType = (row: { sourceType: ReportSourceType; rawId: string }) => {
-    if (row.sourceType === 'guncelleme') return deleteGuncelleme(row.rawId)
-    if (row.sourceType === 'onInceleme') return deleteOnInceleme(row.rawId)
-    return deleteInceleme(row.rawId)
-  }
-
-  const openDosya = (dosyaid: string | null, dosyaNo: string | null) => {
+  // ---- Islemler (onceki surumle ayni API'ler) ------------------------------
+  const dosyayiAc = (dosyaid: string | null, dosyaNo: string | null) => {
     if (!dosyaid) return
     addTab({ title: dosyaNo ? `Dosya ${formatFileNo(dosyaNo)}` : 'Dosya', path: `/documents?fileId=${dosyaid}` })
   }
 
-  // Kullanici istegi (13 Eylul 2026): "düzenlenebilsin" - Ön İnceleme (PATCH
-  // /api/workflow/on-inceleme/report: tarih/aciklama) ve Sonuç Bekleyen/
-  // Komisyon Raporu (PUT /api/reports/[id]: date/title/content) zaten icerik
-  // guncelleyebilen bir API'ye sahip - bu ikisi icin ayni kucuk duzenleme
-  // modalini kullaniyoruz. Tahkikat Formu (saha_inceleme_formu) duzenlenmez,
-  // sadece goruntulenir/silinir (bkz. yukaridaki viewInceleme).
-  const [editTarget, setEditTarget] = useState<{ type: 'onInceleme' | 'guncelleme'; id: string; dosyaNo: string | null } | null>(null)
-  const [editForm, setEditForm] = useState({ tarih: '', konu: '', metin: '' })
-  const [editStatus, setEditStatus] = useState<'idle' | 'saving'>('idle')
-  const [editError, setEditError] = useState('')
-
-  const openEditOnInceleme = (row: OnIncelemeRow) => {
-    setEditTarget({ type: 'onInceleme', id: row.id, dosyaNo: row.dosyaNo })
-    setEditForm({ tarih: (row.tarih || '').slice(0, 10), konu: '', metin: row.aciklama || '' })
-    setEditError('')
-  }
-
-  const openEditGuncelleme = (row: GuncellemeRow) => {
-    setEditTarget({ type: 'guncelleme', id: row.id, dosyaNo: row.dosyaNo })
-    setEditForm({ tarih: (row.formTarihi || '').slice(0, 10), konu: row.sonuc || '', metin: row.aciklama || '' })
-    setEditError('')
-  }
-
-  const closeEditModal = () => {
-    if (editStatus === 'saving') return
-    setEditTarget(null)
-    setEditError('')
-  }
-
-  const saveEdit = async () => {
-    if (!editTarget) return
-    setEditStatus('saving')
-    setEditError('')
+  const sil = async (r: Rapor) => {
+    const ad = TUR[r.tur].ad
+    if (!(await confirmDialog(`Bu ${ad} kaydını (Dosya ${formatFileNo(r.dosyaNo) || r.dosyaid}) KALICI olarak silmek istediğinize emin misiniz?`, 'Evet, Sil', 'Vazgeç'))) return
+    setIslemHatasi('')
     try {
-      if (editTarget.type === 'onInceleme') {
-        const response = await fetch('/api/workflow/on-inceleme/report', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editTarget.id, date: editForm.tarih, aciklama: editForm.metin }),
-        })
-        const payload = await response.json()
-        if (!response.ok || !payload.success) throw new Error(payload.error || 'Rapor güncellenemedi.')
-        setOnInceleme((rows) => rows.map((row) => (row.id === editTarget.id ? { ...row, tarih: editForm.tarih, aciklama: editForm.metin } : row)))
-      } else {
-        if (!editForm.konu.trim() || !editForm.metin.trim()) {
-          throw new Error('Konu ve rapor alanları zorunludur.')
-        }
-        const response = await fetch(`/api/reports/${editTarget.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: editForm.tarih ? new Date(editForm.tarih) : undefined, title: editForm.konu, content: editForm.metin }),
-        })
-        const payload = await response.json()
-        if (!response.ok || !payload.success) throw new Error(payload.error || 'Rapor güncellenemedi.')
-        setGuncelleme((rows) => rows.map((row) => (row.id === editTarget.id ? { ...row, formTarihi: editForm.tarih, sonuc: editForm.konu, aciklama: editForm.metin } : row)))
-      }
-      setEditTarget(null)
+      const url = r.tur === 'guncelleme' ? `/api/reports/${r.id}`
+        : r.tur === 'onInceleme' ? `/api/workflow/on-inceleme/report?id=${encodeURIComponent(r.id)}`
+          : `/api/documents/saha-inceleme/${r.id}`
+      const res = await fetch(url, { method: 'DELETE' })
+      const p = await res.json()
+      if (!res.ok || !p.success) throw new Error(p.error || 'Kayıt silinemedi.')
+      if (r.tur === 'guncelleme') setGuncelleme((x) => x.filter((y) => y.id !== r.id))
+      else if (r.tur === 'onInceleme') setOnInceleme((x) => x.filter((y) => y.id !== r.id))
+      else setInceleme((x) => x.filter((y) => y.id !== r.id))
+      if (goruntulenen?.anahtar === r.anahtar) setGoruntulenen(null)
     } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Rapor güncellenemedi.')
-    } finally {
-      setEditStatus('idle')
+      setIslemHatasi(err instanceof Error ? err.message : 'Kayıt silinemedi.')
     }
   }
 
-  const dosyaNoCell = (dosyaid: string | null, dosyaNo: string | null, tone: 'indigo' | 'amber' | 'teal') => {
-    const toneClasses = { indigo: 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100', amber: 'bg-amber-50 text-amber-700 hover:bg-amber-100', teal: 'bg-teal-50 text-teal-700 hover:bg-teal-100' }
-    return (
-      <button type="button" onClick={() => openDosya(dosyaid, dosyaNo)} className={`rounded-full px-2.5 py-1 text-xs font-black ${toneClasses[tone]}`}>
-        {formatFileNo(dosyaNo) || `#${dosyaid}`}
-      </button>
-    )
+  // Duzenleme (Ön İnceleme: tarih + aciklama; Sonuç Bekleyen: tarih + konu + rapor)
+  const [duzenlenen, setDuzenlenen] = useState<Rapor | null>(null)
+  const [duzenForm, setDuzenForm] = useState({ tarih: '', konu: '', metin: '' })
+  const [duzenDurum, setDuzenDurum] = useState<'idle' | 'saving'>('idle')
+  const [duzenHata, setDuzenHata] = useState('')
+
+  const duzenlemeAc = (r: Rapor) => {
+    setDuzenlenen(r)
+    setDuzenForm({ tarih: (r.tarih || '').slice(0, 10), konu: r.tur === 'guncelleme' ? r.sonuc || '' : '', metin: r.aciklama || '' })
+    setDuzenHata('')
   }
 
-  const sonucCell = (sonuc: string | null) => (
-    sonuc ? <span className={`rounded-full px-2.5 py-1 text-[11px] font-black text-white ${sonucBadgeClass(sonuc)}`}>{sonuc}</span> : <span className="text-xs text-slate-400">-</span>
-  )
-
-  const aciliyetCell = (aciliyet: string | null) => {
-    if (!aciliyet) return <span className="text-xs text-slate-400">-</span>
-    const n = normalizeTr(aciliyet)
-    const renk = n.startsWith('acil') ? 'bg-rose-600' : n.startsWith('oncelikli') ? 'bg-amber-500' : 'bg-slate-500'
-    return <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-black text-white ${renk}`}>{aciliyet}</span>
+  const duzenlemeKaydet = async () => {
+    if (!duzenlenen) return
+    setDuzenDurum('saving')
+    setDuzenHata('')
+    try {
+      if (duzenlenen.tur === 'onInceleme') {
+        const res = await fetch('/api/workflow/on-inceleme/report', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: duzenlenen.id, date: duzenForm.tarih, aciklama: duzenForm.metin }),
+        })
+        const p = await res.json()
+        if (!res.ok || !p.success) throw new Error(p.error || 'Rapor güncellenemedi.')
+        setOnInceleme((x) => x.map((y) => (y.id === duzenlenen.id ? { ...y, tarih: duzenForm.tarih, aciklama: duzenForm.metin } : y)))
+      } else {
+        if (!duzenForm.konu.trim() || !duzenForm.metin.trim()) throw new Error('Konu ve rapor alanları zorunludur.')
+        const res = await fetch(`/api/reports/${duzenlenen.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: duzenForm.tarih ? new Date(duzenForm.tarih) : undefined, title: duzenForm.konu, content: duzenForm.metin }),
+        })
+        const p = await res.json()
+        if (!res.ok || !p.success) throw new Error(p.error || 'Rapor güncellenemedi.')
+        setGuncelleme((x) => x.map((y) => (y.id === duzenlenen.id ? { ...y, formTarihi: duzenForm.tarih, sonuc: duzenForm.konu, aciklama: duzenForm.metin } : y)))
+      }
+      setDuzenlenen(null)
+    } catch (err) {
+      setDuzenHata(err instanceof Error ? err.message : 'Rapor güncellenemedi.')
+    } finally {
+      setDuzenDurum('idle')
+    }
   }
 
-  // Kullanici istegi (13 Eylul 2026): "düzenlenebilsin yada silinebilsin
-  // yada iptal edilebilsin" - her tabloda bir "İşlem" sutunu.
-  const actionButtonClass = 'rounded-md border px-2 py-1 text-[10px] font-black uppercase shadow-sm transition'
+  // Formu goruntule (sayfadan cikmadan)
+  const [goruntulenen, setGoruntulenen] = useState<Rapor | null>(null)
+  const goruntulenenOnInceleme = goruntulenen?.tur === 'onInceleme' ? onInceleme.find((x) => x.id === goruntulenen.id) : undefined
 
-  const guncellemeColumns: ColumnDef<GuncellemeRow>[] = [
-    { key: 'formTarihi', label: 'Tarih', filterText: (r) => formatDate(r.formTarihi), sortValue: (r) => r.formTarihi || '', render: (r) => <span className="whitespace-nowrap text-xs font-bold text-slate-500">{formatDate(r.formTarihi)}</span> },
-    { key: 'dosyaNo', label: 'Dosya No', filterText: (r) => r.dosyaNo || '', render: (r) => dosyaNoCell(r.dosyaid, r.dosyaNo, 'indigo') },
-    { key: 'dosyaSahibi', label: 'Dosya Sahibi', filterText: (r) => r.dosyaSahibi || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.dosyaSahibi || '-'}</span> },
-    { key: 'telefon', label: 'Telefon', filterText: (r) => r.telefon || '', render: (r) => <span className="text-xs font-semibold text-slate-600">{r.telefon || '-'}</span> },
-    { key: 'adres', label: 'Adres', filterText: (r) => r.adres || '', render: (r) => <span className="block max-w-[220px] truncate text-xs font-semibold text-slate-600" title={r.adres || ''}>{r.adres || '-'}</span> },
-    { key: 'sonuc', label: 'Sonuç', filterText: (r) => r.sonuc || '', render: (r) => sonucCell(r.sonuc) },
-    { key: 'aciklama', label: 'Açıklama', filterText: (r) => r.aciklama || '', render: (r) => <span className="block max-w-md text-xs font-semibold leading-5 text-slate-600">{r.aciklama || '-'}</span> },
-    { key: 'islemYapan', label: 'İşlemi Yapan', filterText: (r) => r.islemYapan || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.islemYapan || '-'}</span> },
-    { key: 'islemtarihi', label: 'İşlem Zamanı', filterText: (r) => formatDateTime(r.islemtarihi), sortValue: (r) => r.islemtarihi || '', render: (r) => <span className="whitespace-nowrap text-xs font-bold text-slate-400">{formatDateTime(r.islemtarihi)}</span> },
-    { key: 'action', label: 'İşlem', filterText: () => '', render: (r) => (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" onClick={() => openEditGuncelleme(r)} className={`${actionButtonClass} border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100`}>Düzenle</button>
-        <button type="button" onClick={() => void deleteGuncelleme(r.id)} className={`${actionButtonClass} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100`}>Sil</button>
-      </div>
-    ) },
+  const ozetKartlari: Array<{ id: Tur | 'hepsi'; ad: string; deger: number; serit: string }> = [
+    { id: 'hepsi', ad: 'Tüm Raporlar', deger: raporlar.length, serit: 'bg-[#0a3a57]' },
+    ...TUR_SIRASI.map((t) => ({ id: t, ad: TUR[t].ad, deger: sayilar[t], serit: TUR[t].kart })),
   ]
 
-  const onIncelemeColumns: ColumnDef<OnIncelemeRow>[] = [
-    { key: 'tarih', label: 'Tarih', filterText: (r) => formatDate(r.tarih), sortValue: (r) => r.tarih || '', render: (r) => <span className="whitespace-nowrap text-xs font-bold text-slate-500">{formatDate(r.tarih)}</span> },
-    { key: 'dosyaNo', label: 'Dosya No', filterText: (r) => r.dosyaNo || '', render: (r) => dosyaNoCell(r.dosyaid, r.dosyaNo, 'amber') },
-    { key: 'dosyaSahibi', label: 'Dosya Sahibi', filterText: (r) => r.dosyaSahibi || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.dosyaSahibi || '-'}</span> },
-    { key: 'telefon', label: 'Telefon', filterText: (r) => r.telefon || '', render: (r) => <span className="text-xs font-semibold text-slate-600">{r.telefon || '-'}</span> },
-    { key: 'adres', label: 'Adres', filterText: (r) => r.adres || '', render: (r) => <span className="block max-w-[220px] truncate text-xs font-semibold text-slate-600" title={r.adres || ''}>{r.adres || '-'}</span> },
-    { key: 'sonuc', label: 'Sonuç', filterText: (r) => r.sonuc || '', render: (r) => sonucCell(r.sonuc) },
-    { key: 'aciklama', label: 'Açıklama', filterText: (r) => r.aciklama || '', render: (r) => <span className="block max-w-md text-xs font-semibold leading-5 text-slate-600">{r.aciklama || '-'}</span> },
-    { key: 'islemYapan', label: 'İşlemi Yapan', filterText: (r) => r.islemYapan || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.islemYapan || '-'}</span> },
-    { key: 'islemtarihi', label: 'İşlem Zamanı', filterText: (r) => formatDateTime(r.islemtarihi), sortValue: (r) => r.islemtarihi || '', render: (r) => <span className="whitespace-nowrap text-xs font-bold text-slate-400">{formatDateTime(r.islemtarihi)}</span> },
-    { key: 'action', label: 'İşlem', filterText: () => '', render: (r) => (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" onClick={() => openEditOnInceleme(r)} className={`${actionButtonClass} border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100`}>Düzenle</button>
-        <button type="button" onClick={() => void deleteOnInceleme(r.id)} className={`${actionButtonClass} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100`}>Sil</button>
+  const tarihButonu = 'h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-[#0a3a57] hover:text-[#0a3a57] lg:text-base'
+
+  const raporSatiri = (r: Rapor, dosyaBilgisi: boolean) => (
+    <div key={r.anahtar} className={`flex flex-col gap-2 border-l-4 bg-white px-4 py-3 transition hover:bg-slate-50 lg:flex-row lg:items-start lg:justify-between ${TUR[r.tur].serit}`}>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2.5 py-0.5 text-sm font-black ring-1 lg:text-base ${TUR[r.tur].rozet}`}>{TUR[r.tur].ad}</span>
+          <span className="text-sm font-black text-slate-700 lg:text-base">{tarihMetni(r.tarih)}</span>
+          {r.sonuc && <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold ring-1 lg:text-base ${sonucRozeti(r.sonuc)}`}>{r.sonuc}</span>}
+          {dosyaBilgisi && (
+            <button type="button" onClick={() => dosyayiAc(r.dosyaid, r.dosyaNo)} className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-sm font-black text-[#0a3a57] hover:bg-slate-200 lg:text-base">
+              {formatFileNo(r.dosyaNo) || `#${r.dosyaid}`}
+            </button>
+          )}
+          {dosyaBilgisi && r.dosyaSahibi && <span className="text-sm font-black text-slate-900 lg:text-base">{r.dosyaSahibi}</span>}
+        </div>
+        {r.aciklama && <p className="line-clamp-2 text-sm font-medium leading-relaxed text-slate-600 lg:text-base">{r.aciklama}</p>}
+        <p className="text-xs font-semibold text-slate-400 lg:text-sm">
+          İşlemi yapan: <span className="font-bold text-slate-600">{r.islemYapan || '—'}</span>
+          {r.islemZamani && <> · {zamanMetni(r.islemZamani)}</>}
+        </p>
       </div>
-    ) },
-  ]
-
-  const incelemeColumns: ColumnDef<IncelemeRow>[] = [
-    { key: 'formTarihi', label: 'Tarih', filterText: (r) => formatDate(r.formTarihi), sortValue: (r) => r.formTarihi || '', render: (r) => <span className="whitespace-nowrap text-xs font-bold text-slate-500">{formatDate(r.formTarihi)}</span> },
-    { key: 'dosyaNo', label: 'Dosya No', filterText: (r) => r.dosyaNo || '', render: (r) => dosyaNoCell(r.dosyaid, r.dosyaNo, 'teal') },
-    { key: 'dosyaSahibi', label: 'Dosya Sahibi', filterText: (r) => r.dosyaSahibi || r.adSoyad || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.dosyaSahibi || r.adSoyad || '-'}</span> },
-    { key: 'telefon', label: 'Telefon', filterText: (r) => r.telefon || '', render: (r) => <span className="text-xs font-semibold text-slate-600">{r.telefon || '-'}</span> },
-    { key: 'adres', label: 'Adres', filterText: (r) => r.adres || '', render: (r) => <span className="block max-w-[200px] truncate text-xs font-semibold text-slate-600" title={r.adres || ''}>{r.adres || '-'}</span> },
-    { key: 'ziyaretSonucu', label: 'Ziyaret Sonucu', filterText: (r) => r.ziyaretSonucu || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.ziyaretSonucu || '-'}</span> },
-    { key: 'aciliyet', label: 'Aciliyet', filterText: (r) => r.aciliyet || '', render: (r) => aciliyetCell(r.aciliyet) },
-    { key: 'onDegerlendirme', label: 'Ön Değerlendirme', filterText: (r) => r.onDegerlendirme || '', render: (r) => <span className="block max-w-xs text-xs font-semibold leading-5 text-slate-600">{r.onDegerlendirme || '-'}</span> },
-    { key: 'islemYapan', label: 'İşlemi Yapan', filterText: (r) => r.islemYapan || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.islemYapan || '-'}</span> },
-    { key: 'action', label: 'İşlem', filterText: () => '', render: (r) => (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button type="button" onClick={() => viewInceleme(r.id)} className={`${actionButtonClass} border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100`}>Görüntüle</button>
-        <button type="button" onClick={() => void deleteInceleme(r.id)} className={`${actionButtonClass} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100`}>Sil</button>
-      </div>
-    ) },
-  ]
-
-  const combinedRows: CombinedRow[] = useMemo(() => [
-    ...guncelleme.map((r): CombinedRow => ({ id: `g-${r.id}`, rawId: r.id, sourceType: 'guncelleme', formTuru: 'Sonuç Bekleyen', tarih: r.formTarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, sonuc: r.sonuc, islemYapan: r.islemYapan })),
-    ...onInceleme.map((r): CombinedRow => ({ id: `o-${r.id}`, rawId: r.id, sourceType: 'onInceleme', formTuru: 'Ön İnceleme', tarih: r.tarih, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi, telefon: r.telefon, adres: r.adres, sonuc: r.sonuc, islemYapan: r.islemYapan })),
-    ...inceleme.map((r): CombinedRow => ({ id: `i-${r.id}`, rawId: r.id, sourceType: 'inceleme', formTuru: 'Tahkikat', tarih: r.formTarihi, dosyaid: r.dosyaid, dosyaNo: r.dosyaNo, dosyaSahibi: r.dosyaSahibi || r.adSoyad, telefon: r.telefon, adres: r.adres, sonuc: r.aciliyet ? `Aciliyet: ${r.aciliyet}` : r.ziyaretSonucu, islemYapan: r.islemYapan })),
-  ], [guncelleme, onInceleme, inceleme])
-
-  const formTuruBadgeClass: Record<ReportSourceType, string> = {
-    guncelleme: 'bg-indigo-50 text-indigo-700',
-    onInceleme: 'bg-amber-50 text-amber-700',
-    inceleme: 'bg-teal-50 text-teal-700',
-  }
-
-  const combinedColumns: ColumnDef<CombinedRow>[] = [
-    { key: 'tarih', label: 'Tarih', filterText: (r) => formatDate(r.tarih), sortValue: (r) => r.tarih || '', render: (r) => <span className="whitespace-nowrap text-xs font-bold text-slate-500">{formatDate(r.tarih)}</span> },
-    { key: 'formTuru', label: 'Form Türü', filterText: (r) => r.formTuru, render: (r) => <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${formTuruBadgeClass[r.sourceType]}`}>{r.formTuru}</span> },
-    { key: 'dosyaNo', label: 'Dosya No', filterText: (r) => r.dosyaNo || '', render: (r) => dosyaNoCell(r.dosyaid, r.dosyaNo, 'teal') },
-    { key: 'dosyaSahibi', label: 'Ad Soyad', filterText: (r) => r.dosyaSahibi || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.dosyaSahibi || '-'}</span> },
-    { key: 'telefon', label: 'Telefon', filterText: (r) => r.telefon || '', render: (r) => <span className="text-xs font-semibold text-slate-600">{r.telefon || '-'}</span> },
-    { key: 'adres', label: 'Adres', filterText: (r) => r.adres || '', render: (r) => <span className="block max-w-[220px] truncate text-xs font-semibold text-slate-600" title={r.adres || ''}>{r.adres || '-'}</span> },
-    { key: 'sonuc', label: 'Sonuç', filterText: (r) => r.sonuc || '', render: (r) => sonucCell(r.sonuc) },
-    { key: 'islemYapan', label: 'İşlemi Yapan', filterText: (r) => r.islemYapan || '', render: (r) => <span className="text-xs font-bold text-slate-700">{r.islemYapan || '-'}</span> },
-    { key: 'action', label: 'İşlem', filterText: () => '', render: (r) => (
-      <div className="flex flex-wrap items-center gap-1.5">
-        {r.sourceType === 'inceleme' ? (
-          <button type="button" onClick={() => viewInceleme(r.rawId)} className={`${actionButtonClass} border-teal-200 bg-teal-50 text-teal-700 hover:bg-teal-100`}>Görüntüle</button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              if (r.sourceType === 'guncelleme') {
-                const source = guncelleme.find((row) => row.id === r.rawId)
-                if (source) openEditGuncelleme(source)
-              } else {
-                const source = onInceleme.find((row) => row.id === r.rawId)
-                if (source) openEditOnInceleme(source)
-              }
-            }}
-            className={`${actionButtonClass} border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100`}
-          >
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <button type="button" onClick={() => setGoruntulenen(r)} className="rounded-lg bg-[#0a3a57] px-3 py-1.5 text-sm font-black text-white hover:bg-[#0d4f6e] lg:text-base">
+          Formu Görüntüle
+        </button>
+        {r.tur !== 'inceleme' && (
+          <button type="button" onClick={() => duzenlemeAc(r)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-black text-slate-700 hover:bg-slate-100 lg:text-base">
             Düzenle
           </button>
         )}
-        <button type="button" onClick={() => void deleteBySourceType(r)} className={`${actionButtonClass} border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100`}>Sil</button>
+        <button type="button" onClick={() => void sil(r)} className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-black text-rose-600 hover:bg-rose-50 lg:text-base">
+          Sil
+        </button>
       </div>
-    ) },
-  ]
+    </div>
+  )
 
   return (
-    <main className="min-h-screen w-full bg-gradient-to-br from-sky-50 via-white to-emerald-50 px-3 py-5 text-slate-900 sm:px-5 lg:px-8">
-      <div className="mx-auto w-full max-w-[1900px] space-y-5">
-        <div className="ns-sayfa-baslik rounded-lg border border-[#8fd167] bg-gradient-to-r from-[#087fb2] via-[#309690] to-[#6fb744] px-5 py-4 text-white shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-white/85">İş Akışı</p>
-              <h1 className="mt-1 text-2xl font-black leading-tight text-white lg:text-3xl">İnceleme Formları Raporu</h1>
-              <p className="mt-2 max-w-2xl text-xs font-semibold leading-5 text-white/85">
-                Seçilen tarih aralığında doldurulmuş tüm Ön İnceleme, Tahkikat ve Sonuç Bekleyen (Komisyon) raporlarını, dosya bilgilerini ve sonuçlarını dosyaya göre gruplu ya da liste halinde gösterir; buradan düzenlenebilir, iptal edilebilir veya silinebilir.
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <span className="inline-flex items-center justify-center rounded-md border border-white/50 bg-white/15 px-3 py-1.5 text-xs font-black text-white">
-                Toplam: {tabCounts.summary.toLocaleString('tr-TR')} işlem
-              </span>
-            </div>
+    <div className="ns-yazi-masaustu space-y-4 text-slate-950">
+      <div className="ns-sayfa-baslik relative overflow-hidden rounded-xl border-b-4 border-[#c9a227] p-6 text-white shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#e8cf7a]">İş Akışı</p>
+            <h1 className="mt-1 text-3xl font-black leading-tight">İnceleme Formları</h1>
+            <p className="mt-1 max-w-3xl text-base font-semibold text-white/80">
+              Ön İnceleme, Tahkikat ve Sonuç Bekleyen raporları. Dosya no, ad soyad, TC veya telefonla arayın; formu sayfadan çıkmadan görüntüleyin.
+            </p>
           </div>
         </div>
+      </div>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[160px_160px_1fr_auto_auto] lg:items-end">
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-500">Başlangıç</span>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setDateFrom(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-500">Bitiş</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(event) => setDateTo(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-500">Dosya no ara</span>
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Dosya no"
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-[#0076b6] focus:bg-white"
-              />
-            </label>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => { setDateFrom(todayIso()); setDateTo(todayIso()) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:border-[#0076b6] hover:text-[#0076b6]">Bugün</button>
-              <button type="button" onClick={() => { setDateFrom(isoDaysAgo(7)); setDateTo(todayIso()) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:border-[#0076b6] hover:text-[#0076b6]">Son 7 Gün</button>
-              <button type="button" onClick={() => { setDateFrom(isoDaysAgo(30)); setDateTo(todayIso()) }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600 hover:border-[#0076b6] hover:text-[#0076b6]">Son 30 Gün</button>
-            </div>
+      {/* Ozet kartlari = tur filtresi */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {ozetKartlari.map((k) => {
+          const secili = turFiltresi === k.id
+          return (
             <button
+              key={k.id}
               type="button"
-              onClick={() => { setDateFrom(''); setDateTo(''); setSearch('') }}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-600 hover:border-rose-200 hover:text-rose-600"
+              onClick={() => setTurFiltresi(k.id === turFiltresi && k.id !== 'hepsi' ? 'hepsi' : k.id)}
+              className={`relative overflow-hidden rounded-lg border bg-white py-3 pl-5 pr-4 text-left shadow-sm transition hover:shadow ${secili ? 'border-[#0a3a57] ring-2 ring-[#0a3a57]/20' : 'border-slate-200'}`}
             >
-              Temizle
+              <span className={`absolute inset-y-0 left-0 w-1.5 ${k.serit}`} />
+              <p className="text-sm font-black uppercase tracking-wide text-slate-500">{k.ad}</p>
+              <p className="mt-1 text-3xl font-black text-[#0a3a57]">{yukleniyor ? '…' : k.deger.toLocaleString('tr-TR')}</p>
             </button>
-          </div>
-        </section>
+          )
+        })}
+      </div>
 
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((tab) => {
-            const accent = TAB_ACCENT_CLASSES[tab.accent]
-            const isActive = activeTab === tab.id
-            return (
+      {/* Arama + tarih */}
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="relative">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" aria-hidden>
+            <circle cx="9" cy="9" r="6" /><path d="M17 17l-3.5-3.5" strokeLinecap="round" />
+          </svg>
+          <input
+            value={aramaKutusu}
+            onChange={(e) => setAramaKutusu(e.target.value)}
+            placeholder="Dosya no, ad soyad, TC kimlik no veya telefon ile ara..."
+            className="h-12 w-full rounded-lg border-2 border-slate-200 bg-slate-50 pl-11 pr-4 text-base font-semibold outline-none transition focus:border-[#0a3a57] focus:bg-white lg:text-lg"
+          />
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500 lg:text-sm">Başlangıç</span>
+            <input type="date" value={baslangic} onChange={(e) => setBaslangic(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-[#0a3a57] lg:text-base" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-500 lg:text-sm">Bitiş</span>
+            <input type="date" value={bitis} onChange={(e) => setBitis(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-[#0a3a57] lg:text-base" />
+          </label>
+          <button type="button" onClick={() => { setBaslangic(bugun()); setBitis(bugun()) }} className={tarihButonu}>Bugün</button>
+          <button type="button" onClick={() => { setBaslangic(isoGunOnce(7)); setBitis(bugun()) }} className={tarihButonu}>Son 7 Gün</button>
+          <button type="button" onClick={() => { setBaslangic(isoGunOnce(30)); setBitis(bugun()) }} className={tarihButonu}>Son 30 Gün</button>
+          <button type="button" onClick={() => { setBaslangic(yilBasi()); setBitis(bugun()) }} className={tarihButonu}>Bu Yıl</button>
+          <button type="button" onClick={() => { setBaslangic(''); setBitis('') }} className={tarihButonu}>Tüm Zamanlar</button>
+          {(aramaKutusu || turFiltresi !== 'hepsi') && (
+            <button type="button" onClick={() => { setAramaKutusu(''); setTurFiltresi('hepsi') }} className="h-10 rounded-lg border border-rose-200 bg-white px-3 text-sm font-black text-rose-600 hover:bg-rose-50 lg:text-base">
+              Filtreleri Temizle
+            </button>
+          )}
+          <div className="ml-auto inline-flex overflow-hidden rounded-lg border border-slate-300 bg-slate-50 p-1">
+            {([['dosya', 'Dosyaya Göre'], ['liste', 'Liste'], ['ozet', 'Özet']] as Array<[Gorunum, string]>).map(([id, ad]) => (
               <button
-                key={tab.id}
+                key={id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-md border px-3 py-2 text-sm font-black transition-colors ${isActive ? accent.active : accent.inactive}`}
+                onClick={() => setGorunum(id)}
+                className={`rounded-md px-4 py-1.5 text-sm font-black transition lg:text-base ${gorunum === id ? 'bg-[#0a3a57] text-white shadow' : 'text-slate-600 hover:bg-white'}`}
               >
-                {tab.label} ({tabCounts[tab.id].toLocaleString('tr-TR')})
+                {ad}
               </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {hata && <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-base font-bold text-rose-700">{hata}</div>}
+      {islemHatasi && <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-base font-bold text-rose-700">{islemHatasi}</div>}
+
+      {yukleniyor ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-base font-bold text-slate-500 shadow-sm">Raporlar yükleniyor...</div>
+      ) : gorunum === 'dosya' ? (
+        gruplar.length === 0 ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-base font-bold text-slate-500 shadow-sm">Bu arama ve tarih aralığında rapor bulunamadı.</div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm font-bold text-slate-500 lg:text-base">{gruplar.length.toLocaleString('tr-TR')} dosya · {gorunenRaporlar.length.toLocaleString('tr-TR')} rapor</p>
+            {gruplar.map((g) => {
+              const turSayilari = TUR_SIRASI.map((t) => [t, g.raporlar.filter((r) => r.tur === t).length] as const).filter(([, n]) => n > 0)
+              return (
+                <section key={g.dosyaid || g.dosyaNo || g.raporlar[0].anahtar} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex flex-col gap-2 border-b-2 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-4 py-3 text-white lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex min-w-0 flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => dosyayiAc(g.dosyaid, g.dosyaNo)}
+                        title="Dosyayı aç"
+                        className="rounded-md bg-[#c9a227] px-3 py-1 font-mono text-base font-black text-[#0a3a57] hover:bg-[#d8b440] lg:text-lg"
+                      >
+                        {formatFileNo(g.dosyaNo) || `#${g.dosyaid}`}
+                      </button>
+                      <span className="text-lg font-black lg:text-xl">{g.dosyaSahibi || 'Ad soyad belirtilmemiş'}</span>
+                      <span className="text-sm font-semibold text-white/70 lg:text-base">
+                        {[g.telefon, g.adres].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-1.5">
+                      {turSayilari.map(([t, n]) => (
+                        <span key={t} className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-sm font-black ring-1 ring-white/25 lg:text-base">
+                          <span className={`h-2.5 w-2.5 rounded-full ${TUR[t].nokta}`} />{TUR[t].ad} {n}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="divide-y divide-slate-100">{g.raporlar.map((r) => raporSatiri(r, false))}</div>
+                </section>
+              )
+            })}
+          </div>
+        )
+      ) : gorunum === 'liste' ? (
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b-2 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-4 py-3 text-white">
+            <h2 className="text-lg font-black lg:text-xl">Tüm Raporlar</h2>
+            <p className="text-sm font-semibold text-white/75">{gorunenRaporlar.length.toLocaleString('tr-TR')} rapor, en yeniden eskiye</p>
+          </div>
+          {gorunenRaporlar.length === 0 ? (
+            <div className="p-12 text-center text-base font-bold text-slate-500">Bu arama ve tarih aralığında rapor bulunamadı.</div>
+          ) : (
+            <div className="divide-y divide-slate-100">{gorunenRaporlar.map((r) => raporSatiri(r, true))}</div>
+          )}
+        </section>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-3">
+          {TUR_SIRASI.map((t) => {
+            const turAdi = TUR[t].ad
+            const satirlar = (ozet?.bySonuc ?? []).filter((x) => x.type === turAdi)
+            const toplam = t === 'onInceleme' ? ozet?.totals.onInceleme : t === 'inceleme' ? ozet?.totals.inceleme : ozet?.totals.guncelleme
+            const enBuyuk = Math.max(1, ...satirlar.map((x) => x.count))
+            return (
+              <section key={t} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className={`flex items-center justify-between px-4 py-3 text-white ${TUR[t].kart}`}>
+                  <h2 className="text-lg font-black">{turAdi}</h2>
+                  <span className="rounded-full bg-white/20 px-3 py-0.5 text-base font-black">{(toplam ?? 0).toLocaleString('tr-TR')}</span>
+                </div>
+                <div className="space-y-2.5 p-4">
+                  {satirlar.length === 0 ? (
+                    <p className="text-base font-bold text-slate-400">Kayıt yok.</p>
+                  ) : satirlar.map((x) => (
+                    <div key={x.sonuc}>
+                      <div className="flex items-center justify-between gap-2 text-sm font-bold text-slate-700 lg:text-base">
+                        <span className="truncate">{x.sonuc}</span>
+                        <span className="font-black tabular-nums text-[#0a3a57]">{x.count.toLocaleString('tr-TR')}</span>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <span className={`block h-full ${TUR[t].nokta}`} style={{ width: `${(x.count / enBuyuk) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
             )
           })}
         </div>
+      )}
 
-        {error && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{error}</div>
-        )}
-
-        {actionError && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700">{actionError}</div>
-        )}
-
-        {isLoading ? (
-          <div className="rounded-lg border border-slate-200 bg-white p-10 text-center text-sm font-bold text-slate-500 shadow-sm">Rapor hazırlanıyor...</div>
-        ) : (
-          <>
-            {activeTab === 'grouped' && (
-              <GroupedByFileView
-                rows={combinedRows}
-                onOpenFile={openDosya}
-                onEdit={(row) => {
-                  if (row.sourceType === 'guncelleme') {
-                    const source = guncelleme.find((item) => item.id === row.rawId)
-                    if (source) openEditGuncelleme(source)
-                  } else if (row.sourceType === 'onInceleme') {
-                    const source = onInceleme.find((item) => item.id === row.rawId)
-                    if (source) openEditOnInceleme(source)
-                  }
-                }}
-                onCancel={(row) => viewInceleme(row.rawId)}
-                onDelete={(row) => void deleteBySourceType(row)}
-                formTuruBadgeClass={formTuruBadgeClass}
-                sonucBadgeClass={sonucBadgeClass}
-              />
-            )}
-
-            {activeTab === 'guncelleme' && (
-              <DataTable rows={guncelleme} columns={guncellemeColumns} accent="indigo" emptyMessage="Seçilen aralıkta kayıt bulunamadı" minWidth={1700} />
-            )}
-
-            {activeTab === 'onInceleme' && (
-              <DataTable rows={onInceleme} columns={onIncelemeColumns} accent="amber" emptyMessage="Seçilen aralıkta kayıt bulunamadı" minWidth={1700} />
-            )}
-
-            {activeTab === 'inceleme' && (
-              <DataTable rows={inceleme} columns={incelemeColumns} accent="teal" emptyMessage="Seçilen aralıkta kayıt bulunamadı" minWidth={1700} />
-            )}
-
-            {activeTab === 'summary' && summary && (
-              <div className="space-y-5">
-                <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                  {[
-                    { label: 'Sonuç Bekleyen Raporu', value: summary.totals.guncelleme, card: 'border-indigo-200 bg-gradient-to-br from-indigo-50 to-white', tone: 'text-indigo-700' },
-                    { label: 'Ön İnceleme Formu', value: summary.totals.onInceleme, card: 'border-amber-200 bg-gradient-to-br from-amber-50 to-white', tone: 'text-amber-700' },
-                    { label: 'Tahkikat Formu', value: summary.totals.inceleme, card: 'border-teal-200 bg-gradient-to-br from-teal-50 to-white', tone: 'text-teal-700' },
-                    { label: 'Toplam İşlem', value: summary.totals.all, card: 'border-violet-200 bg-gradient-to-br from-violet-50 to-white', tone: 'text-violet-700' },
-                  ].map((item) => (
-                    <div key={item.label} className={`rounded-lg border p-5 shadow-sm ${item.card}`}>
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">{item.label}</p>
-                      <p className={`mt-2 text-3xl font-black ${item.tone}`}>{item.value.toLocaleString('tr-TR')}</p>
-                    </div>
-                  ))}
-                </section>
-
-                <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <h2 className="text-sm font-black text-slate-900">Sonuç türüne göre özet sayılar</h2>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">Seçilen tarih aralığında form türüne göre sonuç sayıları.</p>
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="ns-tablo-olcu w-full min-w-[600px] text-left text-sm">
-                      <thead className="bg-slate-50 text-[11px] font-black uppercase text-slate-500">
-                        <tr>
-                          <th className="px-4 py-3">Form Türü</th>
-                          <th className="px-4 py-3">Sonuç</th>
-                          <th className="px-4 py-3">Kayıt Sayısı</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {summary.bySonuc.length > 0 ? summary.bySonuc.map((row, index) => (
-                          <tr key={`${row.type}-${row.sonuc}-${index}`} className="odd:bg-white even:bg-slate-50/60">
-                            <td className="px-4 py-3 text-xs font-bold text-slate-700">{row.type}</td>
-                            <td className="px-4 py-3">
-                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-black text-white ${sonucBadgeClass(row.sonuc)}`}>{row.sonuc}</span>
-                            </td>
-                            <td className="px-4 py-3 text-xs font-black text-slate-700">{row.count.toLocaleString('tr-TR')}</td>
-                          </tr>
-                        )) : (
-                          <tr><td colSpan={3} className="px-4 py-12 text-center text-sm font-black text-slate-500">Seçilen aralıkta veri yok</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <DataTable
-                  rows={combinedRows}
-                  columns={combinedColumns}
-                  accent="violet"
-                  emptyMessage="Seçilen aralıkta kayıt bulunamadı"
-                  minWidth={1600}
-                  title="Tüm İşlemler (Düz Liste)"
-                  description="Hangi dosyada, kim tarafından, ne sonuçla işlem yapıldığını tek listede gösterir. Dosyaya göre gruplu görünüm için üstteki 'Dosyaya Göre Gruplu' sekmesini kullanın."
-                />
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {editTarget && (
-        <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
-          <div className="w-full max-w-lg overflow-hidden rounded-xl border border-sky-200 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-sky-100 bg-sky-50 px-4 py-3">
-              <div>
-                <h3 className="text-sm font-black uppercase text-sky-900">
-                  {editTarget.type === 'onInceleme' ? 'Ön İnceleme Raporu Düzenle' : 'Sonuç Bekleyen Raporu Düzenle'}
+      {/* Formu goruntule */}
+      {goruntulenen && (
+        <div className="fixed inset-0 z-[2200] flex items-center justify-center bg-slate-950/70 p-2 backdrop-blur-sm md:p-4" onClick={() => setGoruntulenen(null)}>
+          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-5 py-4 text-white">
+              <div className="min-w-0">
+                <p className="text-sm font-bold uppercase tracking-[0.14em] text-[#e8cf7a]">{TUR[goruntulenen.tur].ad} · {tarihMetni(goruntulenen.tarih)}</p>
+                <h3 className="mt-0.5 truncate text-xl font-black">
+                  Dosya {formatFileNo(goruntulenen.dosyaNo) || goruntulenen.dosyaid}{goruntulenen.dosyaSahibi ? ` — ${goruntulenen.dosyaSahibi}` : ''}
                 </h3>
-                <p className="text-xs font-bold text-sky-700">{editTarget.dosyaNo ? `Dosya ${formatFileNo(editTarget.dosyaNo)}` : ''}</p>
               </div>
-              <button type="button" onClick={closeEditModal} className="rounded-full p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500">✕</button>
+              <div className="flex shrink-0 gap-2">
+                {goruntulenen.tur === 'inceleme' && (
+                  <button type="button" onClick={() => window.open(`/api/documents/saha-inceleme/yazdir?id=${encodeURIComponent(goruntulenen.id)}&yazdir=1`, '_blank', 'noopener,noreferrer')} className="rounded-lg bg-[#c9a227] px-3 py-1.5 text-sm font-black text-[#0a3a57] hover:bg-[#d8b440]">
+                    Yazdır
+                  </button>
+                )}
+                <button type="button" onClick={() => dosyayiAc(goruntulenen.dosyaid, goruntulenen.dosyaNo)} className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-sm font-black hover:bg-white/20">
+                  Dosyayı Aç
+                </button>
+                <button type="button" onClick={() => setGoruntulenen(null)} className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-sm font-black hover:bg-rose-600">✕</button>
+              </div>
             </div>
-            <div className="space-y-3 p-4">
-              {editError && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">{editError}</div>}
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-extrabold uppercase text-slate-600">Tarih</span>
-                <input
-                  type="date"
-                  value={editForm.tarih}
-                  onChange={(event) => setEditForm((current) => ({ ...current, tarih: event.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-950 outline-none focus:border-sky-500"
+            <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50">
+              {goruntulenen.tur === 'inceleme' ? (
+                <iframe
+                  title="Tahkikat formu"
+                  src={`/api/documents/saha-inceleme/yazdir?id=${encodeURIComponent(goruntulenen.id)}`}
+                  className="h-[78vh] w-full border-0 bg-white"
                 />
+              ) : (
+                <div className="space-y-4 p-5">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {[
+                      ['Tarih', tarihMetni(goruntulenen.tarih)],
+                      [goruntulenen.tur === 'guncelleme' ? 'Konu' : 'Sonuç', goruntulenen.sonuc || '—'],
+                      ['İşlemi Yapan', goruntulenen.islemYapan || '—'],
+                    ].map(([e, d]) => (
+                      <div key={e} className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                        <p className="text-xs font-black uppercase tracking-wide text-slate-500 lg:text-sm">{e}</p>
+                        <p className="mt-1 text-base font-black text-slate-900 lg:text-lg">{d}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {goruntulenen.tur === 'onInceleme' && (
+                    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                      <div className="border-b border-slate-200 bg-amber-50 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-900 lg:text-base">Ön İnceleme Cevapları</div>
+                      {(() => {
+                        const cevaplar = goruntulenenOnInceleme?.cevaplar ?? {}
+                        const anahtarlar = Object.keys(cevaplar)
+                        if (anahtarlar.length === 0) return <p className="px-4 py-3 text-base font-semibold text-slate-400">Cevap girilmemiş.</p>
+                        // Sablon sirasiyla; sablonda olmayan (eski) sorular sonda
+                        const sirali = [
+                          ...onIncelemeSablonu.filter((s) => s.id in cevaplar).map((s) => ({ id: s.id, etiket: s.label })),
+                          ...anahtarlar.filter((k) => !onIncelemeSablonu.some((s) => s.id === k)).map((k) => ({ id: k, etiket: k })),
+                        ]
+                        return (
+                          <dl className="divide-y divide-slate-100">
+                            {sirali.map((s) => (
+                              <div key={s.id} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                                <dt className="text-sm font-bold text-slate-500 lg:text-base">{s.etiket}</dt>
+                                <dd className="text-base font-semibold text-slate-900 lg:text-lg">{String(cevaplar[s.id] ?? '')}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )
+                      })()}
+                    </div>
+                  )}
+                  <div className="rounded-lg border border-slate-200 bg-white">
+                    <div className="border-b border-slate-200 bg-slate-100 px-4 py-2 text-sm font-black uppercase tracking-wide text-slate-700 lg:text-base">
+                      {goruntulenen.tur === 'guncelleme' ? 'Komisyon Raporu' : 'Açıklama'}
+                    </div>
+                    <p className="whitespace-pre-wrap px-4 py-3 text-base font-medium leading-relaxed text-slate-800 lg:text-lg">{goruntulenen.aciklama || '—'}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            {goruntulenen.tur !== 'inceleme' && (
+              <div className="flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3">
+                <button type="button" onClick={() => { const r = goruntulenen; setGoruntulenen(null); duzenlemeAc(r) }} className="rounded-lg bg-[#0a3a57] px-4 py-2 text-sm font-black text-white hover:bg-[#0d4f6e] lg:text-base">Düzenle</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Duzenleme */}
+      {duzenlenen && (
+        <div className="fixed inset-0 z-[2300] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
+          <div className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b-4 border-[#c9a227] bg-gradient-to-r from-[#0a3a57] to-[#0d4f6e] px-5 py-4 text-white">
+              <div>
+                <h3 className="text-lg font-black">{TUR[duzenlenen.tur].ad} Raporunu Düzenle</h3>
+                <p className="text-sm font-semibold text-white/75">Dosya {formatFileNo(duzenlenen.dosyaNo) || duzenlenen.dosyaid}</p>
+              </div>
+              <button type="button" onClick={() => duzenDurum !== 'saving' && setDuzenlenen(null)} className="rounded-lg px-2.5 py-1 text-lg font-black text-white/80 hover:bg-white/10">✕</button>
+            </div>
+            <div className="space-y-3 p-5">
+              {duzenHata && <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700">{duzenHata}</div>}
+              <label className="block">
+                <span className="mb-1 block text-sm font-black uppercase tracking-wide text-slate-600">Tarih</span>
+                <input type="date" value={duzenForm.tarih} onChange={(e) => setDuzenForm((c) => ({ ...c, tarih: e.target.value }))} className="h-11 w-full rounded-lg border border-slate-300 px-3 text-base font-semibold outline-none focus:border-[#0a3a57]" />
               </label>
-              {editTarget.type === 'guncelleme' && (
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-xs font-extrabold uppercase text-slate-600">Konu</span>
-                  <input
-                    value={editForm.konu}
-                    onChange={(event) => setEditForm((current) => ({ ...current, konu: event.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-950 outline-none focus:border-sky-500"
-                  />
+              {duzenlenen.tur === 'guncelleme' && (
+                <label className="block">
+                  <span className="mb-1 block text-sm font-black uppercase tracking-wide text-slate-600">Konu</span>
+                  <input value={duzenForm.konu} onChange={(e) => setDuzenForm((c) => ({ ...c, konu: e.target.value }))} className="h-11 w-full rounded-lg border border-slate-300 px-3 text-base font-semibold outline-none focus:border-[#0a3a57]" />
                 </label>
               )}
-              <label className="flex flex-col gap-1.5">
-                <span className="text-xs font-extrabold uppercase text-slate-600">{editTarget.type === 'onInceleme' ? 'Açıklama' : 'Rapor'}</span>
-                <textarea
-                  rows={5}
-                  value={editForm.metin}
-                  onChange={(event) => setEditForm((current) => ({ ...current, metin: event.target.value }))}
-                  className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-sky-500"
-                />
+              <label className="block">
+                <span className="mb-1 block text-sm font-black uppercase tracking-wide text-slate-600">{duzenlenen.tur === 'onInceleme' ? 'Açıklama' : 'Rapor'}</span>
+                <textarea rows={8} value={duzenForm.metin} onChange={(e) => setDuzenForm((c) => ({ ...c, metin: e.target.value }))} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-medium leading-relaxed outline-none focus:border-[#0a3a57]" />
               </label>
             </div>
-            <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
-              <button
-                type="button"
-                onClick={closeEditModal}
-                disabled={editStatus === 'saving'}
-                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
-              >
-                Vazgeç
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={editStatus === 'saving'}
-                className="rounded-md border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-extrabold text-white shadow-sm hover:bg-sky-700 disabled:cursor-wait disabled:opacity-60"
-              >
-                {editStatus === 'saving' ? 'Kaydediliyor...' : 'Kaydet'}
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <button type="button" onClick={() => setDuzenlenen(null)} disabled={duzenDurum === 'saving'} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-base font-black text-slate-700 hover:bg-slate-100 disabled:opacity-60">Vazgeç</button>
+              <button type="button" onClick={() => void duzenlemeKaydet()} disabled={duzenDurum === 'saving'} className="rounded-lg bg-[#0a3a57] px-5 py-2 text-base font-black text-white hover:bg-[#0d4f6e] disabled:opacity-60">
+                {duzenDurum === 'saving' ? 'Kaydediliyor...' : 'Kaydet'}
               </button>
             </div>
           </div>
         </div>
       )}
-    </main>
+    </div>
   )
 }

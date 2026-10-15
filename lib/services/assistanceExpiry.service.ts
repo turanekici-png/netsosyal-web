@@ -36,13 +36,17 @@ export async function updateExpiredAssistanceStatuses() {
     await ensureMonthlySupportPackagePeriods()
 
     for (const tableName of EXPIRING_ASSISTANCE_TABLES) {
+      // 2026-10-15: Kış Dönemi yardimlarini winterSeasonalAid.service.ts
+      // bitiste 3 "İptal Edildi" yapar - burada 4'e cekilmez.
+      const kisDonemiHaric = tableName === 'yrd_ddgidadosyali' ? '' : ` AND COALESCE(donem, '') <> 'Kış Dönemi'`
       await prisma.$executeRawUnsafe(
+        // 2026-10-15: kesilen yardimin donemi "Kapalı" (ddgidadosyali'da donem yok)
         `UPDATE ${tableName}
          SET durumu = 4,
-             durumutarih = CURRENT_DATE
+             durumutarih = CURRENT_DATE${tableName === 'yrd_ddgidadosyali' ? '' : ", donem = 'Kapalı'"}
          WHERE bittarih IS NOT NULL
            AND bittarih <= CURRENT_DATE
-           AND durumu = 2`,
+           AND durumu = 2${kisDonemiHaric}`,
       )
     }
 

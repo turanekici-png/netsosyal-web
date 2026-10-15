@@ -5,6 +5,7 @@ import {
   haneSutunlari,
   calisabilirMi,
   GELIR_KAYNAGI_METNI,
+  imzaDuzeni,
   type HaneAnalizi,
   type CevapDegeri,
   type Cevaplar,
@@ -153,18 +154,18 @@ export function sahaIncelemeHtml({ sablon, cevaplar, formNo, dosyaNo, tarih, oto
     const tumu = bolum.sorular.filter((s) => s.aktif !== false)
     // Imzalar yan yana (solda basvuru sahibi, sagda personel; personel adi
     // personel imzasinin ustunde) - formdaki duzenle ayni.
-    const imzalar = tumu.filter((s) => s.tur === 'imza')
-    const personelImza = imzalar.find((s) => /personel/i.test(s.soruMetni))
-    const personelAd = personelImza ? tumu.find((s) => s.tur !== 'imza' && (s.otomatik === 'personel' || /^personel ad/i.test(s.soruMetni))) : undefined
-    const sorular = tumu.filter((s) => s.tur !== 'imza' && s !== personelAd)
-    const imzaSirasi = [...imzalar.filter((s) => s !== personelImza), ...(personelImza ? [personelImza] : [])]
+    // 2026-10-15: birden fazla personel imzasi (ortak duzen: imzaDuzeni).
+    const duzen = imzaDuzeni(tumu)
+    const sorular = duzen.satirlar
+    const imzaSirasi = duzen.siraliImzalar
     const imzaHucre = (s: Soru) => {
       const c = deger(cevaplar, s)
       const resim = !bos && typeof c === 'string' && c.startsWith('data:image/png;base64,') ? `<img class="imza-img" src="${esc(c)}" alt="İmza">` : ''
-      const ad = s === personelImza && personelAd
+      const personelAd = duzen.adSorusu(s)
+      const ad = personelAd
         ? `<div class="imza-ad">${esc(personelAd.soruMetni)}: <b>${esc(bos ? '' : String(deger(cevaplar, personelAd) ?? ''))}</b></div>`
         : ''
-      return `<td class="${s === personelImza ? 'personel' : 'basvuru'}"><div class="imza-baslik">${esc(s.soruMetni)}</div>${ad}<div class="imza-kutu">${resim}</div></td>`
+      return `<td class="${duzen.personelImzasiMi(s) ? 'personel' : 'basvuru'}"><div class="imza-baslik">${esc(s.soruMetni)}</div>${ad}<div class="imza-kutu">${resim}</div></td>`
     }
     const imzaHtml = imzaSirasi.length ? `<table class="imzalar-yan"><tr>${imzaSirasi.map(imzaHucre).join('')}</tr></table>` : ''
     // Ardisik basit sorulari tek bir iki kolonlu tabloda topla; tablo
@@ -283,7 +284,7 @@ export function sahaIncelemeHtml({ sablon, cevaplar, formNo, dosyaNo, tarih, oto
   .bulgular td:first-child { width: 42%; color: #444; }
   .bulgular tr { break-inside: avoid; }
   .imzalar-yan { margin-top: 6px; table-layout: fixed; break-inside: avoid; }
-  .imzalar-yan td { border: 1px solid #555; padding: 6px 8px; vertical-align: top; width: 50%; }
+  .imzalar-yan td { border: 1px solid #555; padding: 6px 8px; vertical-align: top; }
   .imzalar-yan td.basvuru { background: #f0faf8; }
   .imzalar-yan td.personel { background: #f0f4fd; }
   .imzalar-yan .imza-baslik { font-weight: 700; margin-bottom: 4px; }

@@ -133,6 +133,8 @@ export default async function KurbanRecordsPage({
 
       <ManagedReportTablePage
         eyebrow="Ana Sayfa Raporu"
+        // 2026-10-15: Dosyalar/Yardımlar ile ayni kurumsal baslik + tablo dili.
+        corporateHeader={{ kicker: "Ana Sayfa › Raporlar" }}
         title={requestedTitle}
         routePath="/dashboard/kurban-records"
         data={errorMessage ? [] : records}

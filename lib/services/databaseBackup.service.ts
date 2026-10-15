@@ -7,7 +7,12 @@ import { createUtcTypeOverrides } from '@/lib/db/pgTypeParsers'
 
 const execFileAsync = promisify(execFile)
 
-export type DatabaseBackupScheduleType = 'daily' | 'weekly'
+// 'weekdays' (2026-10-15, kullanici istegi): Pazartesi-Cuma her gun.
+export type DatabaseBackupScheduleType = 'daily' | 'weekdays' | 'weekly'
+
+const normalizeScheduleType = (value: unknown): DatabaseBackupScheduleType => (
+  value === 'weekly' || value === 'weekdays' ? value : 'daily'
+)
 
 export interface DatabaseBackupSchedule {
   id: string
@@ -32,6 +37,9 @@ export interface DatabaseBackupSettings {
   dayOfWeek: number | null
   timeOfDay: string
   schedules: DatabaseBackupSchedule[]
+  // Her veritabani icin saklanacak en fazla yedek sayisi (0 = sinirsiz).
+  // Yeni yedek BASARIYLA bittikten sonra en eskiler silinir.
+  retentionCount: number
   lastRunAt: string | null
   lastStatus: 'idle' | 'success' | 'error'
   lastMessage: string | null
@@ -61,13 +69,20 @@ const DEFAULT_BACKUP_DIR = path.join(process.cwd(), 'backups', 'database')
 // bellek" (OOM) hatasi verdigi GERCEK ortamda GOZLEMLENDI. Bu yuzden:
 //   - bireyresim/dizayn/kullanicifoto/kurum_msj: tablo tablo, HER
 //     CALISTIGINDA YENIDEN yazilir (uzerine).
-//   - belge: YIL BAZLI ayri dosyalara bolunur - GECMIS (kapanmis) yillar
-//     SADECE BIR KEZ yedeklenir (bir daha degismeyecekleri icin), sadece
-//     GUNCEL yilin belgeleri HER CALISTIGINDA yeniden yedeklenir. Boylece
-//     her yedeklemede 16+ GB'in TAMAMI degil, sadece o yilin (cok daha
-//     kucuk) kismi tekrar islenir.
+//   - belge: YIL BAZLI ayri dosyalara bolunur (tek parca dump OOM verdigi icin).
+// 2026-10-15 (kullanici istegi: "her zaman son 2 gunluk yedek olsun"): her
+// calisma <veritabani klasoru>\<zaman damgasi>\ altina EKSIKSIZ, kendi basina
+// geri yuklenebilen bir yedek yazar (once "<damga>.yarim" adiyla, bitince
+// yeniden adlandirilir). Eskiden tek klasorun uzerine yazilip gecmis yillar
+// bir kez yedekleniyordu - o yapida "2 gunluk yedek" tutulamiyordu.
 const DKM_DATABASE_NAME = 'sosyalyardimdkm'
 const DKM_SIMPLE_TABLES = ['bireyresim', 'dizayn', 'kullanicifoto', 'kurum_msj']
+const DKM_BACKUP_SEPARATOR = '@'
+const INCOMPLETE_SUFFIX = '.yarim'
+const DKM_STAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T[\d-]+Z$/
+const DEFAULT_RETENTION_COUNT = 2
+
+const createTimestamp = () => new Date().toISOString().replace(/[:.]/g, '-')
 
 const defaultSettings: DatabaseBackupSettings = {
   backupDirectory: DEFAULT_BACKUP_DIR,
@@ -79,9 +94,15 @@ const defaultSettings: DatabaseBackupSettings = {
   dayOfWeek: null,
   timeOfDay: '02:00',
   schedules: [],
+  retentionCount: DEFAULT_RETENTION_COUNT,
   lastRunAt: null,
   lastStatus: 'idle',
   lastMessage: null,
+}
+
+const normalizeRetentionCount = (value: unknown) => {
+  const count = Number(value)
+  return Number.isInteger(count) && count >= 0 && count <= 365 ? count : DEFAULT_RETENTION_COUNT
 }
 
 const globalForDatabaseBackup = globalThis as unknown as {
@@ -173,7 +194,7 @@ const normalizeSchedule = (
   fallbackDatabaseNames: string[],
   index: number,
 ): DatabaseBackupSchedule => {
-  const scheduleType = input.scheduleType === 'weekly' ? 'weekly' : 'daily'
+  const scheduleType = normalizeScheduleType(input.scheduleType)
 
   return {
     id: String(input.id || createScheduleId()),
@@ -260,8 +281,9 @@ const buildRestoreInstructions = () => (
 )
 
 // sosyalyardimdkm.belge disindaki tablolar + belge'nin kendisi icin YIL
-// BAZLI yedekleme - bkz. dosya basindaki aciklama.
-const createDkmBackup = async (dkmFolder: string, postgresBinDirectory: string) => {
+// BAZLI yedekleme - bkz. dosya basindaki aciklama. `dkmFolder` her zaman
+// YENI (bos) bir klasordur, bu yuzden tum yillar yazilir.
+const writeDkmBackupFiles = async (dkmFolder: string, postgresBinDirectory: string) => {
   await fs.mkdir(dkmFolder, { recursive: true })
 
   for (const tbl of DKM_SIMPLE_TABLES) {
@@ -321,8 +343,36 @@ const createDkmBackup = async (dkmFolder: string, postgresBinDirectory: string) 
 
   await fs.writeFile(path.join(dkmFolder, 'RESTORE_TALIMATI.txt'), buildRestoreInstructions(), 'utf-8')
   await fs.writeFile(path.join(dkmFolder, '.last-updated'), new Date().toISOString(), 'utf-8')
+}
 
-  return { fileName: DKM_DATABASE_NAME, fullPath: dkmFolder, databaseName: DKM_DATABASE_NAME }
+const createDkmBackup = async (dkmRoot: string, postgresBinDirectory: string) => {
+  const stamp = createTimestamp()
+  const finalFolder = path.join(/* turbopackIgnore: true */ dkmRoot, stamp)
+  const workFolder = `${finalFolder}${INCOMPLETE_SUFFIX}`
+  try {
+    await writeDkmBackupFiles(workFolder, postgresBinDirectory)
+  } catch (error) {
+    // Yarim kalan yedek yer kaplamasin ve geri yukleme listesine girmesin
+    await fs.rm(/* turbopackIgnore: true */ workFolder, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+  await fs.rename(/* turbopackIgnore: true */ workFolder, finalFolder)
+  return { fileName: `${DKM_DATABASE_NAME}${DKM_BACKUP_SEPARATOR}${stamp}`, fullPath: finalFolder, databaseName: DKM_DATABASE_NAME }
+}
+
+// Yeni yedek BASARIYLA bittikten sonra cagrilir: veritabani klasorunde en
+// yeni `keep` yedek kalir, daha eskiler silinir (kullanici istegi: "her zaman
+// son 2 gunluk yedek olsun"). Zaman damgasi adlari alfabetik = kronolojik.
+const pruneOldBackups = async (databaseFolder: string, databaseName: string, keep: number) => {
+  if (keep <= 0) return
+  const entries = await fs.readdir(/* turbopackIgnore: true */ databaseFolder, { withFileTypes: true }).catch(() => [])
+  const backups = databaseName === DKM_DATABASE_NAME
+    ? entries.filter((entry) => entry.isDirectory() && DKM_STAMP_PATTERN.test(entry.name)).map((entry) => entry.name)
+    : entries.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.sql')).map((entry) => entry.name)
+  const toDelete = backups.sort().reverse().slice(keep)
+  for (const name of toDelete) {
+    await fs.rm(/* turbopackIgnore: true */ path.join(databaseFolder, name), { recursive: true, force: true })
+  }
 }
 
 const restoreDkmBackup = async (dkmFolder: string, postgresBinDirectory: string) => {
@@ -393,10 +443,11 @@ export const databaseBackupService = {
         postgresBinDirectory: loaded.postgresBinDirectory || '',
         databaseName: loaded.databaseName || currentDatabaseName,
         databaseNames: fallbackDatabaseNames,
-        scheduleType: loaded.scheduleType === 'weekly' ? 'weekly' : 'daily',
+        scheduleType: normalizeScheduleType(loaded.scheduleType),
         dayOfWeek: Number.isInteger(loaded.dayOfWeek) ? loaded.dayOfWeek ?? null : null,
         timeOfDay: normalizeTimeOfDay(loaded.timeOfDay || defaultSettings.timeOfDay),
         schedules,
+        retentionCount: normalizeRetentionCount(loaded.retentionCount),
       }
     } catch {
       const currentDatabaseName = getDatabaseName()
@@ -428,11 +479,12 @@ export const databaseBackupService = {
       postgresBinDirectory: (input.postgresBinDirectory ?? current.postgresBinDirectory).trim(),
       databaseName: databaseName || getDatabaseName(),
       databaseNames,
-      scheduleType: scheduleType === 'weekly' ? 'weekly' : 'daily',
+      scheduleType: normalizeScheduleType(scheduleType),
       dayOfWeek: scheduleType === 'weekly' ? input.dayOfWeek ?? current.dayOfWeek ?? 1 : null,
       timeOfDay: normalizeTimeOfDay(input.timeOfDay ?? current.timeOfDay),
       scheduleEnabled: Boolean(input.scheduleEnabled ?? current.scheduleEnabled),
       schedules,
+      retentionCount: normalizeRetentionCount(input.retentionCount ?? current.retentionCount),
     }
 
     await ensureParentDirectory(SETTINGS_FILE)
@@ -476,21 +528,38 @@ export const databaseBackupService = {
       const folderPath = path.join(/* turbopackIgnore: true */ backupDirectory, entry.name)
 
       if (entry.name === getSafeDatabaseName(DKM_DATABASE_NAME)) {
-        const size = await getDirectorySize(folderPath)
-        let createdAt = new Date().toISOString()
-        try {
-          createdAt = (await fs.readFile(path.join(/* turbopackIgnore: true */ folderPath, '.last-updated'), 'utf-8')).trim()
-        } catch {
-          const stats = await fs.stat(/* turbopackIgnore: true */ folderPath).catch(() => null)
-          if (stats) createdAt = stats.mtime.toISOString()
+        const readCreatedAt = async (backupFolder: string) => {
+          try {
+            return (await fs.readFile(path.join(/* turbopackIgnore: true */ backupFolder, '.last-updated'), 'utf-8')).trim()
+          } catch {
+            const stats = await fs.stat(/* turbopackIgnore: true */ backupFolder).catch(() => null)
+            return stats ? stats.mtime.toISOString() : new Date().toISOString()
+          }
         }
-        results.push({
-          fileName: DKM_DATABASE_NAME,
-          fullPath: folderPath,
-          databaseName: DKM_DATABASE_NAME,
-          size,
-          createdAt,
-        })
+        // Zaman damgali (2026-10-15 sonrasi) yedekler: her alt klasor bir yedek
+        const dkmEntries = await fs.readdir(/* turbopackIgnore: true */ folderPath, { withFileTypes: true }).catch(() => [])
+        for (const dkmEntry of dkmEntries) {
+          if (!dkmEntry.isDirectory() || !DKM_STAMP_PATTERN.test(dkmEntry.name)) continue
+          const backupFolder = path.join(/* turbopackIgnore: true */ folderPath, dkmEntry.name)
+          results.push({
+            fileName: `${DKM_DATABASE_NAME}${DKM_BACKUP_SEPARATOR}${dkmEntry.name}`,
+            fullPath: backupFolder,
+            databaseName: DKM_DATABASE_NAME,
+            size: await getDirectorySize(backupFolder),
+            createdAt: await readCreatedAt(backupFolder),
+          })
+        }
+        // Eski duzen: yedek dosyalari dogrudan veritabani klasorunde
+        const legacyExists = dkmEntries.some((dkmEntry) => dkmEntry.isFile() && dkmEntry.name === '.last-updated')
+        if (legacyExists) {
+          results.push({
+            fileName: DKM_DATABASE_NAME,
+            fullPath: folderPath,
+            databaseName: DKM_DATABASE_NAME,
+            size: await getDirectorySize(folderPath),
+            createdAt: await readCreatedAt(folderPath),
+          })
+        }
         continue
       }
 
@@ -572,25 +641,34 @@ export const databaseBackupService = {
     // (OOM riski) yuzunden farkli/ozel bir yontemle (tablo tablo + belge
     // yil bazli) yedeklenir - bkz. dosya basindaki aciklama.
     if (targetDatabaseName === DKM_DATABASE_NAME) {
-      return createDkmBackup(databaseFolder, settings.postgresBinDirectory)
+      const created = await createDkmBackup(databaseFolder, settings.postgresBinDirectory)
+      await pruneOldBackups(databaseFolder, DKM_DATABASE_NAME, settings.retentionCount)
+      return created
     }
 
     const databaseName = getSafeDatabaseName(targetDatabaseName)
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const fileName = `${databaseName}-${timestamp}.sql`
+    const fileName = `${databaseName}-${createTimestamp()}.sql`
     const fullPath = path.join(databaseFolder, fileName)
+    const workPath = `${fullPath}${INCOMPLETE_SUFFIX}`
 
-    await runPostgresCommand('pg_dump', [
-      '--dbname',
-      targetDatabaseName,
-      '--format=plain',
-      '--clean',
-      '--if-exists',
-      '--no-owner',
-      '--no-privileges',
-      '--file',
-      fullPath,
-    ], settings.postgresBinDirectory)
+    try {
+      await runPostgresCommand('pg_dump', [
+        '--dbname',
+        targetDatabaseName,
+        '--format=plain',
+        '--clean',
+        '--if-exists',
+        '--no-owner',
+        '--no-privileges',
+        '--file',
+        workPath,
+      ], settings.postgresBinDirectory)
+    } catch (error) {
+      await fs.rm(/* turbopackIgnore: true */ workPath, { force: true }).catch(() => undefined)
+      throw error
+    }
+    await fs.rename(/* turbopackIgnore: true */ workPath, fullPath)
+    await pruneOldBackups(databaseFolder, targetDatabaseName, settings.retentionCount)
 
     return { fileName, fullPath, databaseName: targetDatabaseName }
   },
@@ -625,6 +703,12 @@ export const databaseBackupService = {
     // (once sema, sonra belge yil dosyalari, sonra diger tablolar) yapilir.
     if (safeFileName === DKM_DATABASE_NAME) {
       const dkmFolder = getDatabaseFolder(backupDirectory, DKM_DATABASE_NAME)
+      return restoreDkmBackup(dkmFolder, settings.postgresBinDirectory)
+    }
+    if (safeFileName.startsWith(`${DKM_DATABASE_NAME}${DKM_BACKUP_SEPARATOR}`)) {
+      const stamp = safeFileName.slice(DKM_DATABASE_NAME.length + DKM_BACKUP_SEPARATOR.length)
+      if (!DKM_STAMP_PATTERN.test(stamp)) throw new Error('Gecersiz yedek adi.')
+      const dkmFolder = path.join(/* turbopackIgnore: true */ getDatabaseFolder(backupDirectory, DKM_DATABASE_NAME), stamp)
       return restoreDkmBackup(dkmFolder, settings.postgresBinDirectory)
     }
 
@@ -674,6 +758,11 @@ export const databaseBackupService = {
 
   startScheduler() {
     if (globalForDatabaseBackup.databaseBackupTimer) return
+    // 2026-10-15: 3001 test sunucusu (next dev) canli ile AYNI ayar dosyasini
+    // okudugu icin her gece ayni anda ikinci bir yedek baslatiyordu. Otomatik
+    // yedek yalniz canli (production) surecte calisir; "Simdi Yedek Al" her
+    // yerde calisir.
+    if (process.env.NODE_ENV !== 'production') return
 
     globalForDatabaseBackup.databaseBackupTimer = setInterval(async () => {
       if (globalForDatabaseBackup.databaseBackupRunning) return
@@ -688,9 +777,10 @@ export const databaseBackupService = {
         const currentDay = now.getDay()
         const runnableSchedules = settings.schedules.filter((schedule) => {
           if (!schedule.enabled) return false
-          const shouldRun = schedule.scheduleType === 'daily'
-            ? schedule.timeOfDay === currentTime
-            : schedule.timeOfDay === currentTime && schedule.dayOfWeek === currentDay
+          const dayMatches = schedule.scheduleType === 'daily'
+            || (schedule.scheduleType === 'weekdays' && currentDay >= 1 && currentDay <= 5)
+            || (schedule.scheduleType === 'weekly' && schedule.dayOfWeek === currentDay)
+          const shouldRun = dayMatches && schedule.timeOfDay === currentTime
 
           if (!shouldRun) return false
 

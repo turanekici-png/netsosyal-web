@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
-import { requireApiAccess } from '@/lib/apiAuth'
+import { getSessionUser, requireApiAccess } from '@/lib/apiAuth'
+import { etkinKimlik } from '@/lib/auth/tahkikatEkip'
+import { performansKaydet } from '@/lib/workflow/performans'
 import { parseSessionValue, readSessionCookie } from '@/lib/auth'
 import { getAuditMetaFromRequest, stampAuditUser } from '@/lib/db/auditContext'
 
@@ -213,6 +215,19 @@ export async function POST(request: NextRequest) {
       }
 
       return rows[0]
+    })
+
+    // 2026-10-15: Performans Raporu (is_akisi_performans) - islemi yapan
+    // (ekip hesabinda secili personel) ile birlikte.
+    const kimlik = await etkinKimlik(await getSessionUser(), request.cookies)
+    await performansKaydet({
+      islemTuru: 'on_inceleme',
+      dosyaid: fileId,
+      kaynakTablo: 'on_inceleme_raporlari',
+      kaynakId: result?.id,
+      kullaniciId: kimlik.kullaniciId ?? currentUserId,
+      ekipKullaniciId: kimlik.ekipKullaniciId,
+      sonuc: nextStatus === 1 ? 'Tahkikata Gönderildi' : 'İncelemeye Uygun Değil',
     })
 
     return NextResponse.json({

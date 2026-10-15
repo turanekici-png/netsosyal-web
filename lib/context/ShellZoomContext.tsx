@@ -92,8 +92,14 @@ export function ShellZoomProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
+    // 2026-10-15: giris sayfasinin KENDI yakinlastirmasi var (app/login) -
+    // orada kabuk zoom'u devreye girmesin (eskiden Ctrl+/- giris sayfasinda
+    // hicbir sey yapmiyordu).
+    const isLoginPage = () => window.location.pathname === '/login'
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
+      if (isLoginPage()) return
       const key = event.key
       if (key === '+' || key === '=' || event.code === 'NumpadAdd') {
         event.preventDefault()
@@ -106,6 +112,7 @@ export function ShellZoomProvider({ children }: { children: React.ReactNode }) {
 
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
+      if (isLoginPage()) return
       event.preventDefault()
       const direction = event.deltaY < 0 ? 1 : -1
       // Kullanici istegi (2026-10-14): "acilan pencereleri fare tekerlegiyle

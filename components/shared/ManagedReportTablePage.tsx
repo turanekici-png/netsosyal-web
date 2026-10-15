@@ -10,6 +10,7 @@ import { MarkManualSentButton } from '@/components/shared/MarkManualSentButton'
 import { encodeSortParam, parseSortParam } from '@/lib/sortSpec'
 import { normalizeWhatsappPhoneNumber } from '@/lib/constants/whatsappSettings'
 import { ReportPageHeader, reportHeaderGhostButton } from '@/components/shared/ReportPageHeader'
+import { CorporatePagination, toolbarButton } from '@/components/shared/corporateToolbar'
 import {
   DEFAULT_PREDEFINED_VALUE_TITLES,
   DEFAULT_PREDEFINED_VALUES,
@@ -47,6 +48,10 @@ type ManagedReportTablePageProps = {
   preferredColumnOrder?: string[]
   extraFilterColumns?: string[]
   columnLabels?: Record<string, string>
+  // 2026-10-15 (Yardımlar - tum alanlar): ilk acilista gizli baslayan
+  // sutunlar ve Sütun Görünürlüğü panelindeki gruplar (bkz. AdvancedTable).
+  defaultHiddenColumns?: string[]
+  columnGroups?: Record<string, string>
   filterValueOptions?: Record<string, ColumnValueOption[]>
   // Kullanici istegi (2026-09-22): "online başvuru listesinin göstere bu
   // sayfada işaretli alanda açılır listede yardım dönemleri listelensin" -
@@ -743,7 +748,11 @@ function ToolbarDropdown({
       {isOpen && position && typeof document !== 'undefined' && createPortal((
         <div
           ref={menuRef}
-          className="fixed z-[2147483000] w-64 max-w-[calc(100vw-16px)] rounded-xl border border-slate-200 bg-white p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.20)]"
+          // Ortak acilir menu gorunumu (globals.css ".ns-amenu", 2026-10-15):
+          // cocuk olarak verilen renkli dolu butonlar menu icinde sade
+          // satirlara + renkli ikon karosuna donusur; ton menunun renginden.
+          className="ns-amenu ns-amenu-kaydir fixed z-[2147483000] w-72"
+          data-ns-ton={tone === 'danger' ? 'rose' : tone === 'brand' || tone === 'neutral' ? 'navy' : tone}
           style={{ left: position.left, top: position.top }}
           onClick={(event) => {
             event.stopPropagation()
@@ -771,7 +780,7 @@ function ToolbarDropdown({
             }
           }}
         >
-          <div className="flex flex-col gap-1 [&>button]:w-full [&>button]:justify-start">{children}</div>
+          <div className="ns-amenu-list">{children}</div>
         </div>
       ), document.body)}
     </>
@@ -951,6 +960,8 @@ export function ManagedReportTablePage({
   preferredColumnOrder = EMPTY_COLUMNS,
   extraFilterColumns = EMPTY_COLUMNS,
   columnLabels = {},
+  defaultHiddenColumns,
+  columnGroups,
   filterValueOptions = {},
   columnTotals,
   columnTotalsLabel,
@@ -2657,7 +2668,9 @@ export function ManagedReportTablePage({
   }
 
   return (
-    <div className="space-y-6 text-slate-950" onContextMenu={openContextMenu}>
+    // ns-kurumsal-rapor: Yardımlar (corporateHeader) sayfalarinda arac cubugu
+    // renklerini lacivert/notr dile ceker - bkz. globals.css ayni sinif.
+    <div className={`space-y-6 text-slate-950 ${corporateHeader ? 'ns-kurumsal-rapor' : ''}`} onContextMenu={openContextMenu}>
       <ReportPageHeader
         eyebrow={eyebrow}
         title={title}
@@ -3233,12 +3246,12 @@ export function ManagedReportTablePage({
       {contextMenuPosition && typeof document !== 'undefined' && createPortal((
         <div
           ref={contextMenuRef}
-          className="fixed z-[2147483647] max-h-[calc(100vh-1rem)] w-72 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.20)] ring-1 ring-slate-950/5 print:hidden"
+          className="ns-amenu ns-amenu-kaydir fixed z-[2147483647] w-72 overflow-x-hidden print:hidden"
           style={{ left: contextMenuPosition.x, top: contextMenuPosition.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
-          <div className="mb-1 flex items-center justify-between border-b border-slate-100 px-2.5 pb-2 pt-1">
-            <span className="text-[11px] font-black uppercase tracking-wide text-slate-400">Kayıt İşlemleri</span>
+          <div className="ns-amenu-baslik">
+            <span>Kayıt İşlemleri</span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-black text-slate-600">{selectedDisplayCount || 0}</span>
           </div>
 
@@ -3250,9 +3263,9 @@ export function ManagedReportTablePage({
                 void openPersonnelModal()
               }}
               disabled={selectedRows.length === 0 || allFilteredSelected || isAssigningPersonnel}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="personnel" />
               </span>
               <span className="min-w-0 flex-1">Personel Ata</span>
@@ -3270,9 +3283,9 @@ export function ManagedReportTablePage({
                 openCopyModal()
               }}
               disabled={totalCount === 0 || isCopying}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="update" />
               </span>
               <span className="min-w-0 flex-1">Kayıtları Kopyala</span>
@@ -3288,9 +3301,9 @@ export function ManagedReportTablePage({
                 openInvestigationReportModal()
               }}
               disabled={selectedRows.length === 0 && !allFilteredSelected}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="report" />
               </span>
               <span className="min-w-0 flex-1">Toplu Tahkikat Raporu</span>
@@ -3306,9 +3319,9 @@ export function ManagedReportTablePage({
                 openRecordUpdateModal()
               }}
               disabled={(selectedRows.length === 0 && !allFilteredSelected) || isUpdatingRecord}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="copy" />
               </span>
               <span className="min-w-0 flex-1">Kayıt Bilgisi Güncelle</span>
@@ -3334,9 +3347,9 @@ export function ManagedReportTablePage({
                 if (selectedRows[0]) openNoFileCashApplicationEditModal(selectedRows[0])
               }}
               disabled={selectedRows.length !== 1}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="update" />
               </span>
               <span className="min-w-0 flex-1">Müracaatı Aç</span>
@@ -3352,9 +3365,9 @@ export function ManagedReportTablePage({
                 if (selectedRows[0]) openOnlineApplicationEditModal(selectedRows[0])
               }}
               disabled={selectedRows.length !== 1 || isSavingOnlineEdit}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="update" />
               </span>
               <span className="min-w-0 flex-1">{onlineApplicationEditConfig.label || 'Basvuruyu Duzenle'}</span>
@@ -3370,9 +3383,9 @@ export function ManagedReportTablePage({
                 void transferRecords()
               }}
               disabled={isTransferring || totalCount === 0 || (selectedRows.length === 0 && !hasActiveFilter && !allFilteredSelected)}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="copy" />
               </span>
               <span className="min-w-0 flex-1">{transferConfig.label}</span>
@@ -3388,9 +3401,9 @@ export function ManagedReportTablePage({
                 openCancelModal()
               }}
               disabled={cancelTargetCount === 0 || isCancelling}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-rose-700 transition hover:bg-rose-50 disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item tehlike"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white transition group-hover:bg-rose-700">
+              <span className="ns-amenu-ico" data-ns-ton="rose">
                 <ContextActionIcon type="cancel" />
               </span>
               <span className="min-w-0 flex-1">{cancelTargetCount > 1 ? 'Toplu İptal Et' : 'İptal Et'}</span>
@@ -3406,9 +3419,9 @@ export function ManagedReportTablePage({
                 void createFilesForSelectedRows()
               }}
               disabled={selectedRows.length === 0 || isCreatingFile}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-slate-800 transition hover:bg-[#EEF1F3] hover:text-[#1E2A38] disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#1E2A38] text-white transition group-hover:bg-[#2A3B4D]">
+              <span className="ns-amenu-ico" data-ns-ton="navy">
                 <ContextActionIcon type="add" />
               </span>
               <span className="min-w-0 flex-1">{isCreatingFile ? 'Dosyalar sırayla oluşturuluyor...' : (createFileConfig.label || 'Yeni Dosya Oluştur')}</span>
@@ -3424,9 +3437,9 @@ export function ManagedReportTablePage({
                 void deleteSelectedRows()
               }}
               disabled={selectedRows.length === 0 || isDeleting}
-              className="group flex w-full items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-[13px] font-black text-rose-700 transition hover:bg-rose-50 disabled:pointer-events-none disabled:grayscale disabled:opacity-35"
+              className="ns-amenu-item tehlike"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white transition group-hover:bg-rose-700">
+              <span className="ns-amenu-ico" data-ns-ton="rose">
                 <ContextActionIcon type="delete" />
               </span>
               <span className="min-w-0 flex-1">Secileni Sil</span>
@@ -4978,6 +4991,9 @@ export function ManagedReportTablePage({
             preferredColumnOrder={preferredColumnOrder}
             extraFilterColumns={extraFilterColumns}
             columnLabels={columnLabels}
+            defaultHiddenColumns={defaultHiddenColumns}
+            columnGroups={columnGroups}
+            corporate={Boolean(corporateHeader)}
             fileStatusColumns={['dosya_durumu', 'fileStatus', 'dosyaDurumu', 'ddurumu']}
             assistanceStatusColumns={['durumu', 'yardim_durumu', 'assistanceStatus', 'yardimDurumu', 'ydurumu']}
             stageColumns={['asama', 'aşama', 'stage']}
@@ -5014,7 +5030,39 @@ export function ManagedReportTablePage({
           />
           )}
 
-        {!groupByColumn && (
+        {/* 2026-10-15: Yardımlar (corporateHeader) - Tüm Dosyalar/Bireyler ile
+            ayni sayfalama cubugu (+ "Sayfaya Git"). */}
+        {!groupByColumn && corporateHeader && (
+          <div className="print:hidden">
+            <CorporatePagination
+              page={currentPage}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              firstRecord={firstRecord}
+              lastRecord={lastRecord}
+              hasRows={data.length > 0}
+              canGoPrevious={canGoPrevious}
+              canGoNext={canGoNext}
+              onPageChange={(page) => router.push(buildPageUrl(routePath, searchParams, Math.max(1, Math.min(totalPages, page)), searchTerm))}
+            />
+            <form onSubmit={goToPage} className="mt-2 flex items-center justify-end gap-2">
+              <input
+                key={currentPage}
+                name="page"
+                type="number"
+                min={1}
+                max={totalPages}
+                defaultValue={currentPage}
+                className="min-h-10 w-24 rounded-lg border border-slate-300 bg-white px-2 text-[14.5px] font-bold text-[#1E2A38] outline-none focus:border-[#1E2A38] focus:ring-2 focus:ring-[#1E2A38]/15"
+                aria-label="Sayfa numarası"
+              />
+              <button type="submit" className={toolbarButton}>
+                Sayfaya Git
+              </button>
+            </form>
+          </div>
+        )}
+        {!groupByColumn && !corporateHeader && (
         <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 print:hidden md:flex-row md:items-center md:justify-between">
           <div className="text-xs font-bold text-slate-500">
             Sayfa {currentPage} / {totalPages} (Toplam {totalCount} kayıt)

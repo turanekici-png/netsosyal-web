@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import {
   BENEFICIARY_CHAINABLE_COLUMNS,
-  BENEFICIARY_FROM_CLAUSE,
+  buildBeneficiaryFromClause,
   buildBeneficiaryWhereClause,
 } from '@/lib/beneficiary/beneficiaryListQuery'
+import { getBeneficiaryKodEtiketleri } from '@/lib/documents/documentKodEtiketleri'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +29,7 @@ export async function GET(request: Request) {
     }
 
     const data: Record<string, ColumnOption[]> = {}
+    const fromClause = buildBeneficiaryFromClause(await getBeneficiaryKodEtiketleri())
 
     await Promise.all(requestedColumns.map(async (columnKey) => {
       const expression = BENEFICIARY_CHAINABLE_COLUMNS[columnKey]
@@ -35,7 +37,7 @@ export async function GET(request: Request) {
 
       const rows = await prisma.$queryRawUnsafe<OptionRow[]>(`
         SELECT NULLIF(BTRIM((${expression})::text), '') AS value, COUNT(*)::bigint AS count
-        ${BENEFICIARY_FROM_CLAUSE}
+        ${fromClause}
         ${whereClause.sql}
         GROUP BY NULLIF(BTRIM((${expression})::text), '')
         HAVING NULLIF(BTRIM((${expression})::text), '') IS NOT NULL

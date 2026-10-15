@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireApiAccess } from '@/lib/apiAuth'
+import { getSessionUser, requireApiAccess } from '@/lib/apiAuth'
+import { etkinKimlik, PERSONEL_SECIMI_GEREKLI_MESAJI } from '@/lib/auth/tahkikatEkip'
+import { performansKaydet } from '@/lib/workflow/performans'
+import { evZiyaretiTekrariniKapat } from '@/lib/workflow/evZiyaretiTekrar'
 import { getSqlMonitorPool } from '@/lib/services/sqlMonitor.service'
 import { getAuditMetaFromRequest, withAuditedPoolWrite } from '@/lib/db/auditContext'
-import { parseSessionValue, readSessionCookie } from '@/lib/auth'
 import { ensureSahaIncelemeSchema, sablonuGetir } from './_lib/sablon'
 import { kayitOzetiniEsle, normalizeBigInt, type FormSatiri } from './_lib/kayit'
 import { evZiyaretiKonusu, kayitAlanlariniHazirla, type KaydetPayload } from './_lib/kaydet'
@@ -12,11 +14,10 @@ export const dynamic = 'force-dynamic'
 
 // Bu tabloda (dosyalar/bireyler/yrd_* aksine) audit trigger'i yok - formu
 // kaydeden kullanici dogrudan kullaniciid kolonuna yazilir (eski Tahkikat
-// Formu ile ayni gerekce).
-function getCurrentUserId(request: NextRequest) {
-  const userId = parseSessionValue(readSessionCookie(request.cookies))
-  const numericUserId = userId ? Number(userId) : null
-  return Number.isInteger(numericUserId) ? numericUserId : null
+// Formu ile ayni gerekce). Tahkikat ekip hesabinda (tahkikat1/2) tableti
+// kullanan personel seciliyse ekip yerine O PERSONEL yazilir (2026-10-15).
+async function getCurrentUser(request: NextRequest) {
+  return etkinKimlik(await getSessionUser(), request.cookies)
 }
 
 const LISTE_KOLONLARI = `
@@ -64,7 +65,11 @@ export async function POST(request: NextRequest) {
     const a = kayitAlanlariniHazirla(sablon, payload)
     if (a.hata !== null) return NextResponse.json({ success: false, error: a.hata }, { status: 400 })
 
-    const currentUserId = getCurrentUserId(request)
+    const kimlik = await getCurrentUser(request)
+    if (kimlik.personelSecimiGerekli) {
+      return NextResponse.json({ success: false, error: PERSONEL_SECIMI_GEREKLI_MESAJI }, { status: 403 })
+    }
+    const currentUserId = kimlik.kullaniciId
     const pool = getSqlMonitorPool()
 
     const kayit = await withAuditedPoolWrite(pool, async (client) => {
@@ -140,8 +145,22 @@ export async function POST(request: NextRequest) {
       // 2026-10-14: formdaki aile niteligi / yardim onceligi dosyaya da islenir
       await dosyaNitelikleriniIsle(client, String(dosyaid), sablon, a.cevaplar)
 
+      // 2026-10-15: yeni ziyaret yapildi - "Ev Ziyareti Tekrarı" uyarisi kapanir
+      await evZiyaretiTekrariniKapat(client, String(dosyaid))
+
       return result.rows[0]
     }, getAuditMetaFromRequest(request))
+
+    // 2026-10-15: Performans Raporu (is_akisi_performans)
+    await performansKaydet({
+      islemTuru: 'tahkikat',
+      dosyaid,
+      kaynakTablo: 'saha_inceleme_formu',
+      kaynakId: kayit?.id,
+      kullaniciId: currentUserId,
+      ekipKullaniciId: kimlik.ekipKullaniciId,
+      sonuc: kayit?.ziyaret_sonucu ?? null,
+    })
 
     return NextResponse.json({ success: true, data: kayitOzetiniEsle(kayit) })
   } catch (error) {

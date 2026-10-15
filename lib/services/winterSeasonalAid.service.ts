@@ -20,6 +20,11 @@ import { prisma } from '@/lib/db/prisma'
 // (foodBankPeriod.service.ts / supportPackagePeriod.service.ts, farklı
 // bir mekanizma - donemint/yrd_*dnm tabloları) bu fonksiyonlardan
 // TAMAMEN BAĞIMSIZ çalışmaya devam eder, buraya dokunulmaz.
+//
+// 2026-10-15 kullanici istegi: Kış Dönemi seçili yardım baslangica kadar
+// "5 - Bekliyor" (sarı) durumunda bekler; baslangic gunu 2 "Devam Ediyor",
+// bitis gunu 3 "İptal Edildi" yapilir (onceden bitiste 1 yaziliyordu - 1,
+// Hazır Değerler'de tanimli degil). Kural: lib/constants/kisDonemi.ts.
 
 const KIS_DONEMI_PERIOD_LABEL = 'Kış Dönemi'
 
@@ -41,7 +46,8 @@ async function activateEkmek() {
       UPDATE yrd_ekmek
       SET durumu = 2, durumutarih = CURRENT_DATE,
           durumuaciklama = 'Kış Dönemi - başlangıç tarihi geldiği için otomatik aktive edildi'
-      WHERE durumu = 0 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+      WHERE durumu IN (0, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+        AND (bittarih IS NULL OR bittarih > CURRENT_DATE)
       RETURNING id, kullaniciid, dosyaid, miktar
     )
     INSERT INTO yrd_ekmekhrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, miktar, aciklama, donemadi)
@@ -58,7 +64,8 @@ async function activateGidaBankasi() {
       UPDATE yrd_gidabankasi
       SET durumu = 2, durumutarih = CURRENT_DATE,
           durumuaciklama = 'Kış Dönemi - başlangıç tarihi geldiği için otomatik aktive edildi'
-      WHERE durumu = 0 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+      WHERE durumu IN (0, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+        AND (bittarih IS NULL OR bittarih > CURRENT_DATE)
       RETURNING id, kullaniciid, dosyaid, miktar
     )
     INSERT INTO yrd_gidabankasihrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, miktar)
@@ -75,7 +82,8 @@ async function activateDestekPaketi() {
       UPDATE yrd_destekpaketi
       SET durumu = 2, durumutarih = CURRENT_DATE,
           durumuaciklama = 'Kış Dönemi - başlangıç tarihi geldiği için otomatik aktive edildi'
-      WHERE durumu = 0 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+      WHERE durumu IN (0, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+        AND (bittarih IS NULL OR bittarih > CURRENT_DATE)
       RETURNING id, kullaniciid, dosyaid, miktar
     )
     INSERT INTO yrd_destekpaketihrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, miktar)
@@ -92,13 +100,16 @@ async function activateHazirYemek() {
       UPDATE yrd_haziryemek
       SET durumu = 2, durumutarih = CURRENT_DATE,
           durumuaciklama = 'Kış Dönemi - başlangıç tarihi geldiği için otomatik aktive edildi'
-      WHERE durumu = 0 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
-      RETURNING id, kullaniciid, dosyaid, miktar
+      WHERE durumu IN (0, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bastarih IS NOT NULL AND bastarih <= CURRENT_DATE
+        AND (bittarih IS NULL OR bittarih > CURRENT_DATE)
+      RETURNING id, kullaniciid, dosyaid, COALESCE(kisisayisi, miktar) AS kisisayisi
     )
-    INSERT INTO yrd_haziryemekhrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, miktar)
+    -- yrd_haziryemekhrk'da miktar kolonu YOK (kisisayisi) - 2026-10-15 duzeltme:
+    -- onceden her dakika hata verip Kış Dönemi kesme adimini da engelliyordu
+    INSERT INTO yrd_haziryemekhrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, kisisayisi, donemadi)
     SELECT kullaniciid, NOW(), dosyaid, id, 'Otomatik Aktivasyon',
            'Kış Dönemi müracaatı, başlangıç tarihi (01 Kasım) geldiği için sistem tarafından otomatik olarak yardıma dönüştürüldü.',
-           miktar
+           kisisayisi, ${KIS_DONEMI_PERIOD_LABEL}
     FROM activated
   `
 }
@@ -133,8 +144,8 @@ async function cutoffEkmek() {
   await prisma.$executeRaw`
     WITH cutoff AS (
       UPDATE yrd_ekmek
-      SET durumu = 1, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}
-      WHERE durumu = 2 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
+      SET durumu = 3, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}, donem = 'Kapalı'
+      WHERE durumu IN (2, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
       RETURNING id, kullaniciid, dosyaid, miktar
     )
     INSERT INTO yrd_ekmekhrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, miktar, aciklama, donemadi)
@@ -147,8 +158,8 @@ async function cutoffGidaBankasi() {
   await prisma.$executeRaw`
     WITH cutoff AS (
       UPDATE yrd_gidabankasi
-      SET durumu = 1, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}
-      WHERE durumu = 2 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
+      SET durumu = 3, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}, donem = 'Kapalı'
+      WHERE durumu IN (2, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
       RETURNING id, kullaniciid, dosyaid, miktar
     )
     INSERT INTO yrd_gidabankasihrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, miktar)
@@ -161,8 +172,8 @@ async function cutoffDestekPaketi() {
   await prisma.$executeRaw`
     WITH cutoff AS (
       UPDATE yrd_destekpaketi
-      SET durumu = 1, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}
-      WHERE durumu = 2 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
+      SET durumu = 3, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}, donem = 'Kapalı'
+      WHERE durumu IN (2, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
       RETURNING id, kullaniciid, dosyaid, miktar
     )
     INSERT INTO yrd_destekpaketihrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, miktar)
@@ -175,12 +186,14 @@ async function cutoffHazirYemek() {
   await prisma.$executeRaw`
     WITH cutoff AS (
       UPDATE yrd_haziryemek
-      SET durumu = 1, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}
-      WHERE durumu = 2 AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
-      RETURNING id, kullaniciid, dosyaid, miktar
+      SET durumu = 3, durumutarih = CURRENT_DATE, durumuaciklama = ${KESILDI_ACIKLAMA}, donem = 'Kapalı'
+      WHERE durumu IN (2, 5) AND donem = ${KIS_DONEMI_PERIOD_LABEL} AND bittarih IS NOT NULL AND bittarih <= CURRENT_DATE
+      RETURNING id, kullaniciid, dosyaid, COALESCE(kisisayisi, miktar) AS kisisayisi
     )
-    INSERT INTO yrd_haziryemekhrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, miktar)
-    SELECT kullaniciid, NOW(), dosyaid, id, 'Otomatik Kesme', ${KESILDI_ACIKLAMA}, miktar
+    -- yrd_haziryemekhrk'da miktar kolonu YOK (kisisayisi) - 2026-10-15 duzeltme:
+    -- onceden her dakika hata verip Kış Dönemi kesme adimini da engelliyordu
+    INSERT INTO yrd_haziryemekhrk (kullaniciid, islemtarihi, dosyaid, yardimid, islemadi, aciklama, kisisayisi, donemadi)
+    SELECT kullaniciid, NOW(), dosyaid, id, 'Otomatik Kesme', ${KESILDI_ACIKLAMA}, kisisayisi, ${KIS_DONEMI_PERIOD_LABEL}
     FROM cutoff
   `
 }

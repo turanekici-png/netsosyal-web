@@ -13,6 +13,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url)
     const tableName = url.searchParams.get('table')
     const limit = Number(url.searchParams.get('limit') ?? 100)
+    const offset = Number(url.searchParams.get('offset') ?? 0)
     const search = url.searchParams.get('search') ?? ''
     const sort = url.searchParams.get('sort') ?? ''
     const dir = url.searchParams.get('dir') ?? 'asc'
@@ -32,9 +33,11 @@ export async function GET(request: Request) {
     }
 
     if (tableName) {
-      const [columns, rows] = await Promise.all([
+      const [columns, rows, total] = await Promise.all([
         sqlMonitorService.getTableColumns(tableName),
-        sqlMonitorService.getTableRows(tableName, { limit, search, sort, dir, filters }),
+        sqlMonitorService.getTableRows(tableName, { limit, offset, search, sort, dir, filters }),
+        // 2026-10-15: sayfalama - filtreye uyan toplam satir
+        sqlMonitorService.countTableRows(tableName, { search, filters }),
       ])
 
       return NextResponse.json({
@@ -45,6 +48,8 @@ export async function GET(request: Request) {
           sort,
           dir,
           filters,
+          offset: Math.max(Math.floor(offset) || 0, 0),
+          total,
           columns,
           rows,
         },
@@ -77,6 +82,17 @@ export async function POST(request: Request) {
     if (accessDenied) return accessDenied
 
     const body = await request.json()
+
+    // 2026-10-15: "Yeni Kayıt" / "Kopyala" - parametreli tekil INSERT.
+    if (body.action === 'insert') {
+      const tableName = String(body.tableName ?? '')
+      if (!tableName || !body.values || typeof body.values !== 'object') {
+        return NextResponse.json({ success: false, error: 'Tablo ve alan bilgileri zorunludur.' }, { status: 400 })
+      }
+      const row = await sqlMonitorService.insertTableRow(tableName, body.values as Record<string, unknown>)
+      return NextResponse.json({ success: true, data: row })
+    }
+
     const query = String(body.query ?? '').trim()
 
     if (!query) {

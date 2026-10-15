@@ -3,6 +3,9 @@
 import { useState } from 'react'
 import { usePwa } from './PwaProvider'
 
+// Kurumun gecerli sertifikali HTTPS adresi (IIS -> :3000).
+const SECURE_ORIGIN = 'https://netsosyal.sivas.bel.tr'
+
 type Props = {
   /** 'prominent' = büyük renkli buton (giriş ekranı), 'compact' = küçük (header) */
   variant?: 'prominent' | 'compact'
@@ -13,15 +16,27 @@ export function InstallAppButton({ variant = 'prominent', className = '' }: Prop
   const { canPrompt, isInstalled, isIOS, isSecureContext, promptInstall } = usePwa()
   const [showHelp, setShowHelp] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Tarayicinin yukleme istemi hata verdiyse nedeni (talimat penceresinde gosterilir).
+  const [promptError, setPromptError] = useState('')
 
   // Zaten yüklüyse hiç gösterme.
   if (isInstalled) return null
 
+  // HTTP (ör. http://10.0.0.183:3000) ile girilmisse tarayici yuklemeye izin
+  // vermez - kurulum icin kurumun HTTPS adresi kullanilmali.
+  const secureUrl = typeof window !== 'undefined' && !isSecureContext
+    ? `${SECURE_ORIGIN}${window.location.pathname}${window.location.search}`
+    : ''
+
   const handleClick = async () => {
+    setPromptError('')
     if (canPrompt) {
       setBusy(true)
       try {
         await promptInstall()
+      } catch (error) {
+        setPromptError(error instanceof Error && error.message ? error.message : 'Tarayıcı yükleme penceresini açamadı.')
+        setShowHelp(true)
       } finally {
         setBusy(false)
       }
@@ -42,7 +57,7 @@ export function InstallAppButton({ variant = 'prominent', className = '' }: Prop
         title="Uygulamayı cihazınıza ekleyin"
         className={
           variant === 'prominent'
-            ? `flex w-full items-center justify-center gap-2 rounded-lg border border-[#003f82]/20 bg-[#003f82]/5 px-4 py-2.5 text-[13px] font-extrabold text-[#003f82] transition hover:bg-[#003f82]/10 disabled:opacity-60 ${className}`
+            ? `flex w-full items-center justify-center gap-2 rounded-lg border border-[#1E2A38]/25 bg-white px-4 py-2.5 text-[14px] font-bold text-[#1E2A38] shadow-sm transition hover:border-[#1E2A38]/50 hover:bg-[#F6F3EA] disabled:opacity-60 ${className}`
             : `inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#E2E5DE] bg-white px-2.5 py-2 text-[11px] font-black uppercase tracking-wide text-[#16232B] shadow-sm transition hover:bg-[#F1F3EF] disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 sm:px-3 sm:text-xs ${className}`
         }
       >
@@ -64,6 +79,26 @@ export function InstallAppButton({ variant = 'prominent', className = '' }: Prop
             <p className="mt-2 text-[13px] font-semibold text-slate-600">
               Uygulamayı yükledikten sonra ana ekrandaki simgeye dokunarak adres yazmadan girebilirsiniz.
             </p>
+
+            {promptError && (
+              <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-bold text-rose-700">
+                Tarayıcı yüklemeyi başlatamadı ({promptError}). Uygulama bu bilgisayarda zaten yüklü olabilir ya da
+                tarayıcı ayarı/kurum politikası yüklemeyi engelliyor olabilir. Aşağıdaki adımları deneyin.
+              </p>
+            )}
+
+            {!isIOS && secureUrl && (
+              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-[12.5px] font-bold text-amber-800">
+                Bu bilgisayar uygulamaya güvenli olmayan bir adresle bağlanıyor ({typeof window !== 'undefined' ? window.location.host : ''}).
+                Tarayıcılar bu adreste uygulama yüklemeye izin vermez. Yüklemek için şu adresi kullanın:
+                <a href={secureUrl} className="mt-1.5 block break-all font-black text-[#003f82] underline">
+                  {SECURE_ORIGIN}
+                </a>
+                <span className="mt-1 block font-semibold text-amber-700">
+                  Adres açılmıyorsa bilgisayarın ağ (DNS) ayarı eksiktir; bilgi işlem birimine bildirin.
+                </span>
+              </div>
+            )}
 
             <div className="mt-4 space-y-3 text-[12.5px] font-semibold text-slate-700">
               {isIOS ? (
@@ -95,15 +130,7 @@ export function InstallAppButton({ variant = 'prominent', className = '' }: Prop
               )}
             </div>
 
-            {isIOS ? null : !isSecureContext ? (
-              <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] font-bold text-amber-700">
-                Not: Bu adres HTTP ile sunulduğu için tarayıcı tek dokunuşla
-                yükleme düğmesini göstermez; kurulum yukarıdaki adımlarla elle
-                yapılır. Kalıcı çözüm için sistem yöneticisi siteyi HTTPS ile
-                yayınlayabilir ya da alan ağı (domain) bilgisayarlarında bu
-                adresi tarayıcı politikasıyla güvenli tanımlayabilir.
-              </p>
-            ) : (
+            {isIOS || !isSecureContext ? null : (
               <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11.5px] font-bold text-slate-600">
                 Not: Tarayıcı yükleme düğmesini birkaç saniye site kullanıldıktan
                 sonra kendiliğinden de gösterebilir. Görünmüyorsa yukarıdaki

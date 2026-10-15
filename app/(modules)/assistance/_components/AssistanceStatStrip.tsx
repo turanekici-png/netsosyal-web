@@ -34,12 +34,12 @@ export function AssistanceStatStrip({ items }: { items: AssistanceStatItem[] }) 
         return (
           <div
             key={item.label}
-            className={`flex min-w-[140px] flex-1 flex-col justify-center px-4 py-2.5 ${index > 0 ? 'border-l border-slate-100' : ''}`}
+            className={`flex min-w-[170px] flex-1 flex-col justify-center px-5 py-3 ${index > 0 ? 'border-l border-slate-100' : ''}`}
           >
-            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+            <span className="text-[12px] md:text-[14px] font-bold uppercase tracking-[0.08em] text-slate-500">
               {item.label}
             </span>
-            <span className={`mt-0.5 text-[20px] font-bold leading-tight tabular-nums ${isWarn ? 'text-amber-700' : 'text-[#1E2A38]'}`}>
+            <span className={`mt-0.5 text-[20px] md:text-[24px] font-bold leading-tight tabular-nums ${isWarn ? 'text-amber-700' : 'text-[#1E2A38]'}`}>
               {formatValue(item)}
             </span>
           </div>
