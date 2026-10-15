@@ -140,8 +140,14 @@ export function DashboardGrid({
   // vazgec) - kutuphanenin ic durumu eski yerlesimi tasimasin.
   const [gridInstanceKey, setGridInstanceKey] = useState(0)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'default-saved' | 'error'>('idle')
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+  // 2026-10-15: yoneticinin "Varsayilan Tasarim Yap" ile belirledigi ORTAK
+  // varsayilan (yoksa koddaki defaultLayout). Kendi duzeni olmayan herkes
+  // bunu gorur; "Varsayilana Sifirla" buna doner.
+  const [sharedDefault, setSharedDefault] = useState<Snapshot | null>(null)
+  const [canSetDefault, setCanSetDefault] = useState(false)
+  const effectiveDefaultLg: Layout = sharedDefault?.lg ?? defaultLayout
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // --- Tasarim Modu taslak/gecmis durumu ---
@@ -182,10 +188,26 @@ export function DashboardGrid({
     fetch(`/api/dashboard-layout?grid=${DASHBOARD_LAYOUT_GRID_ID}`)
       .then((res) => res.json())
       .then((payload) => {
-        if (isCancelled) return
-        const savedLg: Layout | undefined = payload?.success ? payload.data?.layouts?.lg : undefined
-        const savedSm: Layout | undefined = payload?.success ? payload.data?.layouts?.sm : undefined
-        const savedHidden: string[] = payload?.success && Array.isArray(payload.data?.hiddenIds) ? payload.data.hiddenIds : []
+        if (isCancelled || !payload?.success) return
+        const sharedLg: Layout | undefined = payload.sharedDefault?.layouts?.lg
+        const shared = Array.isArray(sharedLg) && sharedLg.length > 0
+          ? {
+              lg: sharedLg,
+              sm: payload.sharedDefault?.layouts?.sm as Layout | undefined,
+              hidden: Array.isArray(payload.sharedDefault?.hiddenIds) ? (payload.sharedDefault.hiddenIds as string[]) : [],
+            }
+          : null
+        setSharedDefault(shared ? { lg: shared.lg, hidden: shared.hidden } : null)
+        setCanSetDefault(Boolean(payload.canSetDefault))
+
+        // Kisisel duzen varsa o, yoksa ortak varsayilan, o da yoksa koddaki varsayilan
+        const personalLg: Layout | undefined = payload.data?.layouts?.lg
+        const hasPersonal = Array.isArray(personalLg) && personalLg.length > 0
+        const savedLg: Layout | undefined = hasPersonal ? personalLg : shared?.lg
+        const savedSm: Layout | undefined = hasPersonal ? payload.data?.layouts?.sm : shared?.sm
+        const savedHidden: string[] = hasPersonal
+          ? (Array.isArray(payload.data?.hiddenIds) ? payload.data.hiddenIds : [])
+          : (shared?.hidden ?? [])
         setHiddenIds(new Set(savedHidden))
         if (!Array.isArray(savedLg) || savedLg.length === 0) return
 
@@ -234,10 +256,10 @@ export function DashboardGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const flashStatus = (status: 'saved' | 'error') => {
+  const flashStatus = (status: 'saved' | 'default-saved' | 'error') => {
     setSaveStatus(status)
     if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-    statusTimerRef.current = setTimeout(() => setSaveStatus('idle'), status === 'error' ? 5000 : 2000)
+    statusTimerRef.current = setTimeout(() => setSaveStatus('idle'), status === 'saved' ? 2000 : 5000)
   }
 
   const persistLayouts = (next: Partial<Record<string, Layout>>, nextHiddenIds?: Set<string>): Promise<boolean> => {
@@ -354,7 +376,37 @@ export function DashboardGrid({
   }
 
   const resetToDefault = () => {
-    commitChange({ lg: verticalCompactor.compact(cloneLayout(defaultLayout), COLS.lg), hidden: [] }, true)
+    commitChange({
+      lg: verticalCompactor.compact(cloneLayout(effectiveDefaultLg), COLS.lg),
+      hidden: sharedDefault?.hidden ?? [],
+    }, true)
+  }
+
+  // Yonetici: mevcut tasarimi herkes icin varsayilan yapar (kisisel duzenler
+  // sunucuda silinir - herkes bu tasarimla acilir).
+  const setAsSharedDefault = async () => {
+    if (!window.confirm('Bu tasarım HERKES için varsayılan ana sayfa düzeni olacak ve kişilerin kendi kaydettiği düzenler silinecek. Devam edilsin mi?')) return
+    const snapshot = currentSnapshot()
+    const sm = buildDefaultMobileSm(snapshot.lg)
+    setSaveStatus('saving')
+    try {
+      const res = await fetch('/api/dashboard-layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set-default', grid: DASHBOARD_LAYOUT_GRID_ID, layouts: { lg: snapshot.lg, sm }, hiddenIds: snapshot.hidden }),
+      })
+      const payload = await res.json().catch(() => null)
+      if (!payload?.success) {
+        flashStatus('error')
+        return
+      }
+      setSharedDefault({ lg: snapshot.lg, hidden: snapshot.hidden })
+      setLayouts((prev) => ({ ...prev, lg: snapshot.lg, sm }))
+      finishDesignMode()
+      flashStatus('default-saved')
+    } catch {
+      flashStatus('error')
+    }
   }
 
   const toggleHidden = (id: string) => {
@@ -556,7 +608,7 @@ export function DashboardGrid({
   // Verilen id sirasina gore GECERLI bir tek-sutun "sm" duzeni uretir -
   // masaustu ("lg") duzenine HIC dokunulmaz.
   const buildMobileSm = (orderedIds: string[]): Layout => {
-    const source = (layouts.lg && layouts.lg.length ? layouts.lg : defaultLayout)
+    const source = (layouts.lg && layouts.lg.length ? layouts.lg : effectiveDefaultLg)
     const byId = new Map(source.map((item) => [item.i, item]))
     const currentSmById = new Map((Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item]))
     const mobileHalfIds = new Set(widgets.filter((w) => w.mobileHalf).map((w) => w.id))
@@ -624,7 +676,7 @@ export function DashboardGrid({
   const resetMobileLayout = () => {
     // Sadece MOBIL SIRAYI varsayilana dondurur - masaustu duzenine ve
     // gizli kutulara DOKUNMAZ.
-    const baseLg = layouts.lg && layouts.lg.length ? layouts.lg : defaultLayout
+    const baseLg = layouts.lg && layouts.lg.length ? layouts.lg : effectiveDefaultLg
     const next = { ...layouts, sm: buildDefaultMobileSm(baseLg) }
     setLayouts(next)
     void persistLayouts(next, hiddenIds)
@@ -640,7 +692,9 @@ export function DashboardGrid({
     ? 'Kaydediliyor...'
     : saveStatus === 'saved'
       ? 'Düzen kaydedildi ✓'
-      : saveStatus === 'error'
+      : saveStatus === 'default-saved'
+        ? 'Herkes için varsayılan tasarım yapıldı ✓'
+        : saveStatus === 'error'
         ? 'Kaydedilemedi - tekrar deneyin'
         : ''
   const toolBtn = 'dashboard-no-drag inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-[13px] font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40'
@@ -664,7 +718,10 @@ export function DashboardGrid({
                 {statusText && <span className={`mr-1 text-[12px] font-bold ${saveStatus === 'error' ? 'text-rose-300' : 'text-emerald-300'}`}>{statusText}</span>}
                 <button type="button" onClick={undo} disabled={historyPast.length === 0} title="Geri al (Ctrl+Z)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>↶ Geri Al</button>
                 <button type="button" onClick={redo} disabled={historyFuture.length === 0} title="Yinele (Ctrl+Y)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>↷ Yinele</button>
-                <button type="button" onClick={resetToDefault} disabled={!isLoaded} title="Kutuların boyut/konumunu ve gizleme durumunu varsayılana döndürür (Kaydet'e basana kadar kalıcı olmaz)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>Varsayılan Düzen</button>
+                <button type="button" onClick={resetToDefault} disabled={!isLoaded} title="Kutuların boyut/konumunu ve gizleme durumunu ortak varsayılan tasarıma döndürür (Kaydet'e basana kadar kalıcı olmaz)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>Varsayılana Sıfırla</button>
+                {canSetDefault && (
+                  <button type="button" onClick={() => void setAsSharedDefault()} disabled={!isLoaded || saveStatus === 'saving'} title="Bu tasarımı herkes için varsayılan ana sayfa düzeni yapar; kişisel düzenler silinir (yalnız yöneticiler)" className={`${toolBtn} border-[#0E7C86] bg-[#0E7C86] text-white hover:bg-[#0b6870]`}>★ Varsayılan Tasarım Yap</button>
+                )}
                 <span className="mx-1 h-6 w-px bg-white/25" aria-hidden="true" />
                 <button type="button" onClick={cancelDesign} className={`${toolBtn} border-white/40 bg-transparent text-white hover:bg-white/10`}>Vazgeç</button>
                 <button type="button" onClick={() => void saveDesign()} disabled={saveStatus === 'saving'} className={`${toolBtn} border-[#D4B26A] bg-[#D4B26A] text-[#1E2A38] hover:bg-[#e2c47f]`}>
