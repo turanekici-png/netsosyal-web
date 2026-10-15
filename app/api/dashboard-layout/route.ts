@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getSessionUser, requireApiAccess } from '@/lib/apiAuth'
+import { getSessionUser, requireAdminAccess, requireApiAccess } from '@/lib/apiAuth'
 import { prisma } from '@/lib/db/prisma'
 import { upsertSetting } from '@/lib/db/upsertSetting'
 
@@ -33,6 +33,32 @@ export const dynamic = 'force-dynamic'
 // uyumlu kalsin.
 function layoutKeyFor(userId: string, grid: string) {
   return `${grid}_layout_${userId}`
+}
+
+// 2026-10-15 (kullanici istegi): yoneticinin "Varsayilan Tasarim Yap" ile
+// belirledigi ORTAK varsayilan duzen. Kendi duzenini kaydetmemis herkes bunu
+// gorur; "Varsayilana Sifirla" da buna doner. Belirlendiginde herkesin
+// kisisel duzeni silinir (kullanici secimi: "herkeste ayni acilsin").
+// (Kullanici id'leri sayisal oldugu icin kisisel anahtarlarla cakismaz.)
+function sharedDefaultKeyFor(grid: string) {
+  return `${grid}_layout_default`
+}
+
+async function readSharedDefault(gridId: string) {
+  if (gridId !== 'dashboard') return null
+  const setting = await prisma.setting.findUnique({ where: { key: sharedDefaultKeyFor(gridId) } })
+  const value = setting?.value as Record<string, unknown> | null | undefined
+  if (!value || typeof value !== 'object' || !value.layouts) return null
+  return {
+    layouts: value.layouts,
+    hiddenIds: Array.isArray(value.hiddenIds) ? value.hiddenIds : [],
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : null,
+    updatedBy: typeof value.updatedBy === 'string' ? value.updatedBy : null,
+  }
+}
+
+async function isAdminUser() {
+  return (await requireAdminAccess()) === null
 }
 
 const ALLOWED_GRID_IDS = new Set(['dashboard', 'documents-dosya-yonetimi'])
@@ -151,7 +177,11 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({ success: true, data: normalized })
+    const [sharedDefault, canSetDefault] = gridId === 'dashboard'
+      ? await Promise.all([readSharedDefault(gridId), isAdminUser()])
+      : [null, false]
+
+    return NextResponse.json({ success: true, data: normalized, sharedDefault, canSetDefault })
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Duzen okunamadi.' },
@@ -163,6 +193,50 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   const gridId = resolveGridId(typeof body?.grid === 'string' ? body.grid : null)
+
+  // Yonetici: bu duzeni herkes icin varsayilan yap + kisisel duzenleri sil.
+  if (body?.action === 'set-default') {
+    if (gridId !== 'dashboard') {
+      return NextResponse.json({ success: false, error: 'Bu izgara icin ortak varsayilan desteklenmiyor.' }, { status: 400 })
+    }
+    const adminDenied = await requireAdminAccess()
+    if (adminDenied) return adminDenied
+    const user = await getSessionUser()
+    if (!user) {
+      return NextResponse.json({ success: false, error: 'Oturum bulunamadi.' }, { status: 401 })
+    }
+    const lg = body?.layouts?.lg
+    if (!Array.isArray(lg) || lg.length === 0) {
+      return NextResponse.json({ success: false, error: 'Gecersiz duzen verisi.' }, { status: 400 })
+    }
+    try {
+      const hiddenIds = Array.isArray(body.hiddenIds) ? body.hiddenIds : []
+      await upsertSetting(sharedDefaultKeyFor(gridId), {
+        layouts: body.layouts,
+        hiddenIds,
+        gridVersion: CURRENT_GRID_VERSION,
+        updatedAt: new Date().toISOString(),
+        updatedBy: String(user.id),
+      })
+      // Kisisel anahtarlar: dashboard_layout_<sayisal id> (ortak varsayilan haric)
+      const personal = await prisma.setting.findMany({
+        where: { key: { startsWith: `${gridId}_layout_` } },
+        select: { key: true },
+      })
+      const personalKeys = personal
+        .map((entry) => entry.key)
+        .filter((key) => /^\d+$/.test(key.slice(`${gridId}_layout_`.length)))
+      if (personalKeys.length > 0) {
+        await prisma.setting.deleteMany({ where: { key: { in: personalKeys } } })
+      }
+      return NextResponse.json({ success: true, clearedPersonalLayouts: personalKeys.length })
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: error instanceof Error ? error.message : 'Varsayilan duzen kaydedilemedi.' },
+        { status: 500 },
+      )
+    }
+  }
 
   // Kullanici istegi: duzeni FIILEN DEGISTIRME (kaydetme), "dashboard" icin
   // eskiden beri Kullanici Yetkileri'nde "Ana sayfa duzenini degistirme"
