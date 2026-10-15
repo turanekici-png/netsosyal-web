@@ -2,51 +2,34 @@
 
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Responsive, useContainerWidth, getCompactor, type Layout } from 'react-grid-layout'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { Responsive, useContainerWidth, verticalCompactor, moveElement, cloneLayout, type Layout } from 'react-grid-layout'
 import { useUiScale } from '@/components/layout/ScaleContext'
 import { createParentAwareScaledStrategy } from '@/components/shared/rglParentAwareScaledStrategy'
 
-// Kullanici istegi (28 Agustos 2026 - guncelleme): bir kutuyu ASAGI DOGRU
-// BUYUTUNCE (yeniden boyutlandirinca) ALTINDAKI tum kutular da AYNI kadar
-// asagi KAYSIN (ust uste binmesin). Bunun icin "preventCollision" kapatildi
-// (artik false) - boylece react-grid-layout carpisan kutulari yolundan
-// iter. compactType hala "null": yani ittikten sonra kutular YUKARI geri
-// SICRAMAZ (yer cekimi/otomatik sikistirma yok), kullanicinin bilerek
-// biraktigi bosluklar korunur; SADECE gercek carpismada itme olur.
-// (Onceki surumde "preventCollision: true" idi - o zaman itme hic yoktu ama
-// asagi buyutunce alttakinin USTUNE biniyordu.)
-const noCollisionCompactor = getCompactor(null, false, false)
-
-// Kullanici istegi: Ana Sayfa'daki rapor kutularini kosesinden tutup
-// buyutup kucultebilsin, yerlerini degistirebilsin ve bu duzeni
-// kaydedebilsin - HER KULLANICI kendine gore. Bu bilesen, verilen widget
-// listesini react-grid-layout ile saran, surukle/yeniden-boyutlandir/
-// sifirla destekli genel amacli bir sargidir - dashboard/page.tsx'teki
-// mevcut widget bilesenlerinin HICBIRINE dokunmadan, onlari sadece bu
-// sarmalayicinin icine yerlestirir.
+// Ana Sayfa rapor kutulari - her kullanici kendi duzenini (yer/boyut/gizli
+// kutular) Tasarim Modu'nda ayarlar; duzen HESABA ozel sunucuda saklanir
+// (bkz. app/api/dashboard-layout/route.ts, kullaniciId bazinda).
 //
-// Kullanici istegi (2. tur): Dosya Yonetimi sayfasindaki "Tasarim Modu"
-// (bkz. components/shared/LocalDesignGrid.tsx) ile AYNI mantik/isleyis
-// Ana Sayfa'ya da uygulandi:
-//  - Surukleme/boyutlandirma artik yetkiye sahip olan HERKESTE HER ZAMAN
-//    acik degil - ACIKCA "Tasarim Modu" acilmadan kutular surunmez/
-//    boyutlandirilmaz (yanlislikla kutu tasima riski azalir).
-//  - Kutular Tasarim Modu'nda GIZLENIP tekrar GOSTERILEBILIR ("alan
-//    ekleyip kaldirabilme") - gizli kutular normal goruntulemede hic yer
-//    kaplamaz, Tasarim Modu'nda ise soluk/kesikli cerceveyle secilebilir
-//    kalir.
-//
-// Kullanici istegi (3. tur): duzen KESINLIKLE KULLANICI HESABINA gore
-// saklanmalidir - bir ARA denemede (tarayici localStorage'ina tasima)
-// bunun YANLIS oldugu ortaya cikti: AYNI bilgisayardan FARKLI hesaplarla
-// giren personel, hesap FARKLI olsa bile AYNI (o bilgisayara ait) duzeni
-// goruyordu; istenen ise "HANGI HESAPLA girilirse o hesabin KENDI duzeni"
-// idi. Bu yuzden kayit YENIDEN sunucu tarafina (bkz.
-// app/api/dashboard-layout/route.ts, kullaniciId bazinda) alindi - artik
-// hangi bilgisayardan girilirse girilsin AYNI hesap HER ZAMAN kendi
-// duzenini gorur, farkli bir hesap (ayni bilgisayardan bile olsa) KENDI
-// (ya da hic yoksa varsayilan) duzenini gorur.
+// 2026-10-15 yeniden duzenleme (kullanici: "tasarim modunda boyut ayarlarken
+// ve yer degistirirken sorun yasiyorum - daha profesyonel/kullanisli olsun"):
+//  - KAYMA: kutu fareden kayiyordu. Kok neden: olcek ScaleContext'ten
+//    (kabuk zoom'u) okunuyordu, ama globals.css'teki
+//    ":where(.app-scaled):has(.dy-fluid) { zoom: 1 !important }" kurali
+//    Dosya Yonetimi sekmesi arka planda acikken GERCEK zoom'u 1'e zorluyor -
+//    hesap yanlis olcekle yapiliyordu. Artik olcek ekrandaki GERCEK boyuttan
+//    olculur (getBoundingClientRect / offsetWidth).
+//  - YER DEGISTIRME: dikey sikistirma (kullanici secimi: "bosluklar otomatik
+//    kapansin") - kutu baskasinin ustune birakilinca digerleri yer acar,
+//    bosluk kalmaz. Kutu Tasarim Modu'nda HER YERINDEN tutulup tasinir
+//    (icerik ustune seffaf bir katman gelir; tablo/grafik tiklamalari
+//    tasarim sirasinda devre disi).
+//  - BOYUTLANDIRMA: sag, alt, sol kenar ve alt koselerden; buyuk tutamaclar.
+//  - KAYDET / VAZGEC / GERI AL: degisiklikler artik aninda kaydedilmez -
+//    "Kaydet" ile kalici olur, "Vazgec" ile tasarim moduna girildigi ana
+//    doner; Geri Al / Yinele (Ctrl+Z / Ctrl+Y) desteklenir.
+//  - Klavye: secili kutu yon tuslariyla tasinir (yukari/asagi = komsuyla yer
+//    degistirir), Ctrl+yon boyutlandirir, Shift daha buyuk adim.
 const DASHBOARD_LAYOUT_GRID_ID = 'dashboard'
 
 export type DashboardWidget = {
@@ -56,43 +39,37 @@ export type DashboardWidget = {
   // Mobil (dar ekran) dizilimde bu kutu YARIM genislik kaplasin - ardisik
   // iki "yarim" kutu yan yana gelir (ör. Dosya Ozeti + Birey Ozeti).
   mobileHalf?: boolean
-  // Kullanici istegi (2026-09-12): "Yardım Haritası, Yardım Türleri gibi
-  // tüm raporların köşesine bir buton eklensin, istenirse rapor tam sayfa
-  // olarak yeni pencerede/sekmede görünebilsin" - bu alan verilen widget'lar
-  // icin kartin sag-ust kosesinde HER ZAMAN (Tasarim Modu'ndan bagimsiz)
-  // gorunen kucuk bir "⤢" dugmesi ekler; tiklaninca onOpenFullReport
-  // (dashboard/page.tsx'teki mevcut addTab/openReportInNewTab mekanizmasi -
-  // uygulamadaki TUM diger "raporu ac" eylemleriyle AYNI) bu rota/basligi
-  // yeni bir sekmede acar. Verilmezse (cogu KPI/ozet karti gibi tek bir
-  // "tam" rapor sayfasina karsilik gelmeyen widget'larda) hicbir sey
-  // degismez - dugme hic render edilmez.
+  // Kartin sag-ust kosesinde HER ZAMAN gorunen "⤢" (tam raporu yeni sekmede
+  // ac) dugmesi icin rota/baslik. Verilmezse dugme cizilmez.
   fullReportPath?: string
   fullReportTitle?: string
 }
 
 const BREAKPOINTS = { lg: 1100, sm: 0 }
-// Kullanici istegi: kutular boyutlandirilirken adimlar COK KABA kalıyordu
-// ("sekme sekme" degisiyor, komsu kutuyla TAM hizalanamiyordu) - bu yuzden
-// sutun sayisi 12'den 48'e cikarildi VE satir birimi de AYNI oranda (4 kat)
-// kucultuldu (rowHeight 20->5, margin 16->4) - boylece surukleme neredeyse
-// piksel hassasiyetinde, komsu kutularla tam esitlemek cok daha kolay.
-// ONCEDEN kaydedilmis (eski, 12 sutunluk) duzenler bu degisiklikten
-// ETKILENMEZ - app/api/dashboard-layout/route.ts GET sirasinda bunlari
-// GORUNMEZ bir sekilde (kullaniciya sifirlanmis gibi HISSETTIRMEDEN) yeni
-// olcege otomatik yukseltir (bkz. oradaki "gridVersion" notu).
+// 48 sutun + 5px satir: boyutlandirma neredeyse piksel hassasiyetinde.
+// Eski (12 sutunluk) kayitlar app/api/dashboard-layout/route.ts'te otomatik
+// yeni olcege yukseltilir.
 const COLS = { lg: 48, sm: 1 }
 const ROW_HEIGHT = 5
 const ROW_MARGIN = 4
-// Kullanici istegi: kutu, kendi RENKLI BASLIK cubugundan tutulup
-// tasinabilsin - ayri/fazladan bir tutamac cubugu EKLENMEDEN, her widget
-// bilesenindeki MEVCUT renkli baslik barina bu sinif eklendi (bkz. Section,
-// SummaryListPanel, AssistanceAlertCard vb. - hepsinde ".dashboard-drag-handle"
-// classi var). Baslik AYNI ZAMANDA bir buton/link ise (ör. "Kullanici
-// Performansi" basligindaki "Tumunu Gor") tek tiklama esigi (3px)
-// asilmadigi surece normal calismaya devam eder, sadece gercekten
-// SURUKLENIRSE kutu tasinir.
-const DRAG_HANDLE_SELECTOR = '.dashboard-drag-handle'
-const DRAG_CLICK_SUPPRESS_DISTANCE = 5
+// Tasarim Modu'nda tasimayi BASLATMAYAN ogeler (kutu ustundeki dugmeler).
+const NO_DRAG_SELECTOR = '.dashboard-no-drag'
+const SELECT_CLICK_MAX_DISTANCE = 5
+const HISTORY_LIMIT = 50
+// Klavye adimlari (sutun / satir). Shift ile buyuk adim.
+const KEY_STEP_X = 1
+const KEY_STEP_X_FAST = 4
+const KEY_STEP_Y = 4
+const KEY_STEP_Y_FAST = 16
+
+type Snapshot = { lg: Layout; hidden: string[] }
+
+const snapshotKey = (snapshot: Snapshot) => JSON.stringify({
+  lg: snapshot.lg
+    .map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))
+    .sort((a, b) => (a.i < b.i ? -1 : a.i > b.i ? 1 : 0)),
+  hidden: [...snapshot.hidden].sort(),
+})
 
 function buildSingleColumnLayout(lgLayout: Layout): Layout {
   return lgLayout
@@ -113,19 +90,14 @@ function orderIdsFromLayout(layout: Layout | undefined): string[] {
     .map((item) => item.i)
 }
 
-// Kullanici istegi (2026-09-12): "Tasarım modundayken bir alanın yerini ve
-// boyutunu aynı zamanda yön tuşları ile de ayarlayabilelim" - LocalDesignGrid.
-// tsx'teki (Dosya Yonetimi) AYNI klavye-ile-hassas-tasima/boyutlandirma
-// ozelligi Ana Sayfa'ya da eklendi (tutarli/"profesyonel" bir Tasarim Modu
-// deneyimi icin - fare ile suruklemek bazen zor/hatali oluyordu). Secili bir
-// kutu, BASKA bir kutuyle CAKISIRSA (dikdortgen kesisimi) hareket etmez -
-// fareyle suruklemenin aksine ASLA komsu kutuyu itmez.
-function rectsOverlap(
+const horizontallyOverlaps = (a: { x: number; w: number }, b: { x: number; w: number }) => (
+  a.x < b.x + b.w && a.x + a.w > b.x
+)
+
+const rectsOverlap = (
   a: { x: number; y: number; w: number; h: number },
   b: { x: number; y: number; w: number; h: number },
-) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
-}
+) => horizontallyOverlaps(a, b) && a.y < b.y + b.h && a.y + a.h > b.y
 
 export function DashboardGrid({
   widgets,
@@ -135,100 +107,27 @@ export function DashboardGrid({
 }: {
   widgets: DashboardWidget[]
   defaultLayout: Layout
-  // Kullanici istegi: kutularin yerini/boyutunu degistirebilme/gizleyebilme
-  // SADECE "Ana sayfa duzenini degistirme" yetkisi acik olan personelde
-  // gorunsun/calissin - digerleri (kayitli varsa kendi, yoksa varsayilan)
-  // duzeni GORUR ama Tasarim Modu'nu hic ACAMAZ. Sunucu tarafinda da
-  // AYRICA zorunlu kilinir (bkz. app/api/dashboard-layout/route.ts) - bu
-  // prop sadece arayuzu (Tasarim Modu dugmesini) buna gore acar-kapar.
+  // Tasarim Modu SADECE "Ana sayfa duzenini degistirme" yetkisi olanlarda
+  // gorunur; sunucu tarafinda da ayrica zorunlu kilinir.
   canEdit: boolean
-  // Kullanici istegi (2026-09-12): widget.fullReportPath verilen kartlarin
-  // kosesindeki "⤢" dugmesine tiklaninca cagrilir - cagiran sayfa (bkz.
-  // dashboard/page.tsx) kendi addTab/openReportInNewTab fonksiyonunu verir,
-  // boylece TUM diger "raporu ac" eylemleriyle AYNI mekanizma kullanilir.
+  // widget.fullReportPath verilen kartlarin "⤢" dugmesine tiklaninca cagrilir.
   onOpenFullReport?: (title: string, path: string) => void
 }) {
   const { width, containerRef, mounted } = useContainerWidth()
-  // Ayni fare-oransizligi duzeltmesi (bkz. LocalDesignGrid.tsx'teki
-  // ayrintili yorum) - kabuk CSS `zoom` ile olceklendiginde react-grid-
-  // layout'un surukleme/boyutlandirma matematigi bu katsayidan haberdar
-  // olmali.
-  const uiZoomScale = useUiScale()
-  // Mobil / dar ekran: react-grid-layout (mutlak konumlu, sabit piksel) kutulari
-  // ust uste bindiriyor. Bu genislikte grid tamamen devre disi - kutular
-  // DOGAL yukseklikte, dikey alt alta; Tasarim Modu da anlamsiz.
-  // Hata (Eylul 2026): esik SABIT 900 idi ama <Responsive>'in kendi
-  // BREAKPOINTS.lg esigi 1100 - 900-1100px arasi TABLETLERDE isNarrowViewport
-  // "genis" (false) deyip RGL dalina geciyor, RGL de bu genislikte "sm"
-  // (cols=1) breakpoint'ine dusuyor -> kutular/tablolar TEK sutunda UST USTE
-  // biniyordu. Iki esik ARTIK AYNI (BREAKPOINTS.lg). (Bkz. LocalDesignGrid.tsx
-  // AYNI duzeltme.)
+  // Kabuk zoom'u degisince olcegi yeniden olcmek icin tetikleyici olarak
+  // kullanilir - hesapta DOGRUDAN kullanilmaz (bkz. dosya basi "KAYMA").
+  const contextScale = useUiScale()
+  // Mobil / dar ekran: grid tamamen devre disi, kutular dikey alt alta.
+  // Esik <Responsive>'in BREAKPOINTS.lg esigiyle AYNI olmali (900-1100px
+  // tabletlerde tek sutunda ust uste binme hatasi buradan cikmisti).
   const isNarrowViewport = mounted && width > 0 && width < BREAKPOINTS.lg
-  const pointerDownRef = useRef<{ x: number; y: number; onHandle: boolean } | null>(null)
-  const [designModeState, setDesignMode] = useState(false)
+  const [designModeState, setDesignModeState] = useState(false)
   const designMode = designModeState && !isNarrowViewport
-  // Mobil (dar ekran) icin ayri bir "Tasarim" modu - serbest grid yerine
-  // sadece sira degistirme + gizleme.
   const [mobileDesignActive, setMobileDesignActive] = useState(false)
-  // Kullanici istegi (2026-09-12): bir kutuyu tutamacindan GERCEKTEN
-  // tiklayarak (surukleme DEGIL) SECEBILSIN - secili kutu yon tuslariyla
-  // (Ctrl+yon ile boyutlandirma) hassas ayarlanabilsin (bkz. LocalDesignGrid.
-  // tsx - AYNI mantik).
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!designMode) return
-    const container = containerRef.current
-    if (!container) return
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null
-      pointerDownRef.current = {
-        x: event.clientX,
-        y: event.clientY,
-        onHandle: Boolean(target?.closest(DRAG_HANDLE_SELECTOR)),
-      }
-    }
-
-    const handleClickCapture = (event: MouseEvent) => {
-      const start = pointerDownRef.current
-      pointerDownRef.current = null
-      if (!start) return
-
-      const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y)
-      const wasDrag = distance > DRAG_CLICK_SUPPRESS_DISTANCE
-
-      if (!start.onHandle) {
-        setSelectedWidgetId(null)
-        return
-      }
-
-      if (wasDrag) {
-        event.preventDefault()
-        event.stopPropagation()
-        return
-      }
-
-      const target = event.target as HTMLElement | null
-      const widgetId = target?.closest<HTMLElement>('[data-widget-id]')?.dataset.widgetId
-      setSelectedWidgetId(widgetId ?? null)
-    }
-
-    container.addEventListener('mousedown', handlePointerDown, true)
-    container.addEventListener('click', handleClickCapture, true)
-    return () => {
-      container.removeEventListener('mousedown', handlePointerDown, true)
-      container.removeEventListener('click', handleClickCapture, true)
-    }
-  }, [containerRef, designMode])
-
-  useEffect(() => {
-    if (!designMode) setSelectedWidgetId(null)
-  }, [designMode])
-
   // Mobil "sm" varsayilani: tek sutun; w=1 SADECE mobileHalf kutulari (yan
-  // yana ciftler), digerleri w=2 (tam genislik). Kullanici mobil Tasarim
-  // Modu'nda h/w'yi degistirdikce bu korunur.
+  // yana ciftler), digerleri w=2 (tam genislik).
   const buildDefaultMobileSm = (lg: Layout): Layout => {
     const half = new Set(widgets.filter((w) => w.mobileHalf).map((w) => w.id))
     return buildSingleColumnLayout(lg).map((it) => ({ ...it, w: half.has(it.i) ? 1 : 2 }))
@@ -237,32 +136,46 @@ export function DashboardGrid({
     lg: defaultLayout,
     sm: buildDefaultMobileSm(defaultLayout),
   })
-  // Kullanici istegi: "Varsayılan Düzene Sıfırla" bazen TEMIZ varsayilan
-  // duzeni degil, her kutunun BIRBIRINDEN FARKLI/BOZUK yerlere sicradigi bir
-  // sonuc veriyordu. Kok neden: react-grid-layout, kontrollu "layouts" prop'u
-  // programatik olarak (surukleme DEGIL) DEGISTIRILDIGINDE bile, kendi
-  // ICINDEKI eski/bozuk yerlesim durumunu tam sifirlamayabiliyor - "reset"
-  // sonrasi ilk onLayoutChange, verdigimiz TEMIZ defaultLayout yerine, bu
-  // eski ic duruma gore YENIDEN HESAPLANMIS (ve bazen BOZUK) bir sonuc
-  // dondurup bunu (skipNextSaveRef=false oldugu icin) KAYDEDIYORDU - biz de
-  // bu bozuk sonucu "yeni varsayilan" sanip saklıyorduk. Kesin/guvenilir
-  // cozum: sifirlamada <Responsive>'i (asagida key={gridInstanceKey} ile)
-  // TAMAMEN YENIDEN MONTE ETMEK - boylece kutuphanenin ic durumu SIFIRDAN
-  // baslar, eski/bozuk hicbir kalinti tasimaz.
+  // <Responsive>'i TAMAMEN yeniden monte etmek icin (sifirla / geri al /
+  // vazgec) - kutuphanenin ic durumu eski yerlesimi tasimasin.
   const [gridInstanceKey, setGridInstanceKey] = useState(0)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
-  // Kullanici istegi: istedigi kutuyu gizleyip istedigini gosterebilsin
-  // ("alan ekleyip kaldirabilme") - digerleri gibi HER KULLANICI HESABINA
-  // OZEL sunucuda saklanir (bkz. app/api/dashboard-layout/route.ts).
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const skipNextSaveRef = useRef(true)
 
-  // Kayitli (sunucudaki, bu HESABA ozel) duzeni yukle - eger daha once bu
-  // widget id'si KAYITLI DUZENDE yoksa (ileride yeni bir rapor kutusu
-  // eklenirse) o widget'in varsayilan konumu korunur, kaybolmaz.
+  // --- Tasarim Modu taslak/gecmis durumu ---
+  const [historyPast, setHistoryPast] = useState<Snapshot[]>([])
+  const [historyFuture, setHistoryFuture] = useState<Snapshot[]>([])
+  const baselineRef = useRef<Snapshot | null>(null)
+  const [baselineKey, setBaselineKey] = useState('')
+  const interactingRef = useRef(false)
+  const preInteractionRef = useRef<Snapshot | null>(null)
+  const committedLayoutKeyRef = useRef<string | null>(null)
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null)
+
+  // --- Gercek ekran olcegi (bkz. dosya basi "KAYMA") ---
+  const [measuredScale, setMeasuredScale] = useState(1)
+  const measureScale = useCallback(() => {
+    const element = containerRef.current
+    if (!element || !element.offsetWidth) return
+    const ratio = element.getBoundingClientRect().width / element.offsetWidth
+    if (!Number.isFinite(ratio) || ratio <= 0) return
+    const rounded = Math.round(ratio * 1000) / 1000
+    setMeasuredScale((prev) => (Math.abs(prev - rounded) > 0.001 ? rounded : prev))
+  }, [containerRef])
+  useEffect(() => {
+    measureScale()
+  }, [measureScale, contextScale, width, designMode, isLoaded])
+  const positionStrategy = useMemo(
+    // Strateji ref'i yalnizca surukleme aninda (olay icinde) okur, render'da degil.
+    // eslint-disable-next-line react-hooks/refs
+    () => (measuredScale !== 1 ? createParentAwareScaledStrategy(measuredScale, containerRef) : undefined),
+    [measuredScale, containerRef],
+  )
+
+  // Kayitli (sunucudaki, bu HESABA ozel) duzeni yukle - kayitli duzende
+  // olmayan (sonradan eklenmis) kutularin varsayilan konumu korunur.
   useEffect(() => {
     let isCancelled = false
 
@@ -280,16 +193,10 @@ export function DashboardGrid({
         const missingDefaults = defaultLayout.filter((item) => !savedIds.has(item.i))
         const mergedLg = [...savedLg, ...missingDefaults]
 
-        // Mobil sira: kayitli "sm" varsa ONUN sirasini koru (kullanici
-        // mobilde elle dizmis olabilir); yoksa masaustu duzeninden turet.
-        // Kullanici istegi (28 Agu 2026): mobil Tasarim Modu'nda kutu
-        // YUKSEKLIGI (h) ve GENISLIGI (w: 1=yarim / 2=tam sutun) ayarlanabilir
-        // - bu yuzden kayitli sm'in h/w degerleri ARTIK KORUNUR (eskiden
-        // yukleme sirasinda lg'den yeniden turetiliyor, kaybediliyordu).
+        // Mobil sira/boyut: kayitli "sm" varsa onun sirasi ve h/w'si korunur.
         const mobileHalfIds = new Set(widgets.filter((w) => w.mobileHalf).map((w) => w.id))
         const savedSmById = new Map((Array.isArray(savedSm) ? savedSm : []).map((it) => [it.i, it]))
-        // Eski kayitlarda TUM sm.w === 1 idi (buildSingleColumnLayout ciktisi) -
-        // bu "kullanici genislik secmedi" demektir, varsayilana (mobileHalf?1:2) don.
+        // Eski kayitlarda TUM sm.w === 1 idi - "kullanici genislik secmedi".
         const smIsLegacyWidth = savedSmById.size > 0 && Array.from(savedSmById.values()).every((it) => (it.w ?? 1) === 1)
         const resolveMobileW = (id: string) => {
           if (smIsLegacyWidth) return mobileHalfIds.has(id) ? 1 : 2
@@ -314,7 +221,6 @@ export function DashboardGrid({
           })
         }
 
-        skipNextSaveRef.current = true
         setLayouts({ lg: mergedLg, sm: mergedSm })
       })
       .catch(() => {})
@@ -328,287 +234,38 @@ export function DashboardGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const persistLayouts = (next: Partial<Record<string, Layout>>, nextHiddenIds?: Set<string>) => {
+  const flashStatus = (status: 'saved' | 'error') => {
+    setSaveStatus(status)
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+    statusTimerRef.current = setTimeout(() => setSaveStatus('idle'), status === 'error' ? 5000 : 2000)
+  }
+
+  const persistLayouts = (next: Partial<Record<string, Layout>>, nextHiddenIds?: Set<string>): Promise<boolean> => {
     setSaveStatus('saving')
-    fetch('/api/dashboard-layout', {
+    return fetch('/api/dashboard-layout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ grid: DASHBOARD_LAYOUT_GRID_ID, layouts: next, hiddenIds: Array.from(nextHiddenIds ?? hiddenIds) }),
     })
       .then((res) => res.json())
       .then((payload) => {
-        setSaveStatus(payload?.success ? 'saved' : 'idle')
-        if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-        statusTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2000)
+        const ok = Boolean(payload?.success)
+        flashStatus(ok ? 'saved' : 'error')
+        return ok
       })
-      .catch(() => setSaveStatus('idle'))
+      .catch(() => {
+        flashStatus('error')
+        return false
+      })
   }
 
-  // Kullanici istegi: secili kutuyu yon tuslariyla (Shift ile 5'er birim,
-  // normalde 1'er birim) hassas tasima - baska bir kutuyla cakisirsa
-  // (rectsOverlap) hareket sessizce yoksayilir.
-  const moveSelectedWidget = (dx: number, dy: number) => {
-    if (!selectedWidgetId) return
-    setLayouts((prev) => {
-      const lg = prev.lg
-      if (!lg) return prev
-      const current = lg.find((item) => item.i === selectedWidgetId)
-      if (!current) return prev
-
-      const nextX = Math.min(Math.max(0, current.x + dx), Math.max(0, COLS.lg - current.w))
-      const nextY = Math.max(0, current.y + dy)
-      if (nextX === current.x && nextY === current.y) return prev
-
-      const candidate = { ...current, x: nextX, y: nextY }
-      const collides = lg.some((item) => item.i !== selectedWidgetId && rectsOverlap(candidate, item))
-      if (collides) return prev
-
-      const nextLg = lg.map((item) => (item.i === selectedWidgetId ? candidate : item))
-      const next = { ...prev, lg: nextLg }
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => persistLayouts(next), 600)
-      return next
-    })
-  }
-
-  // Kullanici istegi: secili kutuyu Ctrl+yon tuslariyla (Shift ile 5'er
-  // birim, normalde 1'er birim) hassas BOYUTLANDIRMA - fareyle
-  // boyutlandirmanin aksine ASLA baska bir kutuya carpmaz/onu itmez.
-  const resizeSelectedWidget = (dw: number, dh: number) => {
-    if (!selectedWidgetId) return
-    setLayouts((prev) => {
-      const lg = prev.lg
-      if (!lg) return prev
-      const current = lg.find((item) => item.i === selectedWidgetId)
-      if (!current) return prev
-
-      const minW = current.minW ?? 1
-      const minH = current.minH ?? 1
-      const maxW = Math.max(minW, COLS.lg - current.x)
-      const nextW = Math.min(Math.max(minW, current.w + dw), maxW)
-      const nextH = Math.max(minH, current.h + dh)
-      if (nextW === current.w && nextH === current.h) return prev
-
-      const candidate = { ...current, w: nextW, h: nextH }
-      const collides = lg.some((item) => item.i !== selectedWidgetId && rectsOverlap(candidate, item))
-      if (collides) return prev
-
-      const nextLg = lg.map((item) => (item.i === selectedWidgetId ? candidate : item))
-      const next = { ...prev, lg: nextLg }
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(() => persistLayouts(next), 600)
-      return next
-    })
-  }
-
-  useEffect(() => {
-    if (!designMode || !selectedWidgetId) return
-
-    const ARROW_DELTAS: Record<string, [number, number]> = {
-      ArrowLeft: [-1, 0],
-      ArrowRight: [1, 0],
-      ArrowUp: [0, -1],
-      ArrowDown: [0, 1],
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const delta = ARROW_DELTAS[event.key]
-      if (!delta) return
-
-      const activeTag = (document.activeElement?.tagName || '').toLowerCase()
-      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return
-
-      event.preventDefault()
-      const step = event.shiftKey ? 5 : 1
-      if (event.ctrlKey || event.metaKey) {
-        resizeSelectedWidget(delta[0] * step, delta[1] * step)
-      } else {
-        moveSelectedWidget(delta[0] * step, delta[1] * step)
-      }
-    }
-
-    const handleKeyDownEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedWidgetId(null)
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('keydown', handleKeyDownEscape)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('keydown', handleKeyDownEscape)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designMode, selectedWidgetId, layouts.lg])
-
-  // onLayoutChange, surukleme/boyutlandirma sirasinda (yerlesim yeniden
-  // hesaplandikca) sik cagrilabilir - sunucuya HER cagrida degil, kullanici
-  // birakip 600ms boyunca baska bir degisiklik yapmayinca (debounce) kaydeder.
-  const handleLayoutChange = (_current: Layout, allLayouts: Partial<Record<string, Layout>>) => {
-    if (!designMode) {
-      // Tasarim modu kapaliyken surukleme/boyutlandirma zaten devre disi
-      // (asagida dragConfig/resizeConfig enabled=false) - bu, sadece ilk
-      // yerlesim/sikistirma hesaplamasi olabilir, kullanici degisikligi
-      // OLAMAZ - HICBIR SEKILDE sunucuya kaydedilmeye calisilmaz.
-      setLayouts(allLayouts)
-      return
-    }
-
-    if (skipNextSaveRef.current) {
-      // Sayfa ilk yuklenirken / kayitli duzen uygulanirken tetiklenen ilk
-      // onLayoutChange, kullanicinin YAPTIGI bir degisiklik degildir -
-      // bunu sunucuya "kaydetme" olarak saymamak icin bir kez atlanir.
-      skipNextSaveRef.current = false
-      setLayouts(allLayouts)
-      return
-    }
-
-    setLayouts(allLayouts)
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => persistLayouts(allLayouts), 600)
-  }
-
-  // Kullanici istegi: surukleme/boyutlandirma TAMAMEN BITTIGINDE (fare
-  // birakildiginda) o anki KESIN/NIHAI durumu, ara adimlarin (debounce)
-  // atlanma ihtimaline karsi AYRICA garantiye alarak kaydeder.
-  const commitCurrentLayout = () => {
-    if (!designMode) return
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    setLayouts((current) => {
-      persistLayouts(current)
-      return current
-    })
-  }
-
-  const toggleHidden = (id: string) => {
-    setHiddenIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      persistLayouts(layouts, next)
-      return next
-    })
-  }
-
-  const resetToDefault = () => {
-    if (!designMode) return
-    const next = { lg: defaultLayout, sm: buildDefaultMobileSm(defaultLayout) }
-    // skipNextSaveRef=true: <Responsive> yeniden monte olurken ilk kez
-    // ateslenecek onLayoutChange, sayfa ilk yuklenirkenkiyle AYNI mantikla,
-    // kullanici degisikligi SAYILMAZ - kaydedilmeye calisilmaz (zaten
-    // asagida TEMIZ defaultLayout'u dogrudan biz kaydediyoruz).
-    skipNextSaveRef.current = true
-    setLayouts(next)
-    setHiddenIds(new Set())
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    persistLayouts(next, new Set())
-    setGridInstanceKey((prev) => prev + 1)
-  }
-
-  useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-    }
+  useEffect(() => () => {
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
   }, [])
 
-  // Mobil: kutulari kayitli sıraya göre diz. Sıra "sm" duzeninden;
-  // eksik/yeni kutular sona eklenir.
-  const mobileOrderedWidgets = (() => {
-    const orderedIds = orderIdsFromLayout(layouts.sm) || []
-    const known = orderedIds.filter((id) => widgets.some((w) => w.id === id))
-    const seen = new Set(known)
-    for (const w of widgets) if (!seen.has(w.id)) known.push(w.id)
-    return known
-      .map((id) => widgets.find((w) => w.id === id))
-      .filter((w): w is DashboardWidget => Boolean(w))
-  })()
-
-  // Verilen id sirasina gore GECERLI bir tek-sutun "sm" duzeni uretir -
-  // her kutunun GERCEK w/h'si (lg'den, yoksa varsayilandan) korunur; SADECE
-  // y sirasi degisir. Boylece bu "sm", masaustunde 900-1100px arasi
-  // pencerede <Responsive> tarafindan kullanilsa bile bozuk gorunmez ve
-  // masaustu ("lg") duzenine HIC dokunulmaz.
-  const buildMobileSm = (orderedIds: string[]): Layout => {
-    const source = (layouts.lg && layouts.lg.length ? layouts.lg : defaultLayout)
-    const byId = new Map(source.map((item) => [item.i, item]))
-    // Kullanicinin mobilde ayarladigi h (yukseklik) ve w (1=yarim/2=tam)
-    // sira degistirirken KORUNUR.
-    const currentSmById = new Map((Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item]))
-    const mobileHalfIds = new Set(widgets.filter((w) => w.mobileHalf).map((w) => w.id))
-    return orderedIds.map((wid, index) => {
-      const base = byId.get(wid)
-      const cur = currentSmById.get(wid)
-      return {
-        i: wid, x: 0, y: index,
-        w: cur?.w === 1 ? 1 : cur?.w && cur.w >= 2 ? 2 : mobileHalfIds.has(wid) ? 1 : 2,
-        h: cur?.h ?? base?.h ?? 20,
-        minW: base?.minW, minH: base?.minH,
-      }
-    })
-  }
-
-  const moveMobileWidget = (id: string, dir: -1 | 1) => {
-    const ids = mobileOrderedWidgets.map((w) => w.id)
-    const index = ids.indexOf(id)
-    const target = index + dir
-    if (index < 0 || target < 0 || target >= ids.length) return
-    ;[ids[index], ids[target]] = [ids[target], ids[index]]
-    const next = { ...layouts, sm: buildMobileSm(ids) }
-    skipNextSaveRef.current = true
-    setLayouts(next)
-    persistLayouts(next, hiddenIds)
-  }
-
-  // Kullanici istegi (28 Agustos 2026): mobil Tasarim Modu'nda kutu
-  // YUKSEKLIGI de ayarlanabilsin (eskiden sadece sira + gizle vardi;
-  // "hicbir alanin boyutunu degistiremiyorum" sikayeti). Serbest surukleme
-  // dokunmatik kucuk ekranda pratik degil - bunun yerine kutu basina - / +
-  // dugmeleriyle yukseklik (sm duzenindeki "h", 1 birim = 9px) degistirilir.
-  const MOBILE_H_UNIT_PX = ROW_HEIGHT + ROW_MARGIN // 9px
-  const MOBILE_H_STEP = 6 // ~54px
-  const MOBILE_H_MIN = 14
-  const MOBILE_H_MAX = 120
-  const mobileHeightById = new Map(
-    (Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item.h]),
-  )
-  const mobileWidthById = new Map(
-    (Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item.w]),
-  )
-  const resizeMobileWidget = (id: string, deltaUnits: number) => {
-    const ids = mobileOrderedWidgets.map((w) => w.id)
-    const currentSm = Array.isArray(layouts.sm) ? layouts.sm : buildMobileSm(ids)
-    const nextSm = currentSm.map((item) => {
-      if (item.i !== id) return item
-      const nextH = Math.max(MOBILE_H_MIN, Math.min(MOBILE_H_MAX, (item.h ?? 30) + deltaUnits))
-      return { ...item, h: nextH }
-    })
-    const next = { ...layouts, sm: nextSm }
-    skipNextSaveRef.current = true
-    setLayouts(next)
-    persistLayouts(next, hiddenIds)
-  }
-  // Kullanici istegi (28 Agu 2026): YANLARDAN da kucult/buyut - mobilde
-  // "genislik" = kutu 1 sutun (yarim) mu 2 sutun (tam) mu kaplasin.
-  // dir=-1 -> yarim (yaninda baska bir yarim kutu olabilir), dir=+1 -> tam.
-  const resizeMobileWidgetWidth = (id: string, dir: -1 | 1) => {
-    const ids = mobileOrderedWidgets.map((w) => w.id)
-    const currentSm = Array.isArray(layouts.sm) ? layouts.sm : buildMobileSm(ids)
-    const nextSm = currentSm.map((item) => {
-      if (item.i !== id) return item
-      const cur = item.w === 1 ? 1 : 2
-      return { ...item, w: Math.max(1, Math.min(2, cur + dir)) }
-    })
-    const next = { ...layouts, sm: nextSm }
-    skipNextSaveRef.current = true
-    setLayouts(next)
-    persistLayouts(next, hiddenIds)
-  }
-
-  // 2026-10-15: kullanicinin sonradan ekledigi (ör. "Özet Rapor Ekle") ve
-  // kayitli duzende HENUZ yeri olmayan kutular, react-grid-layout'un 1x1'lik
-  // varsayilanina dusmesin diye en alta 16 sutunluk (satira 3 kutu) ve
-  // okunur yukseklikte yerlestirilir. Kullanici Tasarim Modu'nda tasirsa
-  // yeni yeri normal sekilde kaydedilir.
+  // Kullanicinin sonradan ekledigi (ör. "Özet Rapor Ekle") ve kayitli
+  // duzende HENUZ yeri olmayan kutular en alta 16 sutunluk (satira 3 kutu)
+  // ve okunur yukseklikte yerlestirilir.
   const effectiveLayouts = useMemo(() => {
     const lg = Array.isArray(layouts.lg) ? layouts.lg : []
     const placed = new Set(lg.map((item) => item.i))
@@ -630,66 +287,420 @@ export function DashboardGrid({
     return { ...layouts, lg: [...lg, ...extra] }
   }, [layouts, widgets])
 
+  const currentLg: Layout = (effectiveLayouts.lg as Layout | undefined) ?? []
+  const currentSnapshot = (): Snapshot => ({ lg: currentLg, hidden: Array.from(hiddenIds) })
+  const isDirty = designMode && baselineKey !== '' && snapshotKey(currentSnapshot()) !== baselineKey
+
+  const applySnapshot = (snapshot: Snapshot, remount: boolean) => {
+    setLayouts((prev) => ({ ...prev, lg: snapshot.lg }))
+    setHiddenIds(new Set(snapshot.hidden))
+    if (remount) setGridInstanceKey((prev) => prev + 1)
+  }
+
+  // Kullanicinin yaptigi bir degisikligi uygular ve geri alinabilir kilar.
+  const commitChange = (next: Snapshot, remount = false) => {
+    const before = currentSnapshot()
+    if (snapshotKey(before) === snapshotKey(next)) return
+    setHistoryPast((past) => [...past.slice(-(HISTORY_LIMIT - 1)), before])
+    setHistoryFuture([])
+    applySnapshot(next, remount)
+  }
+
+  const undo = () => {
+    if (historyPast.length === 0) return
+    const previous = historyPast[historyPast.length - 1]
+    setHistoryPast((past) => past.slice(0, -1))
+    setHistoryFuture((future) => [currentSnapshot(), ...future])
+    applySnapshot(previous, true)
+  }
+
+  const redo = () => {
+    if (historyFuture.length === 0) return
+    const next = historyFuture[0]
+    setHistoryFuture((future) => future.slice(1))
+    setHistoryPast((past) => [...past, currentSnapshot()])
+    applySnapshot(next, true)
+  }
+
+  const startDesignMode = () => {
+    const snapshot = currentSnapshot()
+    baselineRef.current = snapshot
+    setBaselineKey(snapshotKey(snapshot))
+    setHistoryPast([])
+    setHistoryFuture([])
+    setSelectedWidgetId(null)
+    setDesignModeState(true)
+  }
+
+  const finishDesignMode = () => {
+    baselineRef.current = null
+    setBaselineKey('')
+    setHistoryPast([])
+    setHistoryFuture([])
+    setSelectedWidgetId(null)
+    setDesignModeState(false)
+  }
+
+  const saveDesign = async () => {
+    const snapshot = currentSnapshot()
+    const ok = await persistLayouts({ ...layouts, lg: snapshot.lg }, new Set(snapshot.hidden))
+    if (ok) finishDesignMode()
+  }
+
+  const cancelDesign = () => {
+    if (isDirty && !window.confirm('Kaydedilmemiş değişiklikler geri alınacak. Devam edilsin mi?')) return
+    if (baselineRef.current) applySnapshot(baselineRef.current, true)
+    finishDesignMode()
+  }
+
+  const resetToDefault = () => {
+    commitChange({ lg: verticalCompactor.compact(cloneLayout(defaultLayout), COLS.lg), hidden: [] }, true)
+  }
+
+  const toggleHidden = (id: string) => {
+    if (designMode) {
+      const hidden = new Set(hiddenIds)
+      if (hidden.has(id)) hidden.delete(id)
+      else hidden.add(id)
+      commitChange({ lg: currentLg, hidden: Array.from(hidden) })
+      return
+    }
+    // Mobil tasarim: aninda kaydedilir (eski davranis)
+    setHiddenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      void persistLayouts(layouts, next)
+      return next
+    })
+  }
+
+  // --- Klavye ile hassas tasima / boyutlandirma (secili kutu) ---
+  const moveSelectedWidget = (direction: 'left' | 'right' | 'up' | 'down', fast: boolean) => {
+    if (!selectedWidgetId) return
+    const working = cloneLayout(currentLg)
+    const item = working.find((entry) => entry.i === selectedWidgetId)
+    if (!item) return
+
+    let targetX = item.x
+    let targetY = item.y
+    if (direction === 'left' || direction === 'right') {
+      // Yanlara ince ayar yalniz BOS alana yapilir - komsuya carparsa kutu
+      // asagi atlamasin, hareket etmez.
+      const step = fast ? KEY_STEP_X_FAST : KEY_STEP_X
+      targetX = Math.min(Math.max(0, item.x + (direction === 'left' ? -step : step)), Math.max(0, COLS.lg - item.w))
+      if (targetX === item.x) return
+      const candidate = { ...item, x: targetX }
+      if (working.some((entry) => entry.i !== item.i && rectsOverlap(candidate, entry))) return
+    } else {
+      // Dikey sikistirmada tek satir kaydirmak geri ziplar - bunun yerine
+      // yukari/asagidaki en yakin komsuyla yer degistirilir.
+      const others = working.filter((entry) => entry.i !== item.i && !hiddenIds.has(entry.i) && horizontallyOverlaps(entry, item))
+      if (direction === 'down') {
+        const below = others.filter((entry) => entry.y >= item.y + item.h).sort((a, b) => a.y - b.y)[0]
+        targetY = below ? below.y + below.h : item.y + (fast ? KEY_STEP_Y_FAST : KEY_STEP_Y)
+      } else {
+        const above = others.filter((entry) => entry.y + entry.h <= item.y).sort((a, b) => (b.y + b.h) - (a.y + a.h))[0]
+        if (!above) return
+        targetY = above.y
+      }
+    }
+
+    const moved = moveElement(working, item, targetX, targetY, true, false, 'vertical', COLS.lg, false)
+    commitChange({ lg: verticalCompactor.compact(moved, COLS.lg), hidden: Array.from(hiddenIds) })
+  }
+
+  const resizeSelectedWidget = (dw: number, dh: number) => {
+    if (!selectedWidgetId) return
+    const working = cloneLayout(currentLg)
+    const item = working.find((entry) => entry.i === selectedWidgetId)
+    if (!item) return
+    const minW = item.minW ?? 1
+    const minH = item.minH ?? 1
+    let nextW = Math.min(Math.max(minW, item.w + dw), Math.max(minW, COLS.lg - item.x))
+    const nextH = Math.max(minH, item.h + dh)
+    // Genisletme yandaki kutuya carparsa yapilmaz (komsuyla tam hizalamak
+    // icin); yukseklik artinca alttakiler normal sekilde asagi kayar.
+    if (nextW > item.w && working.some((entry) => entry.i !== item.i && rectsOverlap({ ...item, w: nextW }, entry))) {
+      nextW = item.w
+    }
+    if (nextW === item.w && nextH === item.h) return
+    item.w = nextW
+    item.h = nextH
+    commitChange({ lg: verticalCompactor.compact(working, COLS.lg), hidden: Array.from(hiddenIds) })
+  }
+
+  useEffect(() => {
+    if (!designMode) return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const tag = (target?.tagName || '').toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || target?.isContentEditable) return
+
+      const ctrl = event.ctrlKey || event.metaKey
+      const key = event.key.toLowerCase()
+      if (ctrl && key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        undo()
+        return
+      }
+      if (ctrl && (key === 'y' || (key === 'z' && event.shiftKey))) {
+        event.preventDefault()
+        redo()
+        return
+      }
+      if (event.key === 'Escape') {
+        setSelectedWidgetId(null)
+        return
+      }
+      if (!selectedWidgetId) return
+
+      const arrows: Record<string, 'left' | 'right' | 'up' | 'down'> = {
+        ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down',
+      }
+      const direction = arrows[event.key]
+      if (!direction) return
+      event.preventDefault()
+      if (ctrl) {
+        const stepX = event.shiftKey ? KEY_STEP_X_FAST : KEY_STEP_X
+        const stepY = event.shiftKey ? KEY_STEP_Y_FAST : KEY_STEP_Y
+        if (direction === 'left') resizeSelectedWidget(-stepX, 0)
+        if (direction === 'right') resizeSelectedWidget(stepX, 0)
+        if (direction === 'up') resizeSelectedWidget(0, -stepY)
+        if (direction === 'down') resizeSelectedWidget(0, stepY)
+      } else {
+        moveSelectedWidget(direction, event.shiftKey)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  })
+
+  // Kaydedilmemis degisiklik varken sayfa kapatilir/yenilenirse uyar.
+  useEffect(() => {
+    if (!isDirty) return
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isDirty])
+
+  // --- react-grid-layout olaylari (Tasarim Modu) ---
+  const handleInteractionStart = () => {
+    interactingRef.current = true
+    preInteractionRef.current = currentSnapshot()
+  }
+
+  const handleInteractionStop = (layout: Layout) => {
+    interactingRef.current = false
+    // Kutuphane hemen ardindan AYNI duzenle onLayoutChange cagirir - o
+    // cagri "kutuphane duzeltmesi" sanilip taban cizgisini bozmasin.
+    committedLayoutKeyRef.current = snapshotKey({ lg: layout, hidden: [] })
+    const before = preInteractionRef.current
+    preInteractionRef.current = null
+    if (!before) return
+    const next: Snapshot = { lg: layout, hidden: Array.from(hiddenIds) }
+    if (snapshotKey(before) === snapshotKey(next)) return
+    setHistoryPast((past) => [...past.slice(-(HISTORY_LIMIT - 1)), before])
+    setHistoryFuture([])
+    setLayouts((prev) => ({ ...prev, lg: layout }))
+  }
+
+  const handleLayoutChange = (current: Layout, allLayouts: Partial<Record<string, Layout>>) => {
+    // Gorunum modunda yerlesim yalniz gosterim icindir (gizli kutular
+    // cikarilip sikistirilmis hal) - kayitli duzen degistirilmez.
+    if (!designMode || interactingRef.current) return
+    const lg = allLayouts.lg ?? current
+    const layoutKey = snapshotKey({ lg, hidden: [] })
+    if (layoutKey === committedLayoutKeyRef.current) {
+      committedLayoutKeyRef.current = null
+      return
+    }
+    if (layoutKey === snapshotKey({ lg: currentLg, hidden: [] })) return
+    // Kutuphanenin kendi duzeltmesi (ör. tasarim moduna girerken sikistirma):
+    // kullanici degisikligi sayilmaz.
+    setLayouts((prev) => ({ ...prev, lg }))
+    if (historyPast.length === 0) {
+      const snapshot = { lg, hidden: Array.from(hiddenIds) }
+      baselineRef.current = baselineRef.current ? { ...baselineRef.current, lg } : snapshot
+      setBaselineKey(snapshotKey(snapshot))
+    }
+  }
+
+  // Kutu uzerindeki seffaf tasarim katmani: surukleme olmadan tiklanirsa secer.
+  const handleOverlayMouseDown = (event: ReactMouseEvent) => {
+    pointerDownRef.current = { x: event.clientX, y: event.clientY }
+  }
+  const handleOverlayClick = (widgetId: string) => (event: ReactMouseEvent) => {
+    const start = pointerDownRef.current
+    pointerDownRef.current = null
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > SELECT_CLICK_MAX_DISTANCE) return
+    setSelectedWidgetId((prev) => (prev === widgetId ? null : widgetId))
+  }
+
+  // --- Mobil tasarim (degismedi: aninda kaydeder) ---
+  const mobileOrderedWidgets = (() => {
+    const orderedIds = orderIdsFromLayout(layouts.sm) || []
+    const known = orderedIds.filter((id) => widgets.some((w) => w.id === id))
+    const seen = new Set(known)
+    for (const w of widgets) if (!seen.has(w.id)) known.push(w.id)
+    return known
+      .map((id) => widgets.find((w) => w.id === id))
+      .filter((w): w is DashboardWidget => Boolean(w))
+  })()
+
+  // Verilen id sirasina gore GECERLI bir tek-sutun "sm" duzeni uretir -
+  // masaustu ("lg") duzenine HIC dokunulmaz.
+  const buildMobileSm = (orderedIds: string[]): Layout => {
+    const source = (layouts.lg && layouts.lg.length ? layouts.lg : defaultLayout)
+    const byId = new Map(source.map((item) => [item.i, item]))
+    const currentSmById = new Map((Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item]))
+    const mobileHalfIds = new Set(widgets.filter((w) => w.mobileHalf).map((w) => w.id))
+    return orderedIds.map((wid, index) => {
+      const base = byId.get(wid)
+      const cur = currentSmById.get(wid)
+      return {
+        i: wid, x: 0, y: index,
+        w: cur?.w === 1 ? 1 : cur?.w && cur.w >= 2 ? 2 : mobileHalfIds.has(wid) ? 1 : 2,
+        h: cur?.h ?? base?.h ?? 20,
+        minW: base?.minW, minH: base?.minH,
+      }
+    })
+  }
+
+  const moveMobileWidget = (id: string, dir: -1 | 1) => {
+    const ids = mobileOrderedWidgets.map((w) => w.id)
+    const index = ids.indexOf(id)
+    const target = index + dir
+    if (index < 0 || target < 0 || target >= ids.length) return
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    const next = { ...layouts, sm: buildMobileSm(ids) }
+    setLayouts(next)
+    void persistLayouts(next, hiddenIds)
+  }
+
+  // Mobil Tasarim Modu'nda kutu yuksekligi - / + dugmeleriyle (sm "h",
+  // 1 birim = 9px).
+  const MOBILE_H_UNIT_PX = ROW_HEIGHT + ROW_MARGIN // 9px
+  const MOBILE_H_STEP = 6 // ~54px
+  const MOBILE_H_MIN = 14
+  const MOBILE_H_MAX = 120
+  const mobileHeightById = new Map(
+    (Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item.h]),
+  )
+  const mobileWidthById = new Map(
+    (Array.isArray(layouts.sm) ? layouts.sm : []).map((item) => [item.i, item.w]),
+  )
+  const resizeMobileWidget = (id: string, deltaUnits: number) => {
+    const ids = mobileOrderedWidgets.map((w) => w.id)
+    const currentSm = Array.isArray(layouts.sm) ? layouts.sm : buildMobileSm(ids)
+    const nextSm = currentSm.map((item) => {
+      if (item.i !== id) return item
+      const nextH = Math.max(MOBILE_H_MIN, Math.min(MOBILE_H_MAX, (item.h ?? 30) + deltaUnits))
+      return { ...item, h: nextH }
+    })
+    const next = { ...layouts, sm: nextSm }
+    setLayouts(next)
+    void persistLayouts(next, hiddenIds)
+  }
+  // Mobilde "genislik" = kutu 1 sutun (yarim) mu 2 sutun (tam) mu kaplasin.
+  const resizeMobileWidgetWidth = (id: string, dir: -1 | 1) => {
+    const ids = mobileOrderedWidgets.map((w) => w.id)
+    const currentSm = Array.isArray(layouts.sm) ? layouts.sm : buildMobileSm(ids)
+    const nextSm = currentSm.map((item) => {
+      if (item.i !== id) return item
+      const cur = item.w === 1 ? 1 : 2
+      return { ...item, w: Math.max(1, Math.min(2, cur + dir)) }
+    })
+    const next = { ...layouts, sm: nextSm }
+    setLayouts(next)
+    void persistLayouts(next, hiddenIds)
+  }
+
   const resetMobileLayout = () => {
-    // Sadece MOBIL SIRAYI varsayilana dondurur - masaustu ("lg") duzenine
-    // ve gizli/gosterilen kutu tercihine (hiddenIds, iki taraf ortak)
-    // DOKUNMAZ.
+    // Sadece MOBIL SIRAYI varsayilana dondurur - masaustu duzenine ve
+    // gizli kutulara DOKUNMAZ.
     const baseLg = layouts.lg && layouts.lg.length ? layouts.lg : defaultLayout
     const next = { ...layouts, sm: buildDefaultMobileSm(baseLg) }
-    skipNextSaveRef.current = true
     setLayouts(next)
-    persistLayouts(next, hiddenIds)
+    void persistLayouts(next, hiddenIds)
   }
+
+  const selectedWidget = selectedWidgetId ? widgets.find((widget) => widget.id === selectedWidgetId) : undefined
+  const selectedItem = selectedWidgetId ? currentLg.find((item) => item.i === selectedWidgetId) : undefined
+  // Tasarim izgarasi: 4 sutunda / 4 satirda bir kilavuz cizgi.
+  const colWidthPx = width > 0 ? (width - ROW_MARGIN * (COLS.lg - 1)) / COLS.lg : 0
+  const guideStepX = (colWidthPx + ROW_MARGIN) * 4
+  const guideStepY = (ROW_HEIGHT + ROW_MARGIN) * 4
+  const statusText = saveStatus === 'saving'
+    ? 'Kaydediliyor...'
+    : saveStatus === 'saved'
+      ? 'Düzen kaydedildi ✓'
+      : saveStatus === 'error'
+        ? 'Kaydedilemedi - tekrar deneyin'
+        : ''
+  const toolBtn = 'dashboard-no-drag inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-[13px] font-bold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40'
 
   return (
     <div>
       {canEdit && !isNarrowViewport && (
-        <div className={`mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-[13px] font-semibold shadow-sm ${designMode ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-500'}`}>
-          <span className="truncate">
-            {designMode
-              ? 'Tasarım modunu değiştiriyorsunuz - kutuların başlığından tutup sürükleyin, sağ-alt köşeden boyutlandırın. Başlığa tıklayıp seçtiğiniz kutuyu yön tuşlarıyla (Shift ile daha hızlı) taşıyabilir, Ctrl+yön tuşlarıyla boyutlandırabilirsiniz. Bu düzen hesabınıza kaydedilir.'
-              : 'Ana sayfa düzeni kilitli. Yerleşimi değiştirmek için "Tasarım Modu"nu açın.'}
-          </span>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className={`transition-opacity ${saveStatus === 'idle' ? 'opacity-0' : 'opacity-100'}`}>
-              {saveStatus === 'saving' ? 'Düzen kaydediliyor...' : 'Düzen kaydedildi ✓'}
-            </span>
-            {designMode && (
+        designMode ? (
+          <div className="dashboard-design-toolbar sticky z-[700] mb-3 rounded-xl border border-[#D4B26A] bg-[#1E2A38] px-3 py-2 text-white shadow-lg" style={{ top: 'env(safe-area-inset-top, 0px)' }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="rounded-md bg-[#D4B26A] px-2 py-0.5 text-[12px] font-black uppercase tracking-wide text-[#1E2A38]">Tasarım Modu</span>
+                <span className="truncate text-[13px] font-semibold text-slate-200">
+                  {selectedWidget && selectedItem
+                    ? `Seçili: ${selectedWidget.title} — yön tuşları taşır, Ctrl+yön boyutlandırır (Shift: büyük adım)`
+                    : 'Kutuyu tutup sürükleyin · kenar ve köşelerinden boyutlandırın · tıklayıp seçin, yön tuşlarıyla ince ayar yapın'}
+                </span>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                {isDirty && <span className="mr-1 text-[12px] font-bold text-[#D4B26A]">● Kaydedilmemiş değişiklik</span>}
+                {statusText && <span className={`mr-1 text-[12px] font-bold ${saveStatus === 'error' ? 'text-rose-300' : 'text-emerald-300'}`}>{statusText}</span>}
+                <button type="button" onClick={undo} disabled={historyPast.length === 0} title="Geri al (Ctrl+Z)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>↶ Geri Al</button>
+                <button type="button" onClick={redo} disabled={historyFuture.length === 0} title="Yinele (Ctrl+Y)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>↷ Yinele</button>
+                <button type="button" onClick={resetToDefault} disabled={!isLoaded} title="Kutuların boyut/konumunu ve gizleme durumunu varsayılana döndürür (Kaydet'e basana kadar kalıcı olmaz)" className={`${toolBtn} border-white/30 bg-white/10 text-white hover:bg-white/20`}>Varsayılan Düzen</button>
+                <span className="mx-1 h-6 w-px bg-white/25" aria-hidden="true" />
+                <button type="button" onClick={cancelDesign} className={`${toolBtn} border-white/40 bg-transparent text-white hover:bg-white/10`}>Vazgeç</button>
+                <button type="button" onClick={() => void saveDesign()} disabled={saveStatus === 'saving'} className={`${toolBtn} border-[#D4B26A] bg-[#D4B26A] text-[#1E2A38] hover:bg-[#e2c47f]`}>
+                  {saveStatus === 'saving' ? 'Kaydediliyor...' : 'Kaydet'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-500 shadow-sm">
+            <span className="truncate">Ana sayfa düzeni kilitli. Kutuların yerini ve boyutunu değiştirmek için “Tasarım Modu”nu açın.</span>
+            <div className="flex shrink-0 items-center gap-2">
+              {statusText && <span className={saveStatus === 'error' ? 'text-rose-600' : 'text-emerald-700'}>{statusText}</span>}
               <button
                 type="button"
-                onClick={resetToDefault}
+                onClick={startDesignMode}
                 disabled={!isLoaded}
-                title="Kutuların boyut/konumunu ve gizleme durumunu varsayılana döndürür"
-                className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 font-black text-amber-700 shadow-sm hover:bg-amber-100 disabled:opacity-50"
+                className="rounded-lg border border-[#1E2A38] bg-white px-3 py-1 font-bold text-[#1E2A38] shadow-sm transition-colors hover:bg-[#1E2A38] hover:text-white disabled:opacity-50"
               >
-                Varsayılan Düzene Sıfırla
+                Tasarım Modu
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setDesignMode((prev) => !prev)}
-              className={`rounded-lg border px-3 py-1 font-black uppercase tracking-wide shadow-sm transition-colors ${
-                designMode
-                  ? 'border-amber-500 bg-amber-500 text-white hover:bg-amber-600'
-                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              {designMode ? 'Tasarım Modunu Kapat' : 'Tasarım Modu'}
-            </button>
+            </div>
           </div>
-        </div>
+        )
       )}
-      <div ref={containerRef}>
+      <div ref={containerRef} onMouseEnter={measureScale}>
         {isNarrowViewport ? (
           <div>
             {canEdit && (
               <div className={`mb-2 flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold shadow-sm ${mobileDesignActive ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-slate-200 bg-white text-slate-500'}`}>
                 <span className="truncate">
-                  {mobileDesignActive ? 'Sırayı ▲▼ ile değiştirin, Gizle/Göster ile ayarlayın. Bu cihaza kaydedilir.' : 'Ana sayfa düzeni'}
+                  {mobileDesignActive ? 'Sırayı ▲▼ ile değiştirin, Gizle/Göster ile ayarlayın. Bu hesaba kaydedilir.' : 'Ana sayfa düzeni'}
                 </span>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <span className={`transition-opacity ${saveStatus === 'idle' ? 'opacity-0' : 'opacity-100'}`}>
-                    {saveStatus === 'saving' ? 'Kaydediliyor...' : 'Kaydedildi ✓'}
+                    {saveStatus === 'saving' ? 'Kaydediliyor...' : saveStatus === 'error' ? 'Kaydedilemedi' : 'Kaydedildi ✓'}
                   </span>
                   {mobileDesignActive && (
                     <button
@@ -783,115 +794,108 @@ export function DashboardGrid({
           </div>
         ) : (<>
         {mounted && !isLoaded && (
-          // Kullanici istegi: Ana Sayfa sekmesine gecip geri donuldugunde
-          // tasarim "bozuluyordu" - kok neden, kayitli (sunucudaki) duzen
-          // fetch ile gelene kadar (ag gecikmesi kadar) sayfanin ONCE
-          // VARSAYILAN duzenle cizilip, veri gelince kayitli duzene
-          // "zipliyor" olmasiydi - bu zipla, kullaniciya tasarimin bozulup
-          // duzeldigi seklinde gorunuyordu. Artik kayitli duzen tam olarak
-          // gelip state'e yansiyana kadar grid HIC cizilmiyor - boylece
-          // kutular DOGRUDAN kayitli/dogru boyutlariyla belirir, arada
-          // yanlis (varsayilan) bir kare bile gorunmez.
+          // Kayitli duzen gelene kadar grid cizilmez - once varsayilan duzenle
+          // cizilip sonra "ziplama" olmasin.
           <div className="flex items-center justify-center rounded-lg border border-slate-200 bg-white p-10 text-xs font-bold text-slate-400">
             Düzen yükleniyor...
           </div>
         )}
         {mounted && isLoaded && (
-          <Responsive
-            key={gridInstanceKey}
-            layouts={effectiveLayouts}
-            breakpoints={BREAKPOINTS}
-            cols={COLS}
-            width={width}
-            margin={[ROW_MARGIN, ROW_MARGIN]}
-            containerPadding={[0, 0]}
-            rowHeight={ROW_HEIGHT}
-            positionStrategy={uiZoomScale !== 1 ? createParentAwareScaledStrategy(uiZoomScale, containerRef) : undefined}
-            // Kullanici istegi (Dosya Yonetimi'ndeki AYNI sorunun Ana
-            // Sayfa'ya da uygulanan cozumu - bkz. LocalDesignGrid.tsx):
-            // kutular istenen yere (ustunde bosluk birakarak) tasinamiyordu,
-            // react-grid-layout'un varsayilan "vertical" sikistirmasi
-            // birakilir birakilmaz yukari itiyordu. Ana Sayfa'daki
-            // kutularin (Dosya Yonetimi'nin auto-fit panellerinin aksine)
-            // icerige gore CANLI degisen bir yuksekligi YOK - hepsi HER
-            // ZAMAN duzende belirtilen boyutu (h-full/w-full) doldurur -
-            // bu yuzden sikistirmanin burada hicbir zaman gercek bir
-            // faydasi (kapatilacak "canli" bir bosluk) olmuyor, sadece
-            // kullanicinin bilerek biraktigi boslugu bozuyordu. Bu yuzden
-            // burada KOSULSUZ olarak kapatildi.
-            compactor={noCollisionCompactor}
-            dragConfig={{ enabled: designMode, handle: DRAG_HANDLE_SELECTOR }}
-            resizeConfig={{ enabled: designMode, handles: ['se'] }}
-            onLayoutChange={handleLayoutChange}
-            onDragStop={commitCurrentLayout}
-            onResizeStop={commitCurrentLayout}
+          <div
+            className={designMode ? 'dashboard-design-surface rounded-xl' : undefined}
+            style={designMode && guideStepX > 0 ? {
+              backgroundImage: 'linear-gradient(to right, rgba(30,42,56,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(30,42,56,0.06) 1px, transparent 1px)',
+              backgroundSize: `${guideStepX}px ${guideStepY}px`,
+            } : undefined}
+            onMouseDown={(event) => {
+              // Bos alana tiklaninca secim kalkar
+              if (designMode && !(event.target as HTMLElement).closest('[data-widget-id]')) setSelectedWidgetId(null)
+            }}
           >
-            {widgets
-              .filter((widget) => designMode || !hiddenIds.has(widget.id))
-              .map((widget) => {
-              const isHidden = hiddenIds.has(widget.id)
-              const isSelected = designMode && selectedWidgetId === widget.id
-              return (
-                <div
-                  key={widget.id}
-                  data-widget-id={widget.id}
-                  aria-label={widget.title}
-                  // Kullanici istegi (15 Eylul 2026, 26. tur): "cursor-move" onceden
-                  // Tailwind'in "[&_.dashboard-drag-handle]" turev-secici (arbitrary
-                  // descendant selector) sinifiyla veriliyordu - bu, Turbopack/
-                  // Lightning CSS derlemesinde bozuk baytli bir CSS secici uretip
-                  // "3 uyari"ya (her build'de gorulen, ZARARSIZ ama "next dev"de
-                  // FATAL hataya donen) yol aciyordu. ".dashboard-drag-handle" pek
-                  // cok FARKLI bilesende (SummaryListPanel, AssistanceAlertCard vb.)
-                  // kullanildigi icin dogrudan tek bir elemente tasinamaz - bunun
-                  // yerine duz bir isaretleyici sinif + app/globals.css'te SAF CSS
-                  // kurali kullanildi (bkz. globals.css ".dashboard-design-mode-active").
-                  className={`dashboard-grid-item group relative overflow-hidden rounded-2xl ${designMode ? 'dashboard-design-mode-active' : ''} ${designMode && isHidden ? 'opacity-50 ring-2 ring-dashed ring-slate-300 ring-offset-2' : isSelected ? 'ring-2 ring-sky-500 ring-offset-2' : designMode ? 'ring-2 ring-amber-300 ring-offset-2' : ''}`}
-                >
-                  {(designMode || (widget.fullReportPath && onOpenFullReport)) && (
-                    <div className="absolute right-1.5 top-1.5 z-[600] flex items-center gap-1">
-                      {widget.fullReportPath && onOpenFullReport && (
-                        <button
-                          type="button"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onOpenFullReport(widget.fullReportTitle || widget.title, widget.fullReportPath as string)
-                          }}
-                          title="Tam raporu yeni sekmede aç"
-                          aria-label="Tam raporu yeni sekmede aç"
-                          // 2026-10-13: 11px soluk simge zor fark ediliyordu - biraz
-                          // buyuk, belirgin kontrastli ve tiklamasi kolay hale getirildi.
-                          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-white/60 bg-[#101E2B]/70 text-[15px] font-black leading-none text-white shadow-md transition hover:bg-[#0E7C86]"
-                        >
-                          ⤢
-                        </button>
-                      )}
-                      {designMode && (
-                        <button
-                          type="button"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            toggleHidden(widget.id)
-                          }}
-                          title={isHidden ? 'Bu alanı göster' : 'Bu alanı gizle'}
-                          className={`cursor-pointer rounded border px-1.5 py-0.5 text-[9px] font-black uppercase shadow-sm ${
-                            isHidden
-                              ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                              : 'border-white/40 bg-black/30 text-white hover:bg-black/45'
-                          }`}
-                        >
-                          {isHidden ? 'Göster' : 'Gizle'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  <div className="app-visible-scroll h-full w-full overflow-y-auto">{widget.node}</div>
-                </div>
-              )
-            })}
-          </Responsive>
+            <Responsive
+              key={gridInstanceKey}
+              layouts={effectiveLayouts}
+              breakpoints={BREAKPOINTS}
+              cols={COLS}
+              width={width}
+              margin={[ROW_MARGIN, ROW_MARGIN]}
+              containerPadding={[0, 0]}
+              rowHeight={ROW_HEIGHT}
+              positionStrategy={positionStrategy}
+              compactor={verticalCompactor}
+              dragConfig={{ enabled: designMode, cancel: NO_DRAG_SELECTOR }}
+              resizeConfig={{ enabled: designMode, handles: ['e', 's', 'se', 'sw', 'w'] }}
+              onLayoutChange={handleLayoutChange}
+              onDragStart={handleInteractionStart}
+              onResizeStart={handleInteractionStart}
+              onDragStop={(layout) => handleInteractionStop(layout)}
+              onResizeStop={(layout) => handleInteractionStop(layout)}
+            >
+              {widgets
+                .filter((widget) => designMode || !hiddenIds.has(widget.id))
+                .map((widget) => {
+                const isHidden = hiddenIds.has(widget.id)
+                const isSelected = designMode && selectedWidgetId === widget.id
+                return (
+                  <div
+                    key={widget.id}
+                    data-widget-id={widget.id}
+                    aria-label={widget.title}
+                    className={`dashboard-grid-item group relative overflow-hidden rounded-2xl ${designMode ? 'dashboard-design-mode-active' : ''} ${isSelected ? 'dashboard-item-selected' : ''} ${designMode && isHidden ? 'dashboard-item-hidden' : ''}`}
+                  >
+                    {designMode && (
+                      <div
+                        className="dashboard-design-overlay absolute inset-0 z-[500]"
+                        onMouseDown={handleOverlayMouseDown}
+                        onClick={handleOverlayClick(widget.id)}
+                        title={`${widget.title} — sürükleyerek taşıyın, tıklayarak seçin`}
+                      >
+                        <span className="dashboard-design-label">
+                          {widget.title}{isHidden ? ' (gizli)' : ''}
+                        </span>
+                      </div>
+                    )}
+                    {(designMode || (widget.fullReportPath && onOpenFullReport)) && (
+                      <div className="dashboard-no-drag absolute right-1.5 top-1.5 z-[600] flex items-center gap-1">
+                        {!designMode && widget.fullReportPath && onOpenFullReport && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onOpenFullReport(widget.fullReportTitle || widget.title, widget.fullReportPath as string)
+                            }}
+                            title="Tam raporu yeni sekmede aç"
+                            aria-label="Tam raporu yeni sekmede aç"
+                            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-white/60 bg-[#101E2B]/70 text-[15px] font-black leading-none text-white shadow-md transition hover:bg-[#0E7C86]"
+                          >
+                            ⤢
+                          </button>
+                        )}
+                        {designMode && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleHidden(widget.id)
+                            }}
+                            title={isHidden ? 'Bu alanı göster' : 'Bu alanı gizle'}
+                            className={`cursor-pointer rounded-md border px-2 py-1 text-[12px] font-bold shadow-sm ${
+                              isHidden
+                                ? 'border-[#D4B26A] bg-[#D4B26A] text-[#1E2A38] hover:bg-[#e2c47f]'
+                                : 'border-white/60 bg-[#1E2A38]/85 text-white hover:bg-[#1E2A38]'
+                            }`}
+                          >
+                            {isHidden ? 'Göster' : 'Gizle'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <div className="app-visible-scroll h-full w-full overflow-y-auto">{widget.node}</div>
+                  </div>
+                )
+              })}
+            </Responsive>
+          </div>
         )}
         </>)}
       </div>
